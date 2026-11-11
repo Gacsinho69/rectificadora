@@ -195,7 +195,7 @@ function Impersonar({ tenant, cerrar }: Props) {
     mutationFn: (datos: { usuario: string; motivo: string }) => api('POST', `/plataforma/tenants/${tenant.id}/impersonar`, datos),
     onSuccess: async () => {
       await consultas.resetQueries({ queryKey: ['yo'] })
-      ir({ to: '/organizacion' })
+      ir({ to: '/c/$portal', params: { portal: tenant.slug } })
     },
   })
   const admins = tenant.administradores.filter((a) => a.estado === 'active')

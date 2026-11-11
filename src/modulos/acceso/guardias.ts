@@ -1,9 +1,11 @@
 // Las guardias de la API. El aislamiento entre clientes descansa en tres reglas:
-// 1. El panel del cliente toma el tenant SOLO del actor (su sesión), nunca de lo que diga el pedido.
-// 2. Todo lo que el pedido nombra por id (un usuario, una clave) se busca dentro de ese tenant.
-// 3. Si lo nombrado existe pero es de otro cliente, o alguien de un cliente pide la consola global, se responde como
-//    si no existiera (o sin permiso) y queda un evento crítico `security.cross_tenant_access_attempt`.
+// 1. El portal y el panel del cliente toman el tenant SOLO del actor (su sesión), nunca de lo que diga el pedido.
+// 2. Todo lo que el pedido nombra por id (un usuario, una OT, una cotización) se busca dentro de ese tenant.
+// 3. Si lo nombrado existe pero es de otro cliente, si se abre el portal de otro cliente, o si alguien de un cliente
+//    pide la consola global, se responde como si no existiera (o sin permiso) y queda un evento crítico
+//    `security.cross_tenant_access_attempt`.
 import { eq } from 'drizzle-orm'
+import type { PgColumn, PgTable } from 'drizzle-orm/pg-core'
 import type { Context, MiddlewareHandler } from 'hono'
 import { type Entorno, rechazo } from '../../http'
 import { origenDe, registrar } from '../eventos/registrar'
@@ -52,25 +54,43 @@ export async function exigirPermiso(c: Context<EntornoPlataforma>, permiso: Perm
 }
 
 /**
- * El panel del cliente: su administrador, o alguien del equipo con una impersonación vigente (que actúa como ese
- * administrador). El tenant sale de aquí y de ninguna otra parte.
+ * Quién actúa dentro de un cliente: una persona de ese cliente, o alguien del equipo con una impersonación vigente
+ * (que actúa como esa persona). El tenant sale de aquí y de ninguna otra parte. Un pedido que intenta elegir otro
+ * tenant (por encabezado o por la dirección) o que viene del portal de otro cliente (`x-portal`) no se atiende, y queda
+ * anotado.
  */
-export const soloAdminDelTenant: MiddlewareHandler<Entorno> = async (c, next) => {
+async function actorDelTenant(c: Context<Entorno>, sinImpersonar: string): Promise<PersonaDelTenant> {
   let actor = c.get('actor')
   if (!actor) throw rechazo(401, 'Inicia sesión para continuar.')
   if (actor.tipo === 'plataforma') {
     const como = await impersonacionVigente(c.var.base, c, actor, c.var.ahora)
-    if (!como) throw rechazo(403, 'El panel del cliente se abre entrando como su administrador, desde la ficha del cliente.')
+    if (!como) throw rechazo(403, sinImpersonar)
     actor = como
     c.set('actor', actor)
   }
-  if (actor.rol !== 'admin') throw rechazo(403, 'Solo el administrador de tu organización puede abrir este panel.')
-  // Un pedido que intenta elegir otro tenant (por encabezado o por la dirección) no se atiende, y queda anotado.
   const pedido = c.req.header('x-tenant-id') ?? c.req.query('tenant_id') ?? c.req.query('tenantId')
   if (pedido && pedido !== actor.tenantId) {
     await anotarCrossTenant(c, { tenant_pedido: pedido }, { id: pedido, tipo: 'tenant' })
     throw rechazo(403, 'Solo puedes ver los datos de tu organización.')
   }
+  const portal = c.req.header('x-portal')
+  if (portal && portal !== actor.tenantSlug) {
+    await anotarCrossTenant(c, { portal_pedido: portal, motivo: 'portal_de_otro_cliente' }, { id: portal, tipo: 'portal' })
+    throw rechazo(403, 'Este portal es de otra organización.')
+  }
+  return actor
+}
+
+/** El panel de administración del cliente: solo su administrador (o soporte entrando como él). */
+export const soloAdminDelTenant: MiddlewareHandler<Entorno> = async (c, next) => {
+  const actor = await actorDelTenant(c, 'El panel del cliente se abre entrando como su administrador, desde la ficha del cliente.')
+  if (actor.rol !== 'admin') throw rechazo(403, 'Solo el administrador de tu organización puede abrir este panel.')
+  await next()
+}
+
+/** El portal del cliente: cualquier persona activa de ese cliente (o soporte entrando como su administrador). */
+export const soloPersonaDelTenant: MiddlewareHandler<Entorno> = async (c, next) => {
+  await actorDelTenant(c, 'El portal de un cliente se abre entrando como su administrador, desde la ficha del cliente.')
   await next()
 }
 
@@ -80,13 +100,25 @@ export function exigirTenantOperativo(c: Context<EntornoTenant>) {
     throw rechazo(403, 'Tu organización está suspendida: puedes revisar, pero no hacer cambios.')
 }
 
-/** Un usuario del propio cliente. Si es de otro cliente se responde «no existe» y queda el intento anotado. */
-export async function usuarioDelTenant(c: Context<EntornoTenant>, id: string) {
-  const [u] = await c.var.base.select().from(users).where(eq(users.id, id))
-  if (!u) throw rechazo(404, 'No existe ese usuario.')
-  if (u.tenantId !== c.var.actor.tenantId) {
-    await anotarCrossTenant(c, { tenant_objetivo: u.tenantId }, { id: u.id, tipo: 'user' })
-    throw rechazo(404, 'No existe ese usuario.')
+/**
+ * Una fila del propio cliente, buscada por id en cualquier tabla con `tenantId`. Si es de otro cliente se responde
+ * «no existe» y queda el intento anotado: quien prueba ids ajenos no aprende si existen.
+ */
+export async function filaDelTenant<T extends PgTable & { id: PgColumn; tenantId: PgColumn }>(c: Context<EntornoTenant>, tabla: T, id: string, tipo: string, nombre: string) {
+  const [fila] = (await c.var.base.select().from(tabla as PgTable).where(eq(tabla.id, id))) as (T['$inferSelect'] & { tenantId: string })[]
+  if (!fila) throw rechazo(404, `No existe ${nombre}.`)
+  if (fila.tenantId !== c.var.actor.tenantId) {
+    await anotarCrossTenant(c, { tenant_objetivo: fila.tenantId }, { id, tipo })
+    throw rechazo(404, `No existe ${nombre}.`)
   }
-  return u
+  return fila
+}
+
+/** Un usuario del propio cliente. */
+export const usuarioDelTenant = (c: Context<EntornoTenant>, id: string) => filaDelTenant(c, users, id, 'user', 'ese usuario')
+
+/** Ver no es lo mismo que cambiar: el rol «Solo lectura» mira el portal, pero no crea ni modifica. */
+export function exigirQuePuedaEditar(c: Context<EntornoTenant>) {
+  exigirTenantOperativo(c)
+  if (c.var.actor.rol === 'viewer') throw rechazo(403, 'Tu rol es de solo lectura.')
 }

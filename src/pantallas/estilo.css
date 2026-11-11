@@ -188,3 +188,34 @@ button.enlace:hover { text-decoration: underline; }
 .entrar .persona small { display: block; color: var(--tinta-2); }
 .ant-table-wrapper .ant-table-thead > tr > th { white-space: nowrap; }
 .ant-table-wrapper td .estado, .ant-table-wrapper td .medidor { vertical-align: middle; }
+
+/* ── Sistema de la rectificadora ── */
+.medidor-barra.verde { background: #d3ecd9; } .medidor-barra.verde > span { background: var(--verde); }
+
+/* El tablero del taller: una columna por sección; en el celular, una debajo de otra. */
+.tablero { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(250px, 1fr); gap: 12px; overflow-x: auto; padding-bottom: 8px; align-items: start; }
+.tablero-columna { background: #e9ecf1; border-radius: 3px; min-width: 0; }
+.tablero-columna > header { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; }
+.tablero-columna > header span { min-width: 22px; padding: 0 6px; border-radius: 9px; background: #fff; color: var(--tinta-2); font-size: 12px; text-align: center; }
+.tablero-tarjetas { display: flex; flex-direction: column; gap: 8px; padding: 0 8px 8px; max-height: calc(100vh - 180px); overflow-y: auto; }
+.tablero-tarjetas > .tenue { margin: 4px 2px 8px; }
+.tarjeta { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; background: #fff; border: 1px solid var(--borde); border-left: 3px solid transparent; border-radius: 3px; }
+.tarjeta.en-proceso { border-left-color: var(--marino); }
+.tarjeta.atrasada { border-left-color: var(--rojo); }
+.tarjeta-cabeza { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.tarjeta-cabeza a { font-weight: 600; }
+.tarjeta-trabajo { font-weight: 600; }
+.tarjeta small { color: var(--tinta-2); font-size: 12px; }
+.tarjeta-pie { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-top: 4px; }
+@media (max-width: 860px) { .tablero { grid-auto-flow: row; grid-auto-columns: auto; } .tablero-tarjetas { max-height: none; } }
+
+/* La historia de una OT: lo último arriba. */
+.historia { list-style: none; margin: 0; padding: 0; }
+.historia li { display: grid; grid-template-columns: 130px 1fr auto; gap: 10px; padding: 5px 0; border-bottom: 1px solid #f0f2f5; }
+.historia li:last-child { border-bottom: 0; }
+.historia .cuando { color: var(--tinta-2); font-variant-numeric: tabular-nums; }
+@media (max-width: 860px) { .historia li { grid-template-columns: 1fr; gap: 0; } }
+
+.ficha.totales { grid-template-columns: 1fr auto; }
+.ficha.totales dd { text-align: right; font-variant-numeric: tabular-nums; }
+.bloque .ant-form-item { margin-bottom: 0; }

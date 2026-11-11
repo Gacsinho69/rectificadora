@@ -60,7 +60,7 @@ export async function actividadPorDia(base: Base, ahora: Date, dias: number, ten
       logins: cuenta(sql`${events.eventType} = 'user.login'`),
       usuarios: sql<number>`count(distinct ${events.userId}) filter (where ${events.eventType} = 'user.login')`.mapWith(Number),
       fallidos: cuenta(sql`${events.eventType} = 'user.failed_login'`),
-      operaciones: cuenta(sql`${events.eventType} in ('work_order.created', 'work_order.closed', 'quote.sent')`),
+      operaciones: cuenta(sql`${events.eventType} in ('work_order.created', 'work_order.closed', 'work_order.cancelled', 'quote.sent', 'quote.accepted', 'quote.rejected')`),
     })
     .from(events)
     .where(and(gte(events.createdAt, hace(ahora, dias)), tenantId ? eq(events.tenantId, tenantId) : undefined))
@@ -80,7 +80,7 @@ export async function actividadDelTenant(base: Base, ahora: Date, tenantId: stri
     ultimos(base, tenantId, ['user.login']),
     ultimos(base, tenantId, ['user.failed_login']),
     ultimos(base, tenantId, auditables, 30, sql`${events.actorType} in ('user', 'platform_admin')`),
-    ultimos(base, tenantId, ['work_order.created', 'work_order.closed', 'quote.sent']),
+    ultimos(base, tenantId, tiposDeCategoria('operacion')),
     base
       .select({ id: users.id, nombre: users.name, correo: users.email, rol: users.role, ultimoLogin: users.lastLoginAt })
       .from(users)

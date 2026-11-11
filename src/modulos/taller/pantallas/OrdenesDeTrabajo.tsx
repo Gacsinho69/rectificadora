@@ -1,0 +1,132 @@
+// Las órdenes de trabajo y la recepción de un motor. Por omisión, las abiertas, de la más nueva a la más antigua.
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { getRouteApi, useNavigate } from '@tanstack/react-router'
+import { Alert, Button, Checkbox, DatePicker, Form, Input, Modal, Select, Table } from 'antd'
+import { api, consulta } from '../../../pantallas/api'
+import { Problema } from '../../../pantallas/componentes'
+import { cifra, fecha } from '../../../pantallas/formato'
+import { Encabezado } from '../../../pantallas/Marco'
+import { ESTADOS_OT, PIEZAS, type Pieza, PRIORIDADES_OT } from '../reglas'
+import { AvanceOt, EstadoOtTag, folioOt, PlazoTag, usePersona, usePortal } from './comun'
+import type { Cliente, FilaOt } from './tipos'
+
+const ruta = getRouteApi('/c/$portal/ot')
+
+export function OrdenesDeTrabajo() {
+  const b = ruta.useSearch()
+  const portal = usePortal()
+  const { gestiona } = usePersona()
+  const ir = useNavigate({ from: '/c/$portal/ot' })
+  const filtros = { estado: b.estado ?? 'abiertas', q: b.q, pagina: b.pagina }
+  const r = useQuery({ queryKey: ['taller', 'ots', filtros], queryFn: () => api<{ total: number; filas: FilaOt[] }>('GET', `/servicio/ot${consulta(filtros)}`), placeholderData: keepPreviousData })
+  const estados = filtros.estado === 'abiertas' || filtros.estado === 'todas' ? [] : filtros.estado.split(',')
+  return (
+    <>
+      <Encabezado
+        titulo="Órdenes de trabajo"
+        sub={r.data ? `${cifra(r.data.total)} ${filtros.estado === 'abiertas' ? 'abiertas' : 'con estos filtros'}` : undefined}
+        acciones={gestiona ? <Button type="primary" onClick={() => ir({ search: { ...b, recibir: '1' } })}>Recibir motor</Button> : null}
+      />
+      <div className="filtros">
+        <Input.Search className="buscar" placeholder="OT, cliente, motor, número o patente" defaultValue={b.q} allowClear onSearch={(q) => ir({ search: { ...b, q: q || undefined, pagina: undefined }, replace: true })} />
+        <Select
+          style={{ minWidth: 200 }}
+          value={estados.length ? undefined : filtros.estado}
+          placeholder="Por estado"
+          onChange={(v) => ir({ search: { ...b, estado: v === 'abiertas' ? undefined : v, pagina: undefined }, replace: true })}
+          options={[{ value: 'abiertas', label: 'Abiertas' }, { value: 'todas', label: 'Todas' }]}
+        />
+        <Select
+          mode="multiple"
+          allowClear
+          maxTagCount="responsive"
+          placeholder="Estado"
+          style={{ minWidth: 220 }}
+          value={estados}
+          options={Object.entries(ESTADOS_OT).map(([value, label]) => ({ value, label }))}
+          onChange={(v) => ir({ search: { ...b, estado: v.length ? v.join(',') : undefined, pagina: undefined }, replace: true })}
+        />
+      </div>
+      {r.isError && <Problema error={r.error} />}
+      <div className="bloque">
+        <Table<FilaOt>
+          size="small"
+          rowKey="id"
+          loading={r.isFetching}
+          dataSource={r.data?.filas}
+          scroll={{ x: 980 }}
+          rowClassName={() => 'fila-abre'}
+          onRow={(o) => ({ onClick: () => ir({ to: '/c/$portal/ot/$id', params: { portal, id: o.id } }) })}
+          pagination={{ total: r.data?.total, current: b.pagina ?? 1, pageSize: 50, showSizeChanger: false, onChange: (p) => ir({ search: { ...b, pagina: p === 1 ? undefined : p }, replace: true }) }}
+          columns={[
+            { title: 'OT', key: 'n', width: 92, render: (_, o) => <b>{folioOt(o.numero)}</b> },
+            { title: 'Cliente', dataIndex: 'cliente' },
+            { title: 'Motor', key: 'm', render: (_, o) => <div className="fila-nombre"><span>{o.motor}</span>{o.equipo && <small>{o.equipo}</small>}</div> },
+            { title: 'Piezas', key: 'p', render: (_, o) => (o.piezas ?? []).map((p) => PIEZAS[p]).join(', ') },
+            { title: 'Estado', key: 'e', render: (_, o) => <EstadoOtTag estado={o.estado} /> },
+            { title: 'Avance', key: 'a', render: (_, o) => <span title={`${o.hechas} de ${o.total} trabajos`}><AvanceOt estado={o.estado} fraccion={o.avance ?? 0} ancho={60} /></span> },
+            { title: 'Recibida', key: 'c', render: (_, o) => fecha(o.creada) },
+            { title: 'Entrega', key: 'en', render: (_, o) => <span className="evento-nombre">{o.entrega ? fecha(`${o.entrega}T12:00:00Z`) : '—'} <PlazoTag plazo={o.plazo} />{o.prioridad === 'urgent' && <span className="estado rojo">Urgente</span>}</span> },
+          ]}
+        />
+      </div>
+      {b.recibir && <Recepcion cerrar={() => ir({ search: { ...b, recibir: undefined }, replace: true })} />}
+    </>
+  )
+}
+
+type DatosRecepcion = { clienteId: string; motor: string; numeroMotor?: string; equipo?: string; piezas: Pieza[]; falla?: string; entrega?: { format: (f: string) => string }; prioridad: 'normal' | 'urgent'; diagnostico: boolean }
+
+/** Recibir un motor o sus piezas: nace la OT con su desarme y medición. */
+function Recepcion({ cerrar }: { cerrar: () => void }) {
+  const [form] = Form.useForm<DatosRecepcion>()
+  const portal = usePortal()
+  const ir = useNavigate()
+  const consultas = useQueryClient()
+  const clientes = useQuery({ queryKey: ['taller', 'clientes'], queryFn: () => api<Cliente[]>('GET', '/servicio/clientes') })
+  const recibir = useMutation({
+    mutationFn: (v: DatosRecepcion) => api<{ id: string }>('POST', '/servicio/ot', { ...v, entrega: v.entrega?.format('YYYY-MM-DD') ?? null }),
+    onSuccess: async (r) => {
+      await consultas.invalidateQueries({ queryKey: ['taller'] })
+      ir({ to: '/c/$portal/ot/$id', params: { portal, id: r.id } })
+    },
+  })
+  return (
+    <Modal open title="Recibir motor o piezas" okText="Recibir y crear la OT" cancelText="Cancelar" onCancel={cerrar} confirmLoading={recibir.isPending} onOk={() => form.validateFields().then((v) => recibir.mutate(v))} destroyOnHidden width={620}>
+      {recibir.isError && <Alert type="error" showIcon title={(recibir.error as Error).message} style={{ marginBottom: 12 }} />}
+      <Form form={form} layout="vertical" requiredMark={false} initialValues={{ piezas: ['motor'], prioridad: 'normal', diagnostico: true }}>
+        <Form.Item label="Cliente" name="clienteId" rules={[{ required: true, message: 'Elige el cliente.' }]} extra="¿No está? Agrégalo en Clientes.">
+          <Select showSearch optionFilterProp="label" loading={clientes.isPending} options={clientes.data?.map((c) => ({ value: c.id, label: c.nombre }))} />
+        </Form.Item>
+        <div className="columnas">
+          <Form.Item label="Motor (marca y modelo)" name="motor" rules={[{ required: true, message: 'Escribe el motor.' }, { min: 2 }]}>
+            <Input placeholder="Mercedes-Benz OM 457" />
+          </Form.Item>
+          <Form.Item label="Número de motor" name="numeroMotor">
+            <Input />
+          </Form.Item>
+        </div>
+        <Form.Item label="Equipo y patente" name="equipo">
+          <Input placeholder="Bus Marcopolo · KJ-RT-54" />
+        </Form.Item>
+        <Form.Item label="Qué llegó" name="piezas" rules={[{ required: true, message: 'Marca qué piezas llegaron.' }]}>
+          <Checkbox.Group options={Object.entries(PIEZAS).map(([value, label]) => ({ value, label }))} />
+        </Form.Item>
+        <Form.Item label="Falla que informa el cliente" name="falla">
+          <Input.TextArea rows={2} />
+        </Form.Item>
+        <div className="columnas">
+          <Form.Item label="Entrega comprometida" name="entrega">
+            <DatePicker style={{ width: '100%' }} format="DD-MM-YYYY" />
+          </Form.Item>
+          <Form.Item label="Prioridad" name="prioridad">
+            <Select options={Object.entries(PRIORIDADES_OT).map(([value, label]) => ({ value, label }))} />
+          </Form.Item>
+        </div>
+        <Form.Item name="diagnostico" valuePropName="checked">
+          <Checkbox>Agregar desarme, lavado y medición (para cotizar después del diagnóstico)</Checkbox>
+        </Form.Item>
+      </Form>
+    </Modal>
+  )
+}

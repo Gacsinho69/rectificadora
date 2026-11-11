@@ -21,6 +21,8 @@ export type PersonaDelTenant = {
   correo: string
   tenantId: string
   tenantNombre: string
+  /** El subdominio: la dirección de su portal. */
+  tenantSlug: string
   estadoTenant: EstadoTenant
   rol: RolTenant
   /** Presente cuando quien actúa es alguien del equipo entrando como esta persona. */
@@ -40,12 +42,12 @@ export async function adminPorId(base: Base, id: string): Promise<AdminPlataform
 /** Una persona activa de un cliente que no esté cancelado. Bloqueados e invitados no entran. */
 export async function personaPorId(base: Base, id: string): Promise<PersonaDelTenant | null> {
   const [p] = await base
-    .select({ u: users, t: { name: tenants.name, status: tenants.status } })
+    .select({ u: users, t: { name: tenants.name, slug: tenants.slug, status: tenants.status } })
     .from(users)
     .innerJoin(tenants, eq(tenants.id, users.tenantId))
     .where(and(eq(users.id, id), eq(users.status, 'active')))
   if (!p || p.t.status === 'cancelled') return null
-  return { tipo: 'tenant', id: p.u.id, nombre: p.u.name, correo: p.u.email, tenantId: p.u.tenantId, tenantNombre: p.t.name, estadoTenant: p.t.status, rol: p.u.role }
+  return { tipo: 'tenant', id: p.u.id, nombre: p.u.name, correo: p.u.email, tenantId: p.u.tenantId, tenantNombre: p.t.name, tenantSlug: p.t.slug, estadoTenant: p.t.status, rol: p.u.role }
 }
 
 /**

@@ -14,9 +14,11 @@ const sinConexion = (): never => {
 
 /** Pide a la API. Si el servidor rechaza, el error trae su motivo; sin sesión, a la pantalla de entrada. */
 export async function api<T>(metodo: 'GET' | 'POST', ruta: string, datos?: unknown): Promise<T> {
+  // Desde el sistema de una rectificadora, cada pedido dice de qué portal viene: el servidor rechaza (y anota) el de otro.
+  const portal = location.pathname.match(/^\/c\/([^/]+)/)?.[1]
   const r = await fetch(`/api${ruta}`, {
     method: metodo,
-    headers: datos === undefined ? undefined : { 'content-type': 'application/json' },
+    headers: { ...(datos === undefined ? {} : { 'content-type': 'application/json' }), ...(portal ? { 'x-portal': decodeURIComponent(portal) } : {}) },
     body: datos === undefined ? undefined : JSON.stringify(datos),
   }).catch(sinConexion)
   const cuerpo = await r.json().catch(() => ({}))

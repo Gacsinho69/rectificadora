@@ -40,10 +40,10 @@ app.get('/api/desarrollo/personas', async (c) => {
     .innerJoin(tenants, eq(tenants.id, users.tenantId))
     .where(and(eq(users.status, 'active'), inArray(tenants.status, ['active', 'trial', 'past_due', 'suspended'])))
     .orderBy(asc(tenants.name), asc(users.role), asc(users.name))
-  // Un administrador y un usuario común por cliente basta para probar.
+  // Una persona de cada rol por cliente basta para probar.
   const vistos = new Set<string>()
   const porCliente = clientes.filter((u) => {
-    const clave = `${u.tenant}:${u.rol === 'admin' ? 'admin' : 'otro'}`
+    const clave = `${u.tenant}:${u.rol}`
     if (vistos.has(clave)) return false
     vistos.add(clave)
     return true

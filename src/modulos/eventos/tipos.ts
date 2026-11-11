@@ -51,8 +51,11 @@ export const TIPOS_DE_EVENTO = {
   'system.job_failed': { nombre: 'Tarea automática fallida', categoria: 'sistema', severidad: 'error' },
   'system.webhook_failed': { nombre: 'Webhook fallido', categoria: 'sistema', severidad: 'error' },
   'work_order.created': { nombre: 'Orden de trabajo creada', categoria: 'operacion', severidad: 'info' },
-  'work_order.closed': { nombre: 'Orden de trabajo cerrada', categoria: 'operacion', severidad: 'info' },
+  'work_order.closed': { nombre: 'Orden de trabajo entregada', categoria: 'operacion', severidad: 'info' },
+  'work_order.cancelled': { nombre: 'Orden de trabajo anulada', categoria: 'operacion', severidad: 'info' },
   'quote.sent': { nombre: 'Cotización enviada', categoria: 'operacion', severidad: 'info' },
+  'quote.accepted': { nombre: 'Cotización aceptada', categoria: 'operacion', severidad: 'info' },
+  'quote.rejected': { nombre: 'Cotización rechazada', categoria: 'operacion', severidad: 'info' },
 } as const satisfies Record<string, Definicion>
 export type TipoEvento = keyof typeof TIPOS_DE_EVENTO
 

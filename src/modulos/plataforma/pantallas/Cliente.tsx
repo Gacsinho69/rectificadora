@@ -45,7 +45,7 @@ export function Cliente() {
     item('plan', 'Cambiar plan…', 'tenants.plan', t.estado === 'cancelled' ? 'El cliente está cancelado' : undefined),
     item('limites', 'Ajustar límites…', 'tenants.limits'),
     { type: 'divider' },
-    item('impersonar', 'Entrar como administrador…', 'support.impersonate', !t.accesoSoporte ? 'El cliente no permite el acceso de soporte' : t.estado === 'cancelled' ? 'El cliente está cancelado' : undefined),
+    item('impersonar', 'Abrir su sistema (entrar como administrador)…', 'support.impersonate', !t.accesoSoporte ? 'El cliente no permite el acceso de soporte' : t.estado === 'cancelled' ? 'El cliente está cancelado' : undefined),
   ]
   const accionesUsuario = (u: UsuarioVisible) => {
     const items: MenuProps['items'] = [
@@ -81,6 +81,11 @@ export function Cliente() {
             <SaludTag salud={t.salud} />
             <span className="mono">{t.id}</span>
             <span>{t.dominio}</span>
+            {puede('support.impersonate') && t.accesoSoporte && t.estado !== 'cancelled' && (
+              <button type="button" className="enlace" onClick={() => setDialogo({ tipo: 'impersonar' })}>
+                Abrir su sistema
+              </button>
+            )}
           </>
         }
         acciones={
@@ -125,8 +130,10 @@ function General({ t, puede, cambiarFuncion }: { t: DetalleTenant; puede: (p: Pe
           <dl className="ficha">
             <dt>ID interno</dt>
             <dd className="mono">{t.id}</dd>
-            <dt>Subdominio</dt>
-            <dd>{t.dominio}</dd>
+            <dt>Su sistema</dt>
+            <dd>
+              {t.dominio} <span className="tenue">(en desarrollo: /c/{t.slug})</span>
+            </dd>
             <dt>Dominio propio</dt>
             <dd>{t.dominioPropio ?? <span className="tenue">—</span>}</dd>
             <dt>Región</dt>

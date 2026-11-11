@@ -8,7 +8,9 @@ describe('aislamiento entre clientes', () => {
     const { pedir } = await armarPrueba()
     const r = await pedir('us_a_admin', 'GET', '/api/organizacion/usuarios')
     expect(r.estado).toBe(200)
-    expect(r.cuerpo.map((u: { id: string }) => u.id).sort()).toEqual(['us_a_admin', 'us_a_member'])
+    const ids = r.cuerpo.map((u: { id: string }) => u.id)
+    expect(ids).toContain('us_a_admin')
+    expect(ids.every((id: string) => id.startsWith('us_a_'))).toBe(true)
   })
 
   it('tocar un usuario de B desde A responde «no existe», no lo cambia y queda un evento crítico', async () => {
@@ -64,7 +66,7 @@ describe('aislamiento entre clientes', () => {
 
   it('no se puede dejar a la organización sin administrador', async () => {
     const { pedir } = await armarPrueba()
-    const r = await pedir('us_a_admin', 'POST', '/api/organizacion/usuarios/us_a_admin/rol', { rol: 'member' })
+    const r = await pedir('us_a_admin', 'POST', '/api/organizacion/usuarios/us_a_admin/rol', { rol: 'planner' })
     expect(r.estado).toBe(409)
   })
 

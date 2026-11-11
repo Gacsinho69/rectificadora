@@ -6,7 +6,7 @@ import { Drawer } from 'antd'
 import { useEffect, useState } from 'react'
 import { api } from './api'
 
-export type Enlace = { a: string; texto: string; icono: React.ReactNode; cuenta?: number; activo?: boolean; search?: Record<string, unknown> }
+export type Enlace = { a: string; texto: string; icono: React.ReactNode; cuenta?: number; activo?: boolean; search?: Record<string, unknown>; params?: Record<string, string> }
 
 export function Marco({ titulo, subtitulo, enlaces, persona, aviso, children }: { titulo: string; subtitulo: string; enlaces: Enlace[]; persona: { nombre: string; detalle: string }; aviso?: React.ReactNode; children: React.ReactNode }) {
   const [abierto, setAbierto] = useState(false)
@@ -26,7 +26,7 @@ export function Marco({ titulo, subtitulo, enlaces, persona, aviso, children }: 
       </div>
       <nav className="marco-nav">
         {enlaces.map((e) => (
-          <Link key={e.texto} to={e.a} search={e.search as never} className={`marco-enlace${e.activo ? ' activo' : ''}`}>
+          <Link key={e.texto} to={e.a} params={e.params as never} search={e.search as never} className={`marco-enlace${e.activo ? ' activo' : ''}`}>
             {e.icono}
             {e.texto}
             {e.cuenta ? <span className="cuenta">{e.cuenta}</span> : null}

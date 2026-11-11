@@ -12,12 +12,15 @@ import type { EstadoFactura } from '../facturacion/reglas'
 import { invoices } from '../facturacion/tablas'
 import type { EstadoIntegracion } from '../integraciones/reglas'
 import { apiKeys, integrations } from '../integraciones/tablas'
+import { customers, quotes } from '../comercial/tablas'
 import { impersonations } from '../soporte/tablas'
+import { services, shopSections, workOrders, workOrderTasks } from '../taller/tablas'
 import { type EstadoPago, type EstadoTenant, FUNCIONES_DEL_PLAN, type Funcion, PLANES, type Plan, type Region, type UsoClave } from '../tenants/reglas'
 import { tenants } from '../tenants/tablas'
 import { usageDaily } from '../uso/tablas'
 import type { EstadoUsuario, RolTenant } from '../usuarios/reglas'
 import { platformAdmins, users } from '../usuarios/tablas'
+import { sembrarTaller } from './taller'
 
 const DIA = 86_400_000
 
@@ -74,7 +77,7 @@ const PERFILES: Perfil[] = [
   { nombre: 'Rectificadora La Serena', plan: 'starter', estado: 'trial', pago: 'none', edad: 20, usuarios: 4, actividad: 0.2, almacenamiento: 0.02, trial: -3, ciudad: 'La Serena', mfa: 0 },
   { nombre: 'Rectificadora Curicó', plan: 'pro', estado: 'past_due', pago: 'past_due', edad: 310, usuarios: 11, actividad: 0.6, almacenamiento: 0.4, ciudad: 'Curicó', mfa: 0.3 },
   { nombre: 'Motor Center Santiago', plan: 'pro', estado: 'active', pago: 'paid', edad: 90, usuarios: 16, actividad: 0.75, almacenamiento: 0.25, ciudad: 'Santiago', mfa: 0.7, sinSoporte: true },
-  { nombre: 'Rectificadora Copiapó', plan: 'starter', estado: 'active', pago: 'paid', edad: 60, usuarios: 4, actividad: 0.55, almacenamiento: 0.15, ciudad: 'Copiapó', mfa: 0 },
+  { nombre: 'Rectificadora Copiapó', plan: 'starter', estado: 'active', pago: 'paid', edad: 60, usuarios: 4, actividad: 0.55, silencio: 8, almacenamiento: 0.15, ciudad: 'Copiapó', mfa: 0 },
   { nombre: 'Rectificadora Los Ángeles', plan: 'free', estado: 'active', pago: 'none', edad: 45, usuarios: 2, actividad: 0.4, almacenamiento: 0.2, ciudad: 'Los Ángeles', mfa: 0 },
   { nombre: 'Reman Diesel SpA', plan: 'enterprise', estado: 'trial', pago: 'none', edad: 5, usuarios: 12, actividad: 0.6, almacenamiento: 0.02, trial: 9, ciudad: 'Santiago', mfa: 0.4, extras: ['sso'] },
   { nombre: 'Rectificadora Punta Arenas', plan: 'starter', estado: 'active', pago: 'paid', edad: 140, usuarios: 5, actividad: 0.5, silencio: 16, almacenamiento: 0.3, ciudad: 'Punta Arenas', mfa: 0 },
@@ -172,6 +175,12 @@ export async function sembrarDemo(base: Base, ahora = new Date(), semilla = 2026
   const filasClaves: (typeof apiKeys.$inferInsert)[] = []
   const filasIntegraciones: (typeof integrations.$inferInsert)[] = []
   const filasImpersonaciones: (typeof impersonations.$inferInsert)[] = []
+  const filasSecciones: (typeof shopSections.$inferInsert)[] = []
+  const filasTrabajos: (typeof services.$inferInsert)[] = []
+  const filasClientes: (typeof customers.$inferInsert)[] = []
+  const filasOts: (typeof workOrders.$inferInsert)[] = []
+  const filasTareas: (typeof workOrderTasks.$inferInsert)[] = []
+  const filasCotizaciones: (typeof quotes.$inferInsert)[] = []
   const admins = new Map<string, string>()
   const usuariosDe = new Map<string, string[]>()
   let folio = 1
@@ -228,7 +237,8 @@ export async function sembrarDemo(base: Base, ahora = new Date(), semilla = 2026
       for (let n = 2; correos.has(correo); n++) correo = `${sinTildes(primero)[0]}${sinTildes(apellido)}${n}@${slug}.test`
       correos.add(correo)
       const invitado = i >= p.usuarios
-      const rol: RolTenant = i === 0 || azar() < 0.12 ? 'admin' : azar() < 0.18 ? 'viewer' : 'member'
+      const sorteo = azar()
+      const rol: RolTenant = i === 0 || sorteo < 0.08 ? 'admin' : sorteo < 0.22 ? 'planner' : sorteo < 0.3 ? 'viewer' : 'technician'
       const estado: EstadoUsuario = invitado ? 'invited' : i > 0 && azar() < 0.04 ? 'blocked' : 'active'
       // El primero llega con el cliente; los demás se suman a lo largo de su vida.
       const edadUsuario = i === 0 ? p.edad : invitado ? entre(1, 12) : Math.max(1, Math.floor(p.edad * (1 - azar() * 0.9)))
@@ -259,7 +269,7 @@ export async function sembrarDemo(base: Base, ahora = new Date(), semilla = 2026
     // Algunos cambios de rol a lo largo del tiempo.
     for (const u of misUsuarios.filter((u) => u.status === 'active' && u.id !== dueno).slice(0, entre(0, 2))) {
       const despues = u.role
-      const antes: RolTenant = despues === 'admin' ? 'member' : despues === 'member' ? 'viewer' : 'member'
+      const antes: RolTenant = despues === 'admin' ? 'planner' : despues === 'planner' ? 'technician' : 'viewer'
       evento({ tenantId, tipo: 'user.role_changed', en: enHorario(entre(5, Math.min(120, p.edad))), actorId: dueno, userId: u.id, targetId: u.id, targetType: 'user', metadata: { antes, despues }, ip: uno(oficinas), agente: NAVEGADORES[0] })
     }
 
@@ -333,19 +343,34 @@ export async function sembrarDemo(base: Base, ahora = new Date(), semilla = 2026
     if (p.plan === 'pro' && p.edad > 200)
       evento({ tenantId, tipo: 'tenant.plan_changed', en: enHorario(entre(60, p.edad - 30)), actorId: valentina.id, actorType: 'platform_admin', targetId: tenantId, targetType: 'tenant', metadata: { antes: { plan: 'starter', mrr: PLANES.starter.precio }, despues: { plan: 'pro', mrr: PLANES.pro.precio }, motivo: 'Subió de plan por cantidad de usuarios' } })
 
-    // ── Uso diario ──
+    // ── El taller: clientes, OT, trabajos por sección y cotizaciones de verdad ──
+    const taller = sembrarTaller(
+      { azar, entre, uno, id },
+      { tenantId, creado, hoy, ahora, silencio, nunca: Boolean(p.nunca), actividad: p.actividad, personas: misUsuarios.map((u) => ({ id: u.id, role: u.role, status: u.status })) },
+      evento,
+    )
+    filasSecciones.push(...taller.secciones)
+    filasTrabajos.push(...taller.trabajos)
+    filasClientes.push(...taller.clientes)
+    filasOts.push(...taller.ots)
+    filasTareas.push(...taller.tareas)
+    filasCotizaciones.push(...taller.cotizaciones)
+
+    // ── Uso diario: las OT, cotizaciones y documentos salen del taller; la API y el almacenamiento, del perfil ──
     const limites = PLANES[p.plan].limites
     const ritmoApi = (limites.api_calls_month / 30) * (0.15 + azar() * 0.35)
-    const ritmoOt = (limites.work_orders_month / 30) * (0.2 + azar() * 0.4)
     const vida = Math.min(90, p.edad)
-    for (let d = vida; d >= 1; d--) {
+    // Hoy también, con la parte del día que va corrida: el mes en curso cuenta las OT recibidas hoy.
+    const corrido = (ahora.getTime() - hoy.getTime()) / DIA
+    for (let d = vida; d >= 0; d--) {
       const diaSemana = new Date(hoy.getTime() - d * DIA).getUTCDay()
       const activo = !p.nunca && d >= silencio
-      const factor = activo ? (diaSemana === 0 ? 0.15 : diaSemana === 6 ? 0.4 : 1) * (0.75 + azar() * 0.5) : 0
+      const factor = activo ? (diaSemana === 0 ? 0.15 : diaSemana === 6 ? 0.4 : 1) * (0.75 + azar() * 0.5) * (d === 0 ? corrido : 1) : 0
       let api = Math.round(ritmoApi * factor)
       if (extras.has('pico') && d === 1) api *= 7
-      const ots = Math.round(ritmoOt * factor)
-      const cotizaciones = Math.round(ots * (0.8 + azar() * 0.8))
+      const delDia = taller.porDia.get(new Date(hoy.getTime() - d * DIA).toISOString().slice(0, 10)) ?? { ots: 0, cotizaciones: 0, documentos: 0 }
+      const ots = delDia.ots
+      const cotizaciones = delDia.cotizaciones
       const progreso = 1 - d / Math.max(vida, 1)
       const features: Partial<Record<UsoClave, number>> = { work_orders: ots, quotes: cotizaciones }
       if (activo && funciones.client_portal) features.client_portal = Math.round(entre(0, 25) * factor)
@@ -359,21 +384,10 @@ export async function sembrarDemo(base: Base, ahora = new Date(), semilla = 2026
         storageMb: Math.round(limites.storage_mb * p.almacenamiento * (0.7 + 0.3 * progreso)),
         workOrders: ots,
         quotes: cotizaciones,
-        documents: Math.round(ots * (1.5 + azar() * 2)),
+        documents: delDia.documentos,
         messages: Math.round(ots * azar() * 4),
         features,
       })
-      // La operación diaria de los últimos 30 días, como eventos: aparece en «Últimas operaciones».
-      if (d <= 30 && activo) {
-        const activosHoy = misUsuarios.filter((u) => u.status === 'active')
-        for (let k = 0; k < Math.min(3, ots); k++) {
-          const quien = uno(activosHoy)
-          if (!quien) break
-          const tipo: TipoEvento = uno(['work_order.created', 'work_order.created', 'work_order.closed', 'quote.sent'])
-          const folioOt = entre(1000, 9999)
-          evento({ tenantId, tipo, en: enHorario(d), actorId: quien.id, userId: quien.id, targetId: tipo === 'quote.sent' ? `COT-${folioOt}` : `OT-${folioOt}`, targetType: tipo === 'quote.sent' ? 'quote' : 'work_order', metadata: { motor: uno(['OM 936', 'DT466', 'ISX15', 'D13', 'C15', '4HK1', 'DC13']) } })
-        }
-      }
     }
 
     // ── Integraciones y claves ──
@@ -475,6 +489,12 @@ export async function sembrarDemo(base: Base, ahora = new Date(), semilla = 2026
     await enLotes(tx, apiKeys, filasClaves)
     await enLotes(tx, integrations, filasIntegraciones)
     await enLotes(tx, impersonations, filasImpersonaciones)
+    await enLotes(tx, shopSections, filasSecciones)
+    await enLotes(tx, services, filasTrabajos)
+    await enLotes(tx, customers, filasClientes)
+    await enLotes(tx, workOrders, filasOts)
+    await enLotes(tx, workOrderTasks, filasTareas)
+    await enLotes(tx, quotes, filasCotizaciones, 200)
     await enLotes(tx, events, listaEventos, 300)
   })
   return true

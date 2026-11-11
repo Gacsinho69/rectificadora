@@ -1,0 +1,254 @@
+// Clientes y cotizaciones de cada rectificadora. Se montan dentro de `rutasTaller`, detrás de su guardia (solo
+// personas del cliente, con su tenant de la sesión). El técnico no ve cotizaciones ni montos.
+import { and, asc, count, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm'
+import { type Context, Hono } from 'hono'
+import { z } from 'zod'
+import type { Base } from '../../base'
+import { conDatos, conFiltros, rechazo } from '../../http'
+import { nuevoId } from '../../ids'
+import { type EntornoTenant, filaDelTenant } from '../acceso/guardias'
+import { origenDe, registrar } from '../eventos/registrar'
+import { exigirCupoDeOt, exigirGestion, exigirMontos, recalcularOt, siguienteNumero, sumarUso } from '../taller/comun'
+import { OT_ABIERTAS } from '../taller/reglas'
+import { shopSections, workOrders, workOrderTasks } from '../taller/tablas'
+import { clienteSchema, cotizacionSchema, type DatosCotizacion, ESTADOS_COTIZACION, type EstadoCotizacion, faltasParaEnviar, totales } from './reglas'
+import { customers, quotes } from './tablas'
+
+type C = Context<EntornoTenant>
+
+/** Lo que llega de la pantalla se revisa contra el tenant: el cliente, la OT y las secciones deben ser suyos. */
+async function revisar(c: C, d: DatosCotizacion) {
+  await filaDelTenant(c, customers, d.clienteId, 'customer', 'ese cliente')
+  if (d.otId) await filaDelTenant(c, workOrders, d.otId, 'work_order', 'esa orden de trabajo')
+  const secciones = [...new Set(d.lineas.map((l) => l.seccionId).filter((s): s is string => Boolean(s)))]
+  if (secciones.length) {
+    const propias = await c.var.base.select({ id: shopSections.id }).from(shopSections).where(and(eq(shopSections.tenantId, c.var.actor.tenantId), inArray(shopSections.id, secciones)))
+    if (propias.length !== secciones.length) throw rechazo(400, 'Una línea apunta a una sección que no existe.')
+  }
+  return { ...totales(d.lineas, d.descuento) }
+}
+
+async function cotizacionDe(c: C) {
+  return filaDelTenant(c, quotes, c.req.param('id') ?? '', 'quote', 'esa cotización')
+}
+
+/** Al aceptar: los trabajos cotizados pasan a la OT, cada uno a su sección. Si la cotización no venía de una OT, nace una. */
+async function pasarAlTaller(tx: Base, c: C, q: typeof quotes.$inferSelect) {
+  const { actor, ahora } = c.var
+  let otId = q.workOrderId
+  if (!otId) {
+    otId = nuevoId('ot')
+    const numero = await siguienteNumero(tx, workOrders, actor.tenantId)
+    await tx.insert(workOrders).values({ id: otId, tenantId: actor.tenantId, number: numero, customerId: q.customerId, quoteId: q.id, engine: q.engine, pieces: ['motor'], status: 'received', createdBy: actor.id, createdAt: ahora })
+    await tx.update(quotes).set({ workOrderId: otId }).where(eq(quotes.id, q.id))
+    await registrar(tx, origenDe(c), { tenantId: actor.tenantId, eventType: 'work_order.created', targetId: otId, targetType: 'work_order', metadata: { numero, desde: `COT-${q.number}` } })
+    await sumarUso(tx, actor.tenantId, ahora, { workOrders: 1, features: { work_orders: 1 } })
+  } else {
+    await tx.update(workOrders).set({ quoteId: q.id }).where(eq(workOrders.id, otId))
+  }
+  const [primera] = await tx.select({ id: shopSections.id }).from(shopSections).where(and(eq(shopSections.tenantId, actor.tenantId), eq(shopSections.kind, 'work'))).orderBy(asc(shopSections.position)).limit(1)
+  const trabajos = q.lines.filter((l) => l.tipo === 'trabajo')
+  const [{ ultima }] = await tx.select({ ultima: sql<number>`coalesce(max(${workOrderTasks.position}), -1)`.mapWith(Number) }).from(workOrderTasks).where(eq(workOrderTasks.workOrderId, otId))
+  if (trabajos.length)
+    await tx.insert(workOrderTasks).values(
+      trabajos.map((l, i) => ({
+        id: nuevoId('tar'),
+        tenantId: actor.tenantId,
+        workOrderId: otId!,
+        sectionId: l.seccionId ?? primera.id,
+        serviceId: l.trabajoId,
+        name: l.cantidad === 1 ? l.descripcion : `${l.descripcion} ×${l.cantidad}`,
+        quantity: l.cantidad,
+        stdMinutes: Math.round(l.horas * l.cantidad * 60),
+        position: ultima + 1 + i,
+        status: 'pending' as const,
+      })),
+    )
+  await recalcularOt(tx, otId)
+  return otId
+}
+
+export const rutasComercial = new Hono<EntornoTenant>()
+  .get('/clientes', conFiltros(z.object({ q: z.string().trim().max(80).optional() })), async (c) => {
+    const { base, actor } = c.var
+    const { q } = c.req.valid('query')
+    const patron = q ? `%${q.replace(/[%_\\]/g, '\\$&')}%` : null
+    const lista = await base
+      .select({
+        id: customers.id,
+        nombre: customers.name,
+        rut: customers.taxId,
+        contacto: customers.contact,
+        telefono: customers.phone,
+        correo: customers.email,
+        abiertas: sql<number>`(select count(*) from work_orders w where w.customer_id = ${customers.id} and w.tenant_id = ${actor.tenantId} and w.status in ('received','diagnosis','waiting_approval','in_progress','quality','ready'))`.mapWith(Number),
+        total: sql<number>`(select count(*) from work_orders w where w.customer_id = ${customers.id} and w.tenant_id = ${actor.tenantId})`.mapWith(Number),
+        ultima: sql<string | null>`(select max(w.created_at) from work_orders w where w.customer_id = ${customers.id} and w.tenant_id = ${actor.tenantId})`,
+      })
+      .from(customers)
+      .where(and(eq(customers.tenantId, actor.tenantId), patron ? or(ilike(customers.name, patron), ilike(customers.taxId, patron), ilike(customers.contact, patron)) : undefined))
+      .orderBy(asc(customers.name))
+    return c.json(lista.map((x) => ({ ...x, ultima: x.ultima ? new Date(x.ultima).toISOString() : null })))
+  })
+
+  .post('/clientes', conDatos(clienteSchema), async (c) => {
+    exigirGestion(c)
+    const d = c.req.valid('json')
+    const id = nuevoId('cl')
+    await c.var.base.insert(customers).values({ id, tenantId: c.var.actor.tenantId, name: d.nombre, taxId: d.rut || null, contact: d.contacto || null, phone: d.telefono || null, email: d.correo || null, createdAt: c.var.ahora })
+    return c.json({ id })
+  })
+
+  .get(
+    '/cotizaciones',
+    conFiltros(z.object({ estado: z.string().optional(), q: z.string().trim().max(80).optional(), pagina: z.coerce.number().int().min(1).default(1), porPagina: z.coerce.number().int().min(10).max(200).default(50) })),
+    async (c) => {
+      exigirMontos(c)
+      const { base, actor } = c.var
+      const f = c.req.valid('query')
+      const estados = f.estado ? (f.estado.split(',').filter((e) => e in ESTADOS_COTIZACION) as EstadoCotizacion[]) : null
+      const patron = f.q ? `%${f.q.replace(/[%_\\]/g, '\\$&')}%` : null
+      const numero = f.q && /^\d+$/.test(f.q.replace(/^COT-?/i, '')) ? Number(f.q.replace(/^COT-?/i, '')) : null
+      const donde = and(
+        eq(quotes.tenantId, actor.tenantId),
+        estados?.length ? inArray(quotes.status, estados) : undefined,
+        patron ? or(ilike(customers.name, patron), ilike(quotes.engine, patron), numero ? eq(quotes.number, numero) : undefined) : undefined,
+      )
+      const [{ total }] = await base.select({ total: count() }).from(quotes).innerJoin(customers, eq(customers.id, quotes.customerId)).where(donde)
+      const filas = await base
+        .select({ id: quotes.id, numero: quotes.number, cliente: customers.name, motor: quotes.engine, estado: quotes.status, total: quotes.total, creada: quotes.createdAt, enviada: quotes.sentAt, decidida: quotes.decidedAt, otId: quotes.workOrderId, ot: workOrders.number })
+        .from(quotes)
+        .innerJoin(customers, eq(customers.id, quotes.customerId))
+        .leftJoin(workOrders, eq(workOrders.id, quotes.workOrderId))
+        .where(donde)
+        .orderBy(desc(quotes.number))
+        .limit(f.porPagina)
+        .offset((f.pagina - 1) * f.porPagina)
+      const iso = (d: Date | null) => d?.toISOString() ?? null
+      return c.json({ total, filas: filas.map((q) => ({ ...q, creada: q.creada.toISOString(), enviada: iso(q.enviada), decidida: iso(q.decidida) })) })
+    },
+  )
+
+  .get('/cotizaciones/:id', async (c) => {
+    exigirMontos(c)
+    const q = await cotizacionDe(c)
+    const [cliente] = await c.var.base.select().from(customers).where(and(eq(customers.id, q.customerId), eq(customers.tenantId, c.var.actor.tenantId)))
+    const [ot] = q.workOrderId ? await c.var.base.select({ numero: workOrders.number, estado: workOrders.status }).from(workOrders).where(eq(workOrders.id, q.workOrderId)) : []
+    const iso = (d: Date | null) => d?.toISOString() ?? null
+    return c.json({
+      id: q.id,
+      numero: q.number,
+      estado: q.status,
+      cliente: { id: cliente.id, nombre: cliente.name, rut: cliente.taxId, contacto: cliente.contact },
+      otId: q.workOrderId,
+      ot: ot ? { numero: ot.numero, estado: ot.estado } : null,
+      motor: q.engine,
+      lineas: q.lines,
+      descuento: q.discountPct,
+      notas: q.notes,
+      ...totales(q.lines, q.discountPct),
+      creada: q.createdAt.toISOString(),
+      enviada: iso(q.sentAt),
+      decidida: iso(q.decidedAt),
+      nota: q.decisionNote,
+    })
+  })
+
+  /** Una cotización nueva nace en borrador. Puede venir de una OT (después del diagnóstico) o ir sola. */
+  .post('/cotizaciones', conDatos(cotizacionSchema), async (c) => {
+    exigirGestion(c)
+    const d = c.req.valid('json')
+    const t = await revisar(c, d)
+    const { actor, ahora } = c.var
+    const id = nuevoId('cot')
+    const numero = await c.var.base.transaction(async (tx) => {
+      const numero = await siguienteNumero(tx, quotes, actor.tenantId)
+      await tx.insert(quotes).values({ id, tenantId: actor.tenantId, number: numero, customerId: d.clienteId, workOrderId: d.otId ?? null, engine: d.motor, lines: d.lineas, discountPct: d.descuento, net: t.neto, tax: t.iva, total: t.total, notes: d.notas || null, status: 'draft', createdBy: actor.id, createdAt: ahora })
+      await sumarUso(tx, actor.tenantId, ahora, { quotes: 1, features: { quotes: 1 } })
+      return numero
+    })
+    return c.json({ id, numero })
+  })
+
+  .post('/cotizaciones/:id', conDatos(cotizacionSchema), async (c) => {
+    exigirGestion(c)
+    const q = await cotizacionDe(c)
+    if (q.status !== 'draft') throw rechazo(409, 'Una cotización enviada no se edita: anúlala y haz otra.')
+    const d = c.req.valid('json')
+    const t = await revisar(c, d)
+    await c.var.base
+      .update(quotes)
+      .set({ customerId: d.clienteId, workOrderId: d.otId ?? null, engine: d.motor, lines: d.lineas, discountPct: d.descuento, net: t.neto, tax: t.iva, total: t.total, notes: d.notas || null })
+      .where(and(eq(quotes.id, q.id), eq(quotes.tenantId, c.var.actor.tenantId)))
+    return c.json({ ok: true })
+  })
+
+  .post('/cotizaciones/:id/enviar', async (c) => {
+    exigirGestion(c)
+    const q = await cotizacionDe(c)
+    if (q.status !== 'draft') throw rechazo(409, 'Solo se envía un borrador.')
+    const faltas = faltasParaEnviar(q.lines)
+    if (faltas.length) throw rechazo(409, faltas.join(' '))
+    const { actor, ahora } = c.var
+    await c.var.base.transaction(async (tx) => {
+      await tx.update(quotes).set({ status: 'sent', sentAt: ahora }).where(eq(quotes.id, q.id))
+      if (q.workOrderId) {
+        await tx.update(workOrders).set({ quoteId: q.id }).where(eq(workOrders.id, q.workOrderId))
+        await recalcularOt(tx, q.workOrderId)
+      }
+      await registrar(tx, origenDe(c), { tenantId: actor.tenantId, eventType: 'quote.sent', targetId: q.id, targetType: 'quote', metadata: { numero: q.number, total: q.total } })
+      await sumarUso(tx, actor.tenantId, ahora, { documents: 1 })
+    })
+    return c.json({ ok: true })
+  })
+
+  .post('/cotizaciones/:id/aceptar', conDatos(z.object({ nota: z.string().trim().max(500).optional() })), async (c) => {
+    exigirGestion(c)
+    const q = await cotizacionDe(c)
+    if (q.status !== 'sent') throw rechazo(409, 'Solo se acepta una cotización enviada.')
+    if (!q.workOrderId) await exigirCupoDeOt(c.var.base, c.var.actor.tenantId, c.var.ahora)
+    const { nota } = c.req.valid('json')
+    const otId = await c.var.base.transaction(async (tx) => {
+      await tx.update(quotes).set({ status: 'accepted', decidedAt: c.var.ahora, decisionNote: nota || null }).where(eq(quotes.id, q.id))
+      const otId = await pasarAlTaller(tx, c, { ...q, status: 'accepted' })
+      await registrar(tx, origenDe(c), { tenantId: c.var.actor.tenantId, eventType: 'quote.accepted', targetId: q.id, targetType: 'quote', metadata: { numero: q.number, total: q.total, ot: otId } })
+      return otId
+    })
+    return c.json({ ok: true, otId })
+  })
+
+  .post('/cotizaciones/:id/rechazar', conDatos(z.object({ nota: z.string().trim().min(3, 'Escribe por qué la rechazó.').max(500) })), async (c) => {
+    exigirGestion(c)
+    const q = await cotizacionDe(c)
+    if (q.status !== 'sent') throw rechazo(409, 'Solo se rechaza una cotización enviada.')
+    const { nota } = c.req.valid('json')
+    await c.var.base.transaction(async (tx) => {
+      await tx.update(quotes).set({ status: 'rejected', decidedAt: c.var.ahora, decisionNote: nota }).where(eq(quotes.id, q.id))
+      if (q.workOrderId) await recalcularOt(tx, q.workOrderId)
+      await registrar(tx, origenDe(c), { tenantId: c.var.actor.tenantId, eventType: 'quote.rejected', targetId: q.id, targetType: 'quote', metadata: { numero: q.number, motivo: nota } })
+    })
+    return c.json({ ok: true })
+  })
+
+  .post('/cotizaciones/:id/anular', conDatos(z.object({ nota: z.string().trim().min(3, 'Escribe el motivo.').max(500) })), async (c) => {
+    exigirGestion(c)
+    const q = await cotizacionDe(c)
+    if (q.status !== 'draft' && q.status !== 'sent') throw rechazo(409, 'Solo se anula un borrador o una enviada.')
+    const { nota } = c.req.valid('json')
+    await c.var.base.transaction(async (tx) => {
+      await tx.update(quotes).set({ status: 'cancelled', decidedAt: c.var.ahora, decisionNote: nota }).where(eq(quotes.id, q.id))
+      if (q.workOrderId) await recalcularOt(tx, q.workOrderId)
+    })
+    return c.json({ ok: true })
+  })
+
+  /** Las OT abiertas de un cliente, para cotizar desde el diagnóstico. */
+  .get('/clientes/:id/ot', async (c) => {
+    const cl = await filaDelTenant(c, customers, c.req.param('id'), 'customer', 'ese cliente')
+    const lista = await c.var.base
+      .select({ id: workOrders.id, numero: workOrders.number, motor: workOrders.engine, estado: workOrders.status })
+      .from(workOrders)
+      .where(and(eq(workOrders.tenantId, c.var.actor.tenantId), eq(workOrders.customerId, cl.id), inArray(workOrders.status, OT_ABIERTAS)))
+      .orderBy(desc(workOrders.number))
+    return c.json(lista)
+  })

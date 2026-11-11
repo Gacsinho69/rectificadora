@@ -9,6 +9,7 @@ import { impersonacionVigente, type Identidad } from './modulos/acceso/identidad
 import { origenDe, registrar, SISTEMA } from './modulos/eventos/registrar'
 import { rutasOrganizacion } from './modulos/organizacion/rutas'
 import { rutasPlataforma } from './modulos/plataforma/rutas'
+import { rutasTaller } from './modulos/taller/rutas'
 
 export type Reloj = () => Date
 
@@ -51,5 +52,6 @@ export function crearApp(base: Base, identidad: Identidad, reloj: Reloj = () => 
 
   app.route('/api/plataforma', rutasPlataforma)
   app.route('/api/organizacion', rutasOrganizacion)
+  app.route('/api/servicio', rutasTaller)
   return app
 }

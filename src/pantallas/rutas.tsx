@@ -1,8 +1,8 @@
 // El mapa de la app: cada pantalla con su dirección. Los filtros de cada lista viajan en la dirección, así una vista
 // filtrada se comparte con un enlace.
-import { AlertOutlined, AuditOutlined, CreditCardOutlined, DashboardOutlined, ApiOutlined, LineChartOutlined, LockOutlined, PieChartOutlined, ShopOutlined, TeamOutlined } from '@ant-design/icons'
+import { AlertOutlined, ApiOutlined, AuditOutlined, CreditCardOutlined, DashboardOutlined, FileTextOutlined, HomeOutlined, LineChartOutlined, LockOutlined, PieChartOutlined, SettingOutlined, ShopOutlined, TagsOutlined, TeamOutlined, ToolOutlined, UnorderedListOutlined } from '@ant-design/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createRootRoute, createRoute, createRouter, lazyRouteComponent, Navigate, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
+import { createRootRoute, createRoute, createRouter, lazyRouteComponent, Link, Navigate, Outlet, useNavigate, useParams, useRouterState } from '@tanstack/react-router'
 import { Button } from 'antd'
 import type { Alerta } from '../modulos/alertas/reglas'
 import { ROLES_TENANT } from '../modulos/usuarios/reglas'
@@ -20,17 +20,27 @@ const Alertas = lazyRouteComponent(() => import('../modulos/plataforma/pantallas
 const Actividad = lazyRouteComponent(() => import('../modulos/plataforma/pantallas/Actividad'), 'Actividad')
 const Auditoria = lazyRouteComponent(() => import('../modulos/plataforma/pantallas/Auditoria'), 'Auditoria')
 const Organizacion = lazyRouteComponent(() => import('../modulos/organizacion/pantallas/Organizacion'), 'Organizacion')
+const InicioTaller = lazyRouteComponent(() => import('../modulos/taller/pantallas/Inicio'), 'Inicio')
+const OrdenesDeTrabajo = lazyRouteComponent(() => import('../modulos/taller/pantallas/OrdenesDeTrabajo'), 'OrdenesDeTrabajo')
+const OrdenDeTrabajo = lazyRouteComponent(() => import('../modulos/taller/pantallas/OrdenDeTrabajo'), 'OrdenDeTrabajo')
+const Tablero = lazyRouteComponent(() => import('../modulos/taller/pantallas/Tablero'), 'Tablero')
+const Cotizaciones = lazyRouteComponent(() => import('../modulos/taller/pantallas/Cotizaciones'), 'Cotizaciones')
+const Cotizacion = lazyRouteComponent(() => import('../modulos/taller/pantallas/Cotizacion'), 'Cotizacion')
+const ClientesTaller = lazyRouteComponent(() => import('../modulos/taller/pantallas/ClientesTaller'), 'ClientesTaller')
+const Precios = lazyRouteComponent(() => import('../modulos/taller/pantallas/ClientesTaller'), 'Precios')
 
 const texto = (v: unknown) => (typeof v === 'string' && v ? v : undefined)
 const numero = (v: unknown) => (Number.isInteger(Number(v)) && Number(v) > 0 ? Number(v) : undefined)
 
-/** Desde la raíz, cada uno a lo suyo: el equipo a la consola, el administrador del cliente a su panel. */
+/** Desde la raíz, cada uno a lo suyo: el equipo a la consola, la gente de cada rectificadora a su sistema. */
 function Inicio() {
   const yo = useYo()
   if (yo.isPending) return <Cargando />
   if (yo.isError) return <Problema error={yo.error} />
-  if (!yo.data.actor) return <Navigate to="/entrar" />
-  return <Navigate to={yo.data.actor.tipo === 'plataforma' ? '/plataforma' : '/organizacion'} />
+  const actor = yo.data.actor
+  if (!actor) return <Navigate to="/entrar" />
+  if (actor.tipo === 'plataforma') return <Navigate to="/plataforma" />
+  return <Navigate to="/c/$portal" params={{ portal: actor.tenantSlug }} />
 }
 
 function MarcoPlataforma() {
@@ -93,6 +103,60 @@ function AvisoImpersonacion() {
   )
 }
 
+/**
+ * El sistema de cada rectificadora, en `/c/<subdominio>` (en producción, el subdominio mismo). Lo usa su gente; alguien
+ * del equipo de la plataforma entra solo impersonando a su administrador. Abrir el portal de otro cliente lo rechaza el
+ * servidor (cada pedido lleva el portal en `x-portal`) y queda anotado.
+ */
+function MarcoTaller() {
+  const yo = useYo()
+  const { portal } = useParams({ from: '/c/$portal' })
+  const ruta = useRouterState({ select: (s) => s.location.pathname })
+  if (yo.isPending) return <Cargando />
+  if (yo.isError) return <Problema error={yo.error} />
+  const { actor, impersonacion } = yo.data
+  if (!actor) return <Navigate to="/entrar" />
+  if (actor.tipo === 'plataforma' && !impersonacion) return <Navigate to="/plataforma" />
+  const persona = actor.tipo === 'tenant' ? actor : impersonacion!
+  const base = `/c/${portal}`
+  const en = (a: string) => (a === base ? ruta === base || ruta === `${base}/` : ruta.startsWith(a))
+  const enlaces = [
+    { a: '/c/$portal', texto: 'Inicio', icono: <HomeOutlined />, activo: en(base) },
+    { a: '/c/$portal/ot', texto: 'Órdenes de trabajo', icono: <UnorderedListOutlined />, activo: en(`${base}/ot`) },
+    { a: '/c/$portal/taller', texto: 'Taller', icono: <ToolOutlined />, activo: en(`${base}/taller`) },
+    ...(persona.rol !== 'technician' ? [{ a: '/c/$portal/cotizaciones', texto: 'Cotizaciones', icono: <FileTextOutlined />, activo: en(`${base}/cotizaciones`) }] : []),
+    { a: '/c/$portal/clientes', texto: 'Clientes', icono: <TeamOutlined />, activo: en(`${base}/clientes`) },
+    { a: '/c/$portal/precios', texto: 'Lista de precios', icono: <TagsOutlined />, activo: en(`${base}/precios`) },
+    ...(persona.rol === 'admin' ? [{ a: '/organizacion', texto: 'Administración', icono: <SettingOutlined />, activo: false }] : []),
+  ].map((e) => ({ ...e, params: { portal } }))
+  return (
+    <Marco
+      titulo={persona.tenantNombre}
+      subtitulo={`Sistema de la rectificadora · ${ROLES_TENANT[persona.rol]}`}
+      persona={actor.tipo === 'plataforma' ? { nombre: actor.nombre, detalle: 'Equipo de la plataforma' } : { nombre: actor.nombre, detalle: actor.correo }}
+      aviso={
+        <>
+          {impersonacion && <AvisoImpersonacion />}
+          {persona.tenantSlug !== portal && (
+            <div className="impersonando" role="alert">
+              <span>Este portal es de otra organización. El intento queda registrado.</span>
+              <Link to="/c/$portal" params={{ portal: persona.tenantSlug }}>Ir a tu sistema</Link>
+            </div>
+          )}
+          {persona.estadoTenant === 'suspended' && (
+            <div className="impersonando" role="status">
+              <span>La organización está suspendida: se puede revisar todo, pero no hacer cambios.</span>
+            </div>
+          )}
+        </>
+      }
+      enlaces={enlaces}
+    >
+      <Outlet />
+    </Marco>
+  )
+}
+
 export const PESTANAS_ORGANIZACION = {
   resumen: { texto: 'Resumen', icono: <DashboardOutlined /> },
   usuarios: { texto: 'Usuarios y roles', icono: <TeamOutlined /> },
@@ -125,7 +189,10 @@ function MarcoOrganizacion() {
       subtitulo="Administración de la organización"
       persona={actor.tipo === 'plataforma' ? { nombre: actor.nombre, detalle: 'Equipo de la plataforma' } : { nombre: actor.nombre, detalle: actor.correo }}
       aviso={impersonacion ? <AvisoImpersonacion /> : undefined}
-      enlaces={(Object.keys(PESTANAS_ORGANIZACION) as PestanaOrganizacion[]).map((p) => ({ a: '/organizacion', search: { pestana: p }, texto: PESTANAS_ORGANIZACION[p].texto, icono: PESTANAS_ORGANIZACION[p].icono, activo: pestana === p }))}
+      enlaces={[
+        { a: '/c/$portal', params: { portal: persona.tenantSlug }, texto: 'Volver al sistema', icono: <ToolOutlined /> },
+        ...(Object.keys(PESTANAS_ORGANIZACION) as PestanaOrganizacion[]).map((p) => ({ a: '/organizacion', search: { pestana: p }, texto: PESTANAS_ORGANIZACION[p].texto, icono: PESTANAS_ORGANIZACION[p].icono, activo: pestana === p })),
+      ]}
     >
       <Outlet />
     </Marco>
@@ -213,8 +280,34 @@ const panel = createRoute({
   component: Organizacion,
 })
 
+const taller = createRoute({ getParentRoute: () => raiz, path: '/c/$portal', component: MarcoTaller })
+const tallerInicio = createRoute({ getParentRoute: () => taller, path: '/', component: InicioTaller })
+const tallerOts = createRoute({
+  getParentRoute: () => taller,
+  path: 'ot',
+  validateSearch: (s: Record<string, unknown>): { estado?: string; q?: string; pagina?: number; recibir?: string } => ({ estado: texto(s.estado), q: texto(s.q), pagina: numero(s.pagina), recibir: texto(s.recibir) }),
+  component: OrdenesDeTrabajo,
+})
+const tallerOt = createRoute({ getParentRoute: () => taller, path: 'ot/$id', component: OrdenDeTrabajo })
+const tablero = createRoute({ getParentRoute: () => taller, path: 'taller', validateSearch: (s: Record<string, unknown>): { mias?: string } => ({ mias: texto(s.mias) }), component: Tablero })
+const tallerCotizaciones = createRoute({
+  getParentRoute: () => taller,
+  path: 'cotizaciones',
+  validateSearch: (s: Record<string, unknown>): { estado?: string; q?: string; pagina?: number } => ({ estado: texto(s.estado), q: texto(s.q), pagina: numero(s.pagina) }),
+  component: Cotizaciones,
+})
+const tallerCotizacion = createRoute({ getParentRoute: () => taller, path: 'cotizaciones/$id', validateSearch: (s: Record<string, unknown>): { ot?: string } => ({ ot: texto(s.ot) }), component: Cotizacion })
+const tallerClientes = createRoute({ getParentRoute: () => taller, path: 'clientes', component: ClientesTaller })
+const precios = createRoute({ getParentRoute: () => taller, path: 'precios', component: Precios })
+
 export const router = createRouter({
-  routeTree: raiz.addChildren([inicio, entrar, plataforma.addChildren([resumen, clientes, cliente, alertas, actividad, auditoria]), organizacion.addChildren([panel])]),
+  routeTree: raiz.addChildren([
+    inicio,
+    entrar,
+    plataforma.addChildren([resumen, clientes, cliente, alertas, actividad, auditoria]),
+    organizacion.addChildren([panel]),
+    taller.addChildren([tallerInicio, tallerOts, tallerOt, tablero, tallerCotizaciones, tallerCotizacion, tallerClientes, precios]),
+  ]),
   defaultPreload: 'intent',
 })
 
