@@ -1,0 +1,225 @@
+// Lo que el equipo de la plataforma hace sobre un cliente. Cada acción: pide su permiso, exige un motivo cuando es
+// sensible, corre en una transacción y deja su evento con el antes y el después, el motivo, la IP y el navegador.
+import { and, eq, isNull } from 'drizzle-orm'
+import { type Context, Hono } from 'hono'
+import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
+import { z } from 'zod'
+import { conDatos, ipDe, rechazo } from '../../http'
+import { nuevoId } from '../../ids'
+import { type EntornoPlataforma, exigirPermiso } from '../acceso/guardias'
+import { origenDe, registrar } from '../eventos/registrar'
+import { impersonations } from '../soporte/tablas'
+import { CAMBIOS_DE_ESTADO, ESTADOS_TENANT, type EstadoTenant, FUNCIONES, type Funcion, LIMITES, type Limites, PLANES, type Plan } from '../tenants/reglas'
+import { tenants } from '../tenants/tablas'
+import { ROLES_TENANT, type RolTenant } from '../usuarios/reglas'
+import { users } from '../usuarios/tablas'
+
+type C = Context<EntornoPlataforma>
+
+const motivo = z.string().trim().min(10, 'Escribe el motivo (al menos 10 letras): queda en la auditoría.').max(500)
+const claves = <T extends object>(o: T) => Object.keys(o) as [keyof T & string, ...(keyof T & string)[]]
+
+/** Una impersonación dura a lo más una hora; para seguir, se abre otra con su motivo. */
+export const DURACION_IMPERSONACION_MIN = 60
+
+async function tenantOError(c: C, id: string) {
+  const [t] = await c.var.base.select().from(tenants).where(eq(tenants.id, id))
+  if (!t) throw rechazo(404, 'No existe ese cliente.')
+  return t
+}
+
+/** El usuario, buscado dentro del cliente indicado. Aunque el equipo ve todo, una acción no cruza de un cliente a otro. */
+async function usuarioDe(c: C, tenantId: string, id: string) {
+  const [u] = await c.var.base.select().from(users).where(and(eq(users.id, id), eq(users.tenantId, tenantId)))
+  if (!u) throw rechazo(404, 'Ese usuario no es de este cliente.')
+  return u
+}
+
+/** Con qué evento queda cada cambio de estado. */
+const eventoDeEstado = (antes: EstadoTenant, despues: EstadoTenant) =>
+  despues === 'suspended' ? 'tenant.suspended' : despues === 'cancelled' ? 'tenant.cancelled' : antes === 'suspended' || antes === 'cancelled' ? 'tenant.reactivated' : 'tenant.updated'
+
+/** Se montan dentro de `rutasPlataforma`, detrás de su guardia (solo el equipo). */
+export const accionesPlataforma = new Hono<EntornoPlataforma>()
+
+  .post('/tenants/:id/estado', conDatos(z.object({ estado: z.enum(claves(ESTADOS_TENANT)), motivo })), async (c) => {
+    const t = await tenantOError(c, c.req.param('id'))
+    await exigirPermiso(c, 'tenants.status', t.id)
+    const { estado, motivo } = c.req.valid('json')
+    if (estado === t.status) throw rechazo(409, `El cliente ya está ${ESTADOS_TENANT[estado].toLowerCase()}.`)
+    if (!CAMBIOS_DE_ESTADO[t.status].includes(estado))
+      throw rechazo(409, `No se puede pasar de «${ESTADOS_TENANT[t.status]}» a «${ESTADOS_TENANT[estado]}».`)
+    await c.var.base.transaction(async (tx) => {
+      await tx.update(tenants).set({ status: estado, updatedAt: c.var.ahora }).where(eq(tenants.id, t.id))
+      await registrar(tx, origenDe(c), {
+        tenantId: t.id,
+        eventType: eventoDeEstado(t.status, estado),
+        targetId: t.id,
+        targetType: 'tenant',
+        metadata: { antes: t.status, despues: estado, motivo },
+      })
+    })
+    return c.json({ ok: true })
+  })
+
+  .post('/tenants/:id/plan', conDatos(z.object({ plan: z.enum(claves(PLANES)), mrr: z.number().int().min(0).max(100_000_000).optional(), motivo })), async (c) => {
+    const t = await tenantOError(c, c.req.param('id'))
+    await exigirPermiso(c, 'tenants.plan', t.id)
+    const { plan, mrr, motivo } = c.req.valid('json')
+    if (plan === t.plan && (mrr === undefined || mrr === t.mrr)) throw rechazo(409, 'Ese ya es su plan.')
+    // El precio de lista, salvo que se indique otro (Enterprise negociado). Un cliente en prueba no paga todavía.
+    const nuevoMrr = t.status === 'trial' ? 0 : (mrr ?? PLANES[plan as Plan].precio)
+    await c.var.base.transaction(async (tx) => {
+      await tx.update(tenants).set({ plan, mrr: nuevoMrr, updatedAt: c.var.ahora }).where(eq(tenants.id, t.id))
+      await registrar(tx, origenDe(c), {
+        tenantId: t.id,
+        eventType: 'tenant.plan_changed',
+        targetId: t.id,
+        targetType: 'tenant',
+        metadata: { antes: { plan: t.plan, mrr: t.mrr }, despues: { plan, mrr: nuevoMrr }, motivo },
+      })
+    })
+    return c.json({ ok: true })
+  })
+
+  .post(
+    '/tenants/:id/limites',
+    conDatos(
+      z.object({
+        // Un límite en null vuelve al del plan.
+        ajustes: z.object(Object.fromEntries(Object.keys(LIMITES).map((k) => [k, z.number().int().min(0).max(1e10).nullable().optional()])) as Record<keyof Limites, z.ZodOptional<z.ZodNullable<z.ZodNumber>>>),
+        motivo,
+      }),
+    ),
+    async (c) => {
+      const t = await tenantOError(c, c.req.param('id'))
+      await exigirPermiso(c, 'tenants.limits', t.id)
+      const { ajustes, motivo } = c.req.valid('json')
+      const nuevos: Partial<Limites> = { ...t.limitsOverride }
+      for (const [clave, valor] of Object.entries(ajustes) as [keyof Limites, number | null | undefined][]) {
+        if (valor === undefined) continue
+        if (valor === null || valor === PLANES[t.plan].limites[clave]) delete nuevos[clave]
+        else nuevos[clave] = valor
+      }
+      if (JSON.stringify(nuevos) === JSON.stringify(t.limitsOverride)) throw rechazo(409, 'No cambió ningún límite.')
+      await c.var.base.transaction(async (tx) => {
+        await tx.update(tenants).set({ limitsOverride: nuevos, updatedAt: c.var.ahora }).where(eq(tenants.id, t.id))
+        await registrar(tx, origenDe(c), {
+          tenantId: t.id,
+          eventType: 'tenant.limits_changed',
+          targetId: t.id,
+          targetType: 'tenant',
+          metadata: { antes: t.limitsOverride, despues: nuevos, motivo },
+        })
+      })
+      return c.json({ ok: true })
+    },
+  )
+
+  .post('/tenants/:id/funciones', conDatos(z.object({ funcion: z.enum(claves(FUNCIONES)), activa: z.boolean(), motivo: z.string().trim().max(500).optional() })), async (c) => {
+    const t = await tenantOError(c, c.req.param('id'))
+    await exigirPermiso(c, 'tenants.flags', t.id)
+    const { funcion, activa, motivo } = c.req.valid('json')
+    if (Boolean(t.featureFlags[funcion as Funcion]) === activa) throw rechazo(409, 'La función ya estaba así.')
+    await c.var.base.transaction(async (tx) => {
+      await tx.update(tenants).set({ featureFlags: { ...t.featureFlags, [funcion]: activa }, updatedAt: c.var.ahora }).where(eq(tenants.id, t.id))
+      await registrar(tx, origenDe(c), {
+        tenantId: t.id,
+        eventType: 'tenant.feature_flag_changed',
+        targetId: t.id,
+        targetType: 'tenant',
+        metadata: { funcion, activa, motivo: motivo || null },
+      })
+    })
+    return c.json({ ok: true })
+  })
+
+  .post('/tenants/:id/usuarios/:usuario/bloqueo', conDatos(z.object({ bloqueado: z.boolean(), motivo })), async (c) => {
+    const t = await tenantOError(c, c.req.param('id'))
+    await exigirPermiso(c, 'users.block', t.id)
+    const u = await usuarioDe(c, t.id, c.req.param('usuario'))
+    const { bloqueado, motivo } = c.req.valid('json')
+    if (u.status === 'invited') throw rechazo(409, 'Una invitación pendiente no se bloquea: se anula desde el panel del cliente.')
+    if ((u.status === 'blocked') === bloqueado) throw rechazo(409, bloqueado ? 'Ya estaba bloqueado.' : 'No estaba bloqueado.')
+    await c.var.base.transaction(async (tx) => {
+      await tx.update(users).set({ status: bloqueado ? 'blocked' : 'active', blockedAt: bloqueado ? c.var.ahora : null }).where(eq(users.id, u.id))
+      await registrar(tx, origenDe(c), { tenantId: t.id, eventType: bloqueado ? 'user.blocked' : 'user.unblocked', userId: u.id, targetId: u.id, targetType: 'user', metadata: { motivo } })
+    })
+    return c.json({ ok: true })
+  })
+
+  .post('/tenants/:id/usuarios/:usuario/rol', conDatos(z.object({ rol: z.enum(claves(ROLES_TENANT)), motivo })), async (c) => {
+    const t = await tenantOError(c, c.req.param('id'))
+    await exigirPermiso(c, 'users.roles', t.id)
+    const u = await usuarioDe(c, t.id, c.req.param('usuario'))
+    const { rol, motivo } = c.req.valid('json')
+    if (u.role === rol) throw rechazo(409, `Ya es ${ROLES_TENANT[rol as RolTenant].toLowerCase()}.`)
+    await c.var.base.transaction(async (tx) => {
+      await tx.update(users).set({ role: rol }).where(eq(users.id, u.id))
+      await registrar(tx, origenDe(c), { tenantId: t.id, eventType: 'user.role_changed', userId: u.id, targetId: u.id, targetType: 'user', metadata: { antes: u.role, despues: rol, motivo } })
+    })
+    return c.json({ ok: true })
+  })
+
+  /**
+   * Entrar como el administrador de un cliente. Pide el permiso, que el cliente lo permita, un administrador activo
+   * y un motivo. Queda la fila en `impersonations` (con la IP de quien entra) y el evento de inicio.
+   */
+  .post('/tenants/:id/impersonar', conDatos(z.object({ usuario: z.string(), motivo })), async (c) => {
+    const t = await tenantOError(c, c.req.param('id'))
+    await exigirPermiso(c, 'support.impersonate', t.id)
+    if (!t.supportAccess) throw rechazo(403, 'Este cliente no permite el acceso de soporte a su cuenta.')
+    if (t.status === 'cancelled') throw rechazo(409, 'El cliente está cancelado.')
+    const { usuario, motivo } = c.req.valid('json')
+    const u = await usuarioDe(c, t.id, usuario)
+    if (u.role !== 'admin' || u.status !== 'active') throw rechazo(409, 'Solo se puede entrar como un administrador activo del cliente.')
+    const { base, ahora, actor } = c.var
+    const id = nuevoId('imp')
+    const vence = new Date(ahora.getTime() + DURACION_IMPERSONACION_MIN * 60_000)
+    await base.transaction(async (tx) => {
+      // Una impersonación abierta a la vez por persona del equipo: abrir otra cierra la anterior.
+      const abiertas = await tx
+        .update(impersonations)
+        .set({ endedAt: ahora })
+        .where(and(eq(impersonations.adminId, actor.id), isNull(impersonations.endedAt)))
+        .returning()
+      for (const a of abiertas)
+        await registrar(tx, origenDe(c), { tenantId: a.tenantId, eventType: 'support.impersonation_ended', userId: a.userId, targetId: a.id, targetType: 'impersonation', metadata: { motivo_cierre: 'reemplazada' } })
+      await tx.insert(impersonations).values({ id, adminId: actor.id, tenantId: t.id, userId: u.id, reason: motivo, adminIp: ipDe(c), userAgent: c.req.header('user-agent') ?? null, startedAt: ahora, expiresAt: vence })
+      await registrar(tx, origenDe(c), {
+        tenantId: t.id,
+        eventType: 'support.impersonation_started',
+        userId: u.id,
+        targetId: id,
+        targetType: 'impersonation',
+        metadata: { motivo, vence: vence.toISOString(), admin_nombre: actor.nombre },
+      })
+    })
+    setCookie(c, 'impersonacion', id, { path: '/', httpOnly: true, sameSite: 'Strict', maxAge: DURACION_IMPERSONACION_MIN * 60 })
+    return c.json({ ok: true, id, vence: vence.toISOString() })
+  })
+
+  /** Terminar la impersonación abierta (la de la cookie). Queda la hora de fin y su evento. */
+  .post('/impersonacion/terminar', async (c) => {
+    const { base, ahora, actor } = c.var
+    const id = getCookie(c, 'impersonacion')
+    deleteCookie(c, 'impersonacion', { path: '/' })
+    if (!id) return c.json({ ok: true, tenantId: null })
+    const [imp] = await base.select().from(impersonations).where(and(eq(impersonations.id, id), eq(impersonations.adminId, actor.id)))
+    if (!imp) return c.json({ ok: true, tenantId: null })
+    if (!imp.endedAt)
+      await base.transaction(async (tx) => {
+        // Si ya había vencido, el fin es la hora en que venció.
+        const fin = imp.expiresAt < ahora ? imp.expiresAt : ahora
+        await tx.update(impersonations).set({ endedAt: fin }).where(eq(impersonations.id, imp.id))
+        await registrar(tx, origenDe(c), {
+          tenantId: imp.tenantId,
+          eventType: 'support.impersonation_ended',
+          userId: imp.userId,
+          targetId: imp.id,
+          targetType: 'impersonation',
+          metadata: { duracion_min: Math.round((fin.getTime() - imp.startedAt.getTime()) / 60_000) },
+        })
+      })
+    return c.json({ ok: true, tenantId: imp.tenantId })
+  })

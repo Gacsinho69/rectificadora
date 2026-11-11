@@ -1,0 +1,190 @@
+/* Un solo azul (el marino), un menú pizarra y todo lo demás gris. Letra de 13 px, bloques blancos con borde fino. */
+:root {
+  --marino: #1e3a8a;
+  --pizarra: #1c2638;
+  --pizarra-raya: rgba(255, 255, 255, 0.1);
+  --borde: #e3e7ec;
+  --fondo: #f3f4f6;
+  --tinta: #1b2430;
+  --tinta-2: #5b6673;
+  --tinta-3: #8b95a1;
+  --verde: #1a7f37;
+  --rojo: #c62828;
+  --naranjo: #c25e00;
+  --dorado: #8a6d00;
+  --azul: #1e3a8a;
+}
+
+body {
+  margin: 0;
+  background: var(--fondo);
+  color: var(--tinta);
+  font-family: 'Archivo Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+.tenue { color: var(--tinta-3); }
+.mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 12px; }
+button.enlace { border: 0; padding: 0; background: none; color: var(--marino); font: inherit; cursor: pointer; }
+button.enlace:hover { text-decoration: underline; }
+
+/* ── El chasis: menú a la izquierda, página al lado; en el celular, barra arriba y menú en un cajón ── */
+.marco { display: flex; min-height: 100vh; }
+.marco-lado {
+  position: sticky; top: 0; align-self: flex-start; display: flex; flex-direction: column; flex: none;
+  width: 212px; height: 100vh; box-sizing: border-box; background: var(--pizarra); color: #fff;
+}
+.marco-marca { display: flex; flex-direction: column; justify-content: center; height: 54px; padding: 0 18px; border-bottom: 1px solid var(--pizarra-raya); }
+.marco-marca b { font-size: 14px; letter-spacing: 0.01em; }
+.marco-marca span { font-size: 11px; color: rgba(255, 255, 255, 0.55); }
+.marco-nav { display: flex; flex-direction: column; flex: 1; padding: 8px 0; overflow-y: auto; }
+.marco-enlace {
+  position: relative; display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 18px;
+  color: rgba(255, 255, 255, 0.78); text-decoration: none; white-space: nowrap;
+}
+.marco-enlace .anticon { width: 16px; font-size: 14px; opacity: 0.85; }
+.marco-enlace:hover { background: rgba(255, 255, 255, 0.06); color: #fff; }
+.marco-enlace.activo { background: rgba(255, 255, 255, 0.1); color: #fff; font-weight: 600; }
+.marco-enlace.activo::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: #5b8def; }
+.marco-enlace .cuenta { margin-left: auto; min-width: 20px; padding: 0 6px; border-radius: 9px; background: #b42318; color: #fff; font-size: 11px; font-weight: 600; text-align: center; line-height: 18px; }
+.marco-pie { padding: 10px 18px 14px; border-top: 1px solid var(--pizarra-raya); font-size: 12px; color: rgba(255, 255, 255, 0.7); }
+.marco-pie b { display: block; color: #fff; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.marco-pie button { margin-top: 6px; border: 0; padding: 0; background: none; color: rgba(255, 255, 255, 0.7); font: inherit; cursor: pointer; text-decoration: underline; }
+.marco-barra { display: none; }
+.marco-pagina { flex: 1; min-width: 0; }
+.pagina { max-width: 1440px; margin: 0 auto; padding: 18px 24px 40px; box-sizing: border-box; }
+
+@media (max-width: 860px) {
+  .marco { flex-direction: column; }
+  .marco > .marco-lado { display: none; }
+  .marco-barra {
+    position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 12px;
+    background: var(--pizarra); color: #fff;
+  }
+  .marco-barra button { border: 0; background: none; color: #fff; font-size: 18px; padding: 4px 6px; cursor: pointer; }
+  .pagina { padding: 12px 16px 32px; }
+}
+.cajon .ant-drawer-body { padding: 0; background: var(--pizarra); }
+.cajon .marco-lado { position: static; width: 100%; height: 100%; }
+
+/* La barra de soporte: alguien del equipo está dentro del panel de un cliente. */
+.impersonando {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 8px 24px; background: #fff4e5;
+  border-bottom: 1px solid #f0c27a; color: #6b3d00;
+}
+.impersonando b { color: #4a2a00; }
+
+/* ── Encabezado de página ── */
+.encabezado { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 10px 16px; margin-bottom: 14px; }
+.encabezado h1 { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.25; }
+.encabezado .sub { margin-top: 3px; color: var(--tinta-2); display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
+.encabezado .acciones { display: flex; flex-wrap: wrap; gap: 8px; }
+.miga { margin-bottom: 6px; font-size: 12px; color: var(--tinta-2); }
+.miga a { color: var(--tinta-2); }
+
+/* ── Bloques ── */
+.bloque { background: #fff; border: 1px solid var(--borde); border-radius: 3px; margin-bottom: 14px; min-width: 0; }
+.bloque > header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 14px; border-bottom: 1px solid var(--borde); }
+.bloque > header h2 { margin: 0; font-size: 13px; font-weight: 600; }
+.bloque-extra { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--tinta-2); }
+.bloque-cuerpo { padding: 12px 14px; }
+.bloque-cuerpo:has(> .ant-table-wrapper:only-child) { padding: 0; }
+.bloque-cuerpo > .ant-table-wrapper .ant-table { border-radius: 0 0 3px 3px; }
+.columnas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; }
+.columnas-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 14px; }
+@media (max-width: 1100px) { .columnas-3 { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 860px) { .columnas, .columnas-3 { grid-template-columns: 1fr; } }
+
+/* ── Cifras: a lo ancho, en fila ── */
+.cifras { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin: 0; background: #fff; border: 1px solid var(--borde); border-radius: 3px; margin-bottom: 14px; }
+.bloque .cifras { border: 0; margin: -12px -14px 0; border-radius: 0; }
+.cifras > div { padding: 10px 14px 11px; border-right: 1px solid var(--borde); border-bottom: 1px solid var(--borde); margin-right: -1px; margin-bottom: -1px; min-width: 0; }
+.cifras dt { color: var(--tinta-2); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cifras dd { margin: 2px 0 0; font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.cifras small { display: block; margin-top: 2px; color: var(--tinta-3); font-size: 11.5px; }
+.cifras .con-enlace { cursor: pointer; }
+.cifras .con-enlace:hover { background: #f7f8fa; }
+.cifras .con-enlace:hover dt { color: var(--marino); text-decoration: underline; }
+.cifras .tono-rojo dd { color: var(--rojo); }
+.cifras .tono-naranjo dd { color: var(--naranjo); }
+.cifras .tono-verde dd { color: var(--verde); }
+
+/* ── Estados: el color en el texto y un fondo apenas teñido, siempre con su palabra ── */
+.estado { display: inline-flex; align-items: center; gap: 5px; padding: 0 7px; border-radius: 3px; font-size: 12px; line-height: 20px; white-space: nowrap; font-weight: 500; }
+.estado::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+.estado.gris { background: #eef1f4; color: #4a5662; }
+.estado.azul { background: #e8eefb; color: var(--azul); }
+.estado.verde { background: #e6f4ea; color: var(--verde); }
+.estado.rojo { background: #fdecec; color: var(--rojo); }
+.estado.naranjo { background: #fff1e0; color: var(--naranjo); }
+.estado.dorado { background: #fbf4d9; color: var(--dorado); }
+.factores > div { display: flex; justify-content: space-between; gap: 18px; }
+
+/* ── Medidor de uso ── */
+.medidor { display: inline-flex; align-items: center; gap: 8px; }
+.medidor-barra { display: inline-block; height: 6px; border-radius: 3px; overflow: hidden; }
+.medidor-barra > span { display: block; height: 100%; border-radius: 3px; }
+.medidor-barra.azul { background: #dfe6f5; } .medidor-barra.azul > span { background: var(--marino); }
+.medidor-barra.naranjo { background: #fde3c4; } .medidor-barra.naranjo > span { background: #d46b08; }
+.medidor-barra.rojo { background: #f9d3d3; } .medidor-barra.rojo > span { background: var(--rojo); }
+.medidor-valor { font-variant-numeric: tabular-nums; min-width: 38px; color: var(--tinta-2); font-size: 12px; }
+
+/* ── Gráfico de barras: una serie, barras finas con el extremo redondeado, guías de un pelo ── */
+.barras-lienzo { display: flex; position: relative; margin-top: 14px; }
+.barras-eje { display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end; padding-right: 8px; box-sizing: border-box; color: var(--tinta-3); font-size: 11px; font-variant-numeric: tabular-nums; margin-top: -7px; margin-bottom: -7px; }
+.barras-area { position: relative; flex: 1; border-bottom: 1px solid #c9d0d9; }
+.barras-guia { position: absolute; left: 0; right: 0; height: 1px; background: #eef1f4; }
+.barras-ranura { position: absolute; top: 0; bottom: 0; display: flex; align-items: flex-end; justify-content: center; box-sizing: border-box; padding: 0 1px; cursor: default; }
+.barras-barra { width: 100%; max-width: 24px; min-height: 1px; background: var(--marino); border-radius: 4px 4px 0 0; opacity: 0.88; }
+.barras-ranura.encima { background: rgba(30, 58, 138, 0.06); }
+.barras-ranura.encima .barras-barra { opacity: 1; }
+.barras-rotulo { position: absolute; transform: translate(-50%, -2px); font-size: 11px; color: var(--tinta-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.barras-tooltip { position: absolute; top: -6px; transform: translate(-50%, -100%); z-index: 2; padding: 5px 8px; background: #1b2430; color: #fff; border-radius: 3px; font-size: 12px; white-space: nowrap; pointer-events: none; }
+.barras-tooltip span { display: block; color: rgba(255, 255, 255, 0.7); font-size: 11px; }
+.barras-pie { display: flex; justify-content: space-between; margin-top: 4px; color: var(--tinta-3); font-size: 11px; }
+.barras-pie .enlace { font-size: 11.5px; }
+.barras .ant-table-wrapper { margin-top: 8px; }
+
+/* ── Tablas ── */
+.ant-table-wrapper .ant-table-thead > tr > th { font-weight: 600; font-size: 12px; }
+.ant-table-wrapper .ant-table-tbody > tr.fila-abre { cursor: pointer; }
+.fila-nombre { display: flex; flex-direction: column; min-width: 0; }
+.fila-nombre a, .fila-nombre b { font-weight: 600; }
+.fila-nombre small { color: var(--tinta-3); font-size: 11.5px; }
+.detalle { color: var(--tinta-2); }
+.evento-nombre { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.metadatos { margin: 0; padding: 8px 12px; background: #f7f8fa; border: 1px solid var(--borde); font-size: 11.5px; max-height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+
+/* ── Filtros: una fila sobre lo que filtran ── */
+.filtros { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.filtros .ant-select { min-width: 150px; }
+.filtros .buscar { width: 260px; }
+@media (max-width: 860px) { .filtros > * { flex: 1 1 100%; } .filtros .buscar { width: 100%; } }
+
+/* ── Alertas en lista ── */
+.lista-alertas { list-style: none; margin: 0; padding: 0; }
+.lista-alertas li { display: grid; grid-template-columns: 74px 1fr; gap: 2px 10px; padding: 8px 14px; border-bottom: 1px solid #f0f2f5; }
+.lista-alertas li:last-child { border-bottom: 0; }
+.lista-alertas li .titulo { font-weight: 600; }
+.lista-alertas li .det { grid-column: 2; color: var(--tinta-2); }
+.lista-alertas li a { font-weight: 500; }
+
+/* ── Ficha de datos: rótulo y valor ── */
+.ficha { display: grid; grid-template-columns: max-content 1fr; gap: 6px 18px; margin: 0; }
+.ficha dt { color: var(--tinta-2); }
+.ficha dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+
+.problema { margin-bottom: 14px; }
+.cargando { background: #fff; border: 1px solid var(--borde); padding: 16px; }
+.aviso-dev { margin-top: 10px; color: var(--tinta-3); font-size: 12px; }
+
+/* ── Entrar ── */
+.entrar { max-width: 760px; margin: 40px auto; padding: 0 16px; }
+.entrar h1 { font-size: 20px; margin: 0 0 4px; }
+.entrar .personas { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.entrar .persona { text-align: left; padding: 9px 12px; border: 1px solid var(--borde); background: #fff; border-radius: 3px; cursor: pointer; font: inherit; color: inherit; }
+.entrar .persona:hover { border-color: var(--marino); }
+.entrar .persona b { display: block; }
+.entrar .persona small { display: block; color: var(--tinta-2); }
+.ant-table-wrapper .ant-table-thead > tr > th { white-space: nowrap; }
+.ant-table-wrapper td .estado, .ant-table-wrapper td .medidor { vertical-align: middle; }

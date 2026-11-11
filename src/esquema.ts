@@ -1,0 +1,8 @@
+// Todas las tablas, para Drizzle y sus migraciones. Cada módulo define las suyas en su `tablas.ts`.
+export * from './modulos/eventos/tablas'
+export * from './modulos/facturacion/tablas'
+export * from './modulos/integraciones/tablas'
+export * from './modulos/soporte/tablas'
+export * from './modulos/tenants/tablas'
+export * from './modulos/uso/tablas'
+export * from './modulos/usuarios/tablas'
