@@ -15,6 +15,7 @@ import { apiKeys, integrations } from '../integraciones/tablas'
 import { customers, quotes } from '../comercial/tablas'
 import { impersonations } from '../soporte/tablas'
 import { services, serviceSpecialists, shopSections, taskHolds, workOrders, workOrderTasks } from '../taller/tablas'
+import { purchaseOrders, workOrderParts } from '../compras/tablas'
 import { type EstadoPago, type EstadoTenant, FUNCIONES_DEL_PLAN, type Funcion, PLANES, type Plan, type Region, type UsoClave } from '../tenants/reglas'
 import { tenants } from '../tenants/tablas'
 import { usageDaily } from '../uso/tablas'
@@ -182,6 +183,8 @@ export async function sembrarDemo(base: Base, ahora = new Date(), semilla = 2026
   const filasTareas: (typeof workOrderTasks.$inferInsert)[] = []
   const filasEspecialistas: (typeof serviceSpecialists.$inferInsert)[] = []
   const filasDetenciones: (typeof taskHolds.$inferInsert)[] = []
+  const filasOrdenes: (typeof purchaseOrders.$inferInsert)[] = []
+  const filasRepuestos: (typeof workOrderParts.$inferInsert)[] = []
   const filasCotizaciones: (typeof quotes.$inferInsert)[] = []
   const admins = new Map<string, string>()
   const usuariosDe = new Map<string, string[]>()
@@ -358,6 +361,8 @@ export async function sembrarDemo(base: Base, ahora = new Date(), semilla = 2026
     filasTareas.push(...taller.tareas)
     filasEspecialistas.push(...taller.especialistas)
     filasDetenciones.push(...taller.detenciones)
+    filasOrdenes.push(...taller.ordenes)
+    filasRepuestos.push(...taller.repuestos)
     filasCotizaciones.push(...taller.cotizaciones)
 
     // ── Uso diario: las OT, cotizaciones y documentos salen del taller; la API y el almacenamiento, del perfil ──
@@ -500,6 +505,8 @@ export async function sembrarDemo(base: Base, ahora = new Date(), semilla = 2026
     await enLotes(tx, workOrderTasks, filasTareas)
     await enLotes(tx, serviceSpecialists, filasEspecialistas)
     await enLotes(tx, taskHolds, filasDetenciones)
+    await enLotes(tx, purchaseOrders, filasOrdenes)
+    await enLotes(tx, workOrderParts, filasRepuestos)
     await enLotes(tx, quotes, filasCotizaciones, 200)
     await enLotes(tx, events, listaEventos, 300)
   })

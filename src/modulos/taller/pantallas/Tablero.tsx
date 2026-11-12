@@ -1,6 +1,6 @@
 // El tablero del taller: una columna por sección. Arriba, lo que se puede hacer ahora (primero lo que está en proceso,
-// después lo atrasado, lo urgente y lo que vence antes); abajo, lo que espera su turno en la ruta de su pieza y lo
-// detenido con su motivo. Cada columna dice su gente y su cola en días. Con «Solo mis trabajos», cada uno ve lo suyo.
+// después lo atrasado, lo urgente y lo que vence antes); abajo, lo detenido con su motivo, lo que espera repuestos y lo
+// que espera su turno en la ruta de su pieza. Cada columna dice su gente y su cola en días. Con «Solo mis trabajos», cada uno ve lo suyo.
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi, Link, useNavigate } from '@tanstack/react-router'
 import { Segmented } from 'antd'
@@ -9,7 +9,7 @@ import { Cargando, Hace, Problema } from '../../../pantallas/componentes'
 import { fecha, plural } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
 import { MOTIVOS_DETENCION, PIEZAS } from '../reglas'
-import { dias, folioOt, horas, PlazoTag, SituacionTag, textoEspera, usePersona, usePortal } from './comun'
+import { dias, folioOt, horas, PlazoTag, SituacionTag, textoEspera, textoFaltan, usePersona, usePortal } from './comun'
 import type { TarjetaTaller, Tablero as DatosTablero } from './tipos'
 import { BotonesDeTarea, useAccionesDeTarea } from './Trabajo'
 
@@ -29,7 +29,7 @@ export function Tablero() {
     <>
       <Encabezado
         titulo="Taller"
-        sub={`${plural(cuantas('in_progress', 'available'), 'trabajo')} para hacer ahora · ${cuantas('waiting')} esperan su turno · ${plural(cuantas('held'), 'detenido')}`}
+        sub={`${plural(cuantas('in_progress', 'available'), 'trabajo')} para hacer ahora · ${cuantas('parts')} esperan repuestos · ${cuantas('waiting')} esperan su turno · ${plural(cuantas('held'), 'detenido')}`}
         acciones={<Segmented value={mias ? 'mias' : 'todas'} onChange={(v) => ir({ search: { mias: v === 'mias' ? '1' : undefined }, replace: true })} options={[{ value: 'todas', label: 'Todo el taller' }, { value: 'mias', label: 'Solo mis trabajos' }]} />}
       />
       {mias && !todas.length && <p className="tenue">No tienes trabajos asignados. Te llegan solos si eres especialista de una actividad, o te los asigna el jefe de taller.</p>}
@@ -37,6 +37,7 @@ export function Tablero() {
         {secciones.map((s) => {
           const ahora = s.tareas.filter((t) => t.situacion === 'in_progress' || t.situacion === 'available')
           const esperan = s.tareas.filter((t) => t.situacion === 'waiting')
+          const sinRepuestos = s.tareas.filter((t) => t.situacion === 'parts')
           const detenidas = s.tareas.filter((t) => t.situacion === 'held')
           return (
             <section key={s.id} className="tablero-columna">
@@ -58,6 +59,14 @@ export function Tablero() {
                   <div className="tablero-grupo">
                     <h3>Detenidos ({detenidas.length})</h3>
                     {detenidas.map((t) => (
+                      <Tarjeta key={t.id} t={t} />
+                    ))}
+                  </div>
+                )}
+                {sinRepuestos.length > 0 && (
+                  <div className="tablero-grupo">
+                    <h3>Esperan repuestos ({sinRepuestos.length})</h3>
+                    {sinRepuestos.map((t) => (
                       <Tarjeta key={t.id} t={t} />
                     ))}
                   </div>
@@ -85,7 +94,7 @@ function Tarjeta({ t }: { t: TarjetaTaller }) {
   const portal = usePortal()
   const { persona, gestiona, trabaja, suspendida } = usePersona()
   const accion = useAccionesDeTarea()
-  const clase = t.situacion === 'held' ? ' detenida' : t.situacion === 'waiting' ? ' espera' : t.situacion === 'in_progress' ? ' en-proceso' : t.ot.plazo === 'atrasada' ? ' atrasada' : ''
+  const clase = t.situacion === 'held' ? ' detenida' : t.situacion === 'parts' ? ' sin-repuestos' : t.situacion === 'waiting' ? ' espera' : t.situacion === 'in_progress' ? ' en-proceso' : t.ot.plazo === 'atrasada' ? ' atrasada' : ''
   return (
     <article className={`tarjeta${clase}`}>
       <div className="tarjeta-cabeza">
@@ -107,6 +116,7 @@ function Tarjeta({ t }: { t: TarjetaTaller }) {
         {t.horas ? ` · ${horas(t.horas)}` : ''}
         {t.ot.entrega ? ` · entrega ${fecha(`${t.ot.entrega}T12:00:00Z`)}` : ''}
       </small>
+      {t.situacion === 'parts' && <small className="tarjeta-aviso dorado">{textoFaltan(t.faltan)}</small>}
       {t.situacion === 'waiting' && <small className="tarjeta-aviso">{textoEspera(t.espera)}</small>}
       {t.situacion === 'held' && t.detencion && (
         <small className="tarjeta-aviso naranjo">
@@ -116,7 +126,7 @@ function Tarjeta({ t }: { t: TarjetaTaller }) {
       )}
       <div className="tarjeta-pie">
         <span className="evento-nombre">
-          <SituacionTag situacion={t.situacion} detencion={t.detencion} espera={t.espera} />
+          <SituacionTag situacion={t.situacion} detencion={t.detencion} espera={t.espera} faltan={t.faltan} />
           {t.situacion === 'in_progress' && t.inicio && (
             <span className="tenue">
               desde <Hace iso={t.inicio} />

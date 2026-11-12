@@ -6,6 +6,7 @@ import type { Base } from '../../base'
 import { rechazo } from '../../http'
 import type { EntornoTenant } from '../acceso/guardias'
 import { quotes } from '../comercial/tablas'
+import type { purchaseOrders } from '../compras/tablas'
 import { diaDe } from '../plataforma/panorama'
 import { limitesDe, type UsoClave } from '../tenants/reglas'
 import { tenants } from '../tenants/tablas'
@@ -34,7 +35,7 @@ export function exigirMontos(c: Context<EntornoTenant>) {
  * El número que sigue en la serie del cliente (OT-1, OT-2…). Un cerrojo por tabla y cliente, dentro de la transacción:
  * si dos personas crean a la vez, la segunda espera y toma el siguiente.
  */
-export async function siguienteNumero(tx: Base, tabla: typeof workOrders | typeof quotes, tenantId: string) {
+export async function siguienteNumero(tx: Base, tabla: typeof workOrders | typeof quotes | typeof purchaseOrders, tenantId: string) {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`${getTableName(tabla)}:${tenantId}`}))`)
   const [{ ultimo }] = await tx.select({ ultimo: max(tabla.number) }).from(tabla).where(eq(tabla.tenantId, tenantId))
   return (ultimo ?? 0) + 1

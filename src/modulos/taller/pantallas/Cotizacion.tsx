@@ -1,7 +1,8 @@
 // Una cotización. En borrador se arma: actividades de la lista (cada una con su pieza y su sección), repuestos y otros
 // cargos, descuento, IVA y total. Las actividades se cuentan con los datos del motor: si se cambian los cilindros, las
-// líneas por cilindro se cuentan de nuevo. «Desglose por pieza» trae lo típico de cada pieza. Enviada, queda fija: se
-// acepta (y sus trabajos pasan a la OT), se rechaza o se anula.
+// líneas por cilindro se cuentan de nuevo. «Desglose por pieza» trae lo típico de cada pieza. Cada repuesto dice quién
+// lo compra (la rectificadora, a su proveedor y a un costo, o el cliente, que lo trae y no se cobra) y qué trabajo lo
+// espera. Enviada, queda fija: se acepta (sus trabajos y repuestos pasan a la OT), se rechaza o se anula.
 import { DeleteOutlined } from '@ant-design/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getRouteApi, Link, useNavigate } from '@tanstack/react-router'
@@ -11,7 +12,8 @@ import { api } from '../../../pantallas/api'
 import { Bloque, Cargando, Problema } from '../../../pantallas/componentes'
 import { fecha, fechaHora, plata, plural } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
-import { desglose, type Linea, lineaDe, recontar, TIPOS_LINEA, totales, faltasParaEnviar } from '../../comercial/reglas'
+import { desglose, type Linea, lineaDe, loTraeElCliente, recontar, TIPOS_LINEA, totales, faltasParaEnviar } from '../../comercial/reglas'
+import { QUIEN_COMPRA, type QuienCompra } from '../../compras/reglas'
 import { CILINDROS, PIEZAS, PIEZAS_SUELTAS, type Pieza } from '../reglas'
 import { comoSeCuenta, EstadoCotTag, EstadoOtTag, folioCot, folioOt, motorDeDatos, textoMotor, usePersona, usePortal } from './comun'
 import type { Catalogo, Cliente, DetalleCotizacion, DetalleOt } from './tipos'
@@ -147,7 +149,7 @@ function Editor({ id, numero, inicial }: { id: string | null; numero: number | n
           <>
             <Button onClick={() => setDesglosando(true)} disabled={catalogo.isPending}>Desglose por pieza</Button>
             <Select key={b.lineas.length} showSearch optionFilterProp="label" placeholder="Agregar actividad de la lista…" style={{ width: 360 }} value={null} options={opciones} onChange={(v) => v && agregarTrabajo(v)} />
-            <Button onClick={() => setB({ ...b, lineas: [...b.lineas, { tipo: 'repuesto', trabajoId: null, seccionId: null, codigo: null, descripcion: '', cantidad: 1, precio: null, horas: 0 }] })}>Agregar repuesto</Button>
+            <Button onClick={() => setB({ ...b, lineas: [...b.lineas, { tipo: 'repuesto', trabajoId: null, seccionId: null, codigo: null, descripcion: '', cantidad: 1, precio: null, horas: 0, compra: 'shop', proveedor: null, costo: null, necesita: null }] })}>Agregar repuesto</Button>
             <Button onClick={() => setB({ ...b, lineas: [...b.lineas, { tipo: 'otro', trabajoId: null, seccionId: null, codigo: null, descripcion: '', cantidad: 1, precio: null, horas: 0 }] })}>Otro cargo</Button>
           </>
         }
@@ -170,11 +172,44 @@ function Editor({ id, numero, inicial }: { id: string | null; numero: number | n
                     <Select size="small" style={{ width: 140 }} value={l.pieza ?? 'motor'} options={Object.entries(PIEZAS).map(([value, label]) => ({ value, label }))} onChange={(v) => cambiar(l.i, { pieza: v as Pieza })} />
                     <small>{seccion(l.seccionId)}</small>
                   </div>
+                ) : l.tipo === 'repuesto' ? (
+                  <div className="fila-nombre">
+                    <Select
+                      size="small"
+                      style={{ width: 140 }}
+                      value={l.compra ?? 'shop'}
+                      options={Object.entries(QUIEN_COMPRA).map(([value, label]) => ({ value, label: value === 'shop' ? 'Lo compramos' : 'Lo trae el cliente' }))}
+                      onChange={(v) => cambiar(l.i, v === 'customer' ? { compra: v as QuienCompra, precio: null, proveedor: null, costo: null } : { compra: v as QuienCompra })}
+                    />
+                    <small>Repuesto</small>
+                  </div>
                 ) : (
                   <span>{TIPOS_LINEA[l.tipo]}</span>
                 ),
             },
-            { title: 'Descripción', key: 'd', render: (_, l) => <Input size="small" value={l.descripcion} onChange={(e) => cambiar(l.i, { descripcion: e.target.value })} placeholder="Qué es" /> },
+            {
+              title: 'Descripción',
+              key: 'd',
+              render: (_, l) => (
+                <>
+                  <Input size="small" value={l.descripcion} onChange={(e) => cambiar(l.i, { descripcion: e.target.value })} placeholder="Qué es" />
+                  {l.tipo === 'repuesto' && (
+                    <div className="linea-repuesto">
+                      {!loTraeElCliente(l) && <Input size="small" style={{ width: 170 }} value={l.proveedor ?? ''} placeholder="Proveedor" onChange={(e) => cambiar(l.i, { proveedor: e.target.value || null })} />}
+                      {!loTraeElCliente(l) && <InputNumber size="small" style={{ width: 130 }} min={0} step={1000} value={l.costo ?? undefined} placeholder="Costo unitario" onChange={(v) => cambiar(l.i, { costo: v ?? null })} />}
+                      <Select
+                        size="small"
+                        style={{ width: 220 }}
+                        value={l.necesita ?? ''}
+                        title="El trabajo que no se puede empezar hasta que llegue"
+                        options={[{ value: '', label: 'Lo espera: el armado' }, ...b.lineas.filter((x) => x.tipo === 'trabajo' && x.codigo).map((x) => ({ value: x.codigo!, label: `Lo espera: ${x.descripcion}` }))]}
+                        onChange={(v) => cambiar(l.i, { necesita: v || null })}
+                      />
+                    </div>
+                  )}
+                </>
+              ),
+            },
             {
               title: 'Cantidad',
               key: 'c',
@@ -186,8 +221,18 @@ function Editor({ id, numero, inicial }: { id: string | null; numero: number | n
                 </div>
               ),
             },
-            { title: 'Valor por unidad', key: 'p', width: 150, render: (_, l) => <InputNumber size="small" min={0} step={1000} value={l.precio ?? undefined} status={l.precio ? undefined : 'warning'} placeholder="Falta" style={{ width: 130 }} onChange={(v) => cambiar(l.i, { precio: v ?? null })} /> },
-            { title: 'Total', key: 'tot', align: 'right', width: 120, render: (_, l) => (l.precio ? plata(Math.round(l.cantidad * l.precio)) : <span className="tenue">—</span>) },
+            {
+              title: 'Valor por unidad',
+              key: 'p',
+              width: 150,
+              render: (_, l) =>
+                loTraeElCliente(l) ? (
+                  <span className="tenue">No se cobra</span>
+                ) : (
+                  <InputNumber size="small" min={0} step={1000} value={l.precio ?? undefined} status={l.precio ? undefined : 'warning'} placeholder="Falta" style={{ width: 130 }} onChange={(v) => cambiar(l.i, { precio: v ?? null })} />
+                ),
+            },
+            { title: 'Total', key: 'tot', align: 'right', width: 120, render: (_, l) => (l.precio && !loTraeElCliente(l) ? plata(Math.round(l.cantidad * l.precio)) : <span className="tenue">—</span>) },
             { title: '', key: 'x', width: 1, render: (_, l) => <Button size="small" type="text" icon={<DeleteOutlined />} aria-label="Quitar línea" onClick={() => setB({ ...b, lineas: b.lineas.filter((_, j) => j !== l.i) })} /> },
           ]}
         />
@@ -328,11 +373,11 @@ function Documento({ q }: { q: DetalleCotizacion }) {
           scroll={{ x: 680 }}
           columns={[
             { title: 'Código', dataIndex: 'codigo', width: 80, render: (v: string | null) => v ?? '—' },
-            { title: 'Descripción', key: 'd', render: (_, l) => <div className="fila-nombre"><span>{l.descripcion}</span>{l.tipo === 'trabajo' && l.pieza && <small>{PIEZAS[l.pieza]}</small>}</div> },
+            { title: 'Descripción', key: 'd', render: (_, l) => <div className="fila-nombre"><span>{l.descripcion}</span>{l.tipo === 'trabajo' && l.pieza && <small>{PIEZAS[l.pieza]}</small>}{loTraeElCliente(l) && <small>Lo trae el cliente</small>}</div> },
             { title: 'Tipo', dataIndex: 'tipo', render: (v: Linea['tipo']) => TIPOS_LINEA[v] },
             { title: 'Cantidad', key: 'c', align: 'right', render: (_, l) => <div className="fila-nombre"><span>{l.cantidad}</span>{comoSeCuenta(l.criterio) && <small>{comoSeCuenta(l.criterio)}</small>}</div> },
-            { title: 'Valor por unidad', dataIndex: 'precio', align: 'right', render: (v: number | null) => (v ? plata(v) : '—') },
-            { title: 'Total', key: 't', align: 'right', render: (_, l) => plata(Math.round(l.cantidad * (l.precio ?? 0))) },
+            { title: 'Valor por unidad', key: 'p', align: 'right', render: (_, l) => (loTraeElCliente(l) ? <span className="tenue">No se cobra</span> : l.precio ? plata(l.precio) : '—') },
+            { title: 'Total', key: 't', align: 'right', render: (_, l) => (loTraeElCliente(l) ? <span className="tenue">—</span> : plata(Math.round(l.cantidad * (l.precio ?? 0)))) },
           ]}
         />
       </Bloque>

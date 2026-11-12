@@ -60,7 +60,7 @@ export async function actividadPorDia(base: Base, ahora: Date, dias: number, ten
       logins: cuenta(sql`${events.eventType} = 'user.login'`),
       usuarios: sql<number>`count(distinct ${events.userId}) filter (where ${events.eventType} = 'user.login')`.mapWith(Number),
       fallidos: cuenta(sql`${events.eventType} = 'user.failed_login'`),
-      operaciones: cuenta(sql`${events.eventType} in ('work_order.created', 'work_order.closed', 'work_order.cancelled', 'quote.sent', 'quote.accepted', 'quote.rejected')`),
+      operaciones: cuenta(sql`${events.eventType} in ('work_order.created', 'work_order.closed', 'work_order.cancelled', 'quote.sent', 'quote.accepted', 'quote.rejected', 'purchase_order.created', 'purchase_order.received')`),
     })
     .from(events)
     .where(and(gte(events.createdAt, hace(ahora, dias)), tenantId ? eq(events.tenantId, tenantId) : undefined))

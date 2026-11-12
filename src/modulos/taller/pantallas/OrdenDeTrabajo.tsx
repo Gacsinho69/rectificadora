@@ -1,17 +1,18 @@
 // Una orden de trabajo: el motor, cómo va cada pieza (lo que se contesta en el mesón), sus trabajos en el orden de la
-// ruta de su pieza con quién los tiene, su cotización y su historia.
+// ruta de su pieza con quién los tiene, sus repuestos (quién los compra, si llegaron), su cotización y su historia.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getRouteApi, Link, useNavigate } from '@tanstack/react-router'
-import { Alert, App, Button, DatePicker, Form, Input, InputNumber, Modal, Select, Table } from 'antd'
+import { Alert, App, Button, DatePicker, Form, Input, InputNumber, Modal, Radio, Select, Table } from 'antd'
 import dayjs from 'dayjs'
 import { useState } from 'react'
 import { api } from '../../../pantallas/api'
 import { Bloque, Cargando, Cifras, Problema } from '../../../pantallas/componentes'
 import { fecha, fechaHora, plata } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
+import { QUIEN_COMPRA, type QuienCompra } from '../../compras/reglas'
 import { cantidadSegun, MOTIVOS_DETENCION, nombreDeGrupo, PIEZAS, PIEZAS_SUELTAS, type Pieza, PRIORIDADES_OT } from '../reglas'
-import { Avance, CamposDelMotor, comoSeCuenta, EstadoCotTag, EstadoOtTag, folioCot, folioOt, horas, motorDeDatos, PlazoTag, SituacionTag, textoEspera, textoMotor, usePersona, usePortal } from './comun'
-import type { Catalogo, DetalleOt, Persona, PiezaDeOt, Tarea } from './tipos'
+import { Avance, CamposDelMotor, comoSeCuenta, enumerar, EstadoCotTag, EstadoOtTag, EstadoRepuestoTag, folioCot, folioOt, horas, motorDeDatos, PlazoTag, SituacionTag, textoEspera, textoFaltan, textoMotor, usePersona, usePortal } from './comun'
+import type { Catalogo, DetalleOt, Persona, PiezaDeOt, RepuestoDeOt, Tarea } from './tipos'
 import { BotonesDeTarea, useAccionesDeTarea } from './Trabajo'
 
 const ruta = getRouteApi('/c/$portal/ot/$id')
@@ -23,10 +24,18 @@ export function OrdenDeTrabajo() {
   const ir = useNavigate()
   const consultas = useQueryClient()
   const { message } = App.useApp()
-  const [dialogo, setDialogo] = useState<'trabajo' | 'editar' | 'entregar' | 'anular' | null>(null)
+  const [dialogo, setDialogo] = useState<'trabajo' | 'repuesto' | 'editar' | 'entregar' | 'anular' | null>(null)
   const r = useQuery({ queryKey: ['taller', 'ot', id], queryFn: () => api<DetalleOt>('GET', `/servicio/ot/${id}`) })
   const personas = useQuery({ queryKey: ['taller', 'personas'], queryFn: () => api<Persona[]>('GET', '/servicio/personas'), enabled: gestiona })
   const tarea = useAccionesDeTarea()
+  const recibir = useMutation({
+    mutationFn: (repuestoId: string) => api('POST', `/servicio/repuestos/${repuestoId}/recibir`),
+    onSuccess: () => {
+      message.success('Repuesto recibido: el trabajo que lo esperaba ya puede seguir.')
+      return consultas.invalidateQueries({ queryKey: ['taller'] })
+    },
+    onError: (e) => message.error((e as Error).message),
+  })
   const calidad = useMutation({
     mutationFn: () => api('POST', `/servicio/ot/${id}/calidad`),
     onSuccess: () => {
@@ -42,6 +51,7 @@ export function OrdenDeTrabajo() {
   const puede = gestiona && !suspendida && abierta
   const cotizacionVigente = ot.cotizaciones.find((q) => q.estado === 'accepted' || q.estado === 'sent' || q.estado === 'draft')
   const soloDiagnostico = ot.tareas.every((t) => t.diagnostico)
+  const enTaller = ot.estado === 'received' || ot.estado === 'diagnosis' || ot.estado === 'waiting_approval' || ot.estado === 'in_progress'
   /** Para asignar: primero quienes hacen esa actividad. */
   const opcionesDe = (t: Tarea) => {
     const lista = personas.data ?? []
@@ -122,8 +132,9 @@ export function OrdenDeTrabajo() {
               render: (_, t) => (
                 <div className="fila-nombre">
                   <span>
-                    <SituacionTag situacion={t.situacion} detencion={t.detencion} espera={t.espera} />
+                    <SituacionTag situacion={t.situacion} detencion={t.detencion} espera={t.espera} faltan={t.faltan} />
                   </span>
+                  {t.situacion === 'parts' && <small>{textoFaltan(t.faltan)}</small>}
                   {t.situacion === 'waiting' && <small>{textoEspera(t.espera)}</small>}
                   {t.situacion === 'held' && t.detencion?.nota && <small>{t.detencion.nota}</small>}
                 </div>
@@ -160,6 +171,36 @@ export function OrdenDeTrabajo() {
           </p>
         )}
       </Bloque>
+      {(ot.repuestos.length > 0 || (puede && enTaller)) && (
+        <Bloque titulo="Repuestos" extra={puede && enTaller ? <Button onClick={() => setDialogo('repuesto')}>Agregar repuesto</Button> : null}>
+          <Table<RepuestoDeOt>
+            size="small"
+            rowKey="id"
+            pagination={false}
+            dataSource={ot.repuestos}
+            scroll={{ x: 760 }}
+            locale={{ emptyText: 'Sin repuestos. Los cotizados aparecen aquí al aceptar la cotización.' }}
+            columns={[
+              { title: 'Repuesto', key: 'n', render: (_, r) => <div className="fila-nombre"><span>{r.descripcion}</span>{r.necesita && <small>Lo espera: {r.necesita}</small>}</div> },
+              { title: 'Cantidad', dataIndex: 'cantidad', align: 'right', width: 90 },
+              { title: 'Lo compra', key: 'c', width: 190, render: (_, r) => <div className="fila-nombre"><span>{QUIEN_COMPRA[r.compra]}</span>{r.proveedor && <small>{r.proveedor}</small>}</div> },
+              { title: 'Estado', key: 'e', width: 170, render: (_, r) => <div className="fila-nombre"><span><EstadoRepuestoTag compra={r.compra} estado={r.estado} /></span>{r.oc && <small>{r.oc}</small>}</div> },
+              { title: 'Llegó', dataIndex: 'recibido', width: 130, render: (v: string | null) => (v ? fechaHora(v) : <span className="tenue">—</span>) },
+              {
+                title: '',
+                key: 'x',
+                width: 1,
+                render: (_, r) =>
+                  puede && (r.estado === 'pending' || r.estado === 'ordered') ? (
+                    <Button size="small" loading={recibir.isPending && recibir.variables === r.id} onClick={() => recibir.mutate(r.id)} title={r.compra === 'customer' ? 'El cliente lo trajo' : 'Llegó al taller'}>
+                      Recibido
+                    </Button>
+                  ) : null,
+              },
+            ]}
+          />
+        </Bloque>
+      )}
       <div className="columnas">
         <Bloque titulo="El motor">
           <dl className="ficha">
@@ -218,6 +259,7 @@ export function OrdenDeTrabajo() {
         </ul>
       </Bloque>
       {dialogo === 'trabajo' && <AgregarTrabajo ot={ot} cerrar={() => setDialogo(null)} />}
+      {dialogo === 'repuesto' && <AgregarRepuesto ot={ot} veMontos={veMontos} cerrar={() => setDialogo(null)} />}
       {dialogo === 'editar' && <Editar ot={ot} cerrar={() => setDialogo(null)} />}
       {dialogo === 'entregar' && <Entregar otId={ot.id} contacto={ot.cliente.contacto} cerrar={() => setDialogo(null)} />}
       {dialogo === 'anular' && <Anular otId={ot.id} cerrar={() => setDialogo(null)} />}
@@ -233,6 +275,7 @@ function ComoVaCadaPieza({ piezas }: { piezas: PiezaDeOt[] }) {
     if (p.situacion === 'held' && a.detencion) return `Detenida: ${MOTIVOS_DETENCION[a.detencion.motivo].toLowerCase()}${a.detencion.nota ? ` (${a.detencion.nota})` : ''}`
     if (p.situacion === 'in_progress') return `En proceso: ${a.nombre}${a.asignado ? ` · ${a.asignado}` : ''}`
     if (p.situacion === 'available') return `Para hacer: ${a.nombre} · ${a.asignado ?? 'sin asignar'}`
+    if (p.situacion === 'parts') return `Espera repuestos: ${enumerar(a.faltan)}`
     return textoEspera(a.espera)
   }
   return (
@@ -301,6 +344,49 @@ function AgregarTrabajo({ ot, cerrar }: { ot: DetalleOt; cerrar: () => void }) {
             <InputNumber min={1} max={1000} />
           </Form.Item>
         </div>
+      </Form>
+    </Modal>
+  )
+}
+
+type DatosRepuesto = { descripcion: string; cantidad: number; compra: QuienCompra; proveedor?: string; costo?: number | null; necesitaTareaId?: string | null }
+
+/** Un repuesto que aparece con la OT abierta (una pieza que se quebró al armar): lo espera el trabajo que se elija, o el armado. */
+function AgregarRepuesto({ ot, veMontos, cerrar }: { ot: DetalleOt; veMontos: boolean; cerrar: () => void }) {
+  const [form] = Form.useForm<DatosRepuesto>()
+  const compra = Form.useWatch('compra', form) ?? 'shop'
+  const accion = useAccionOt(ot.id, 'repuestos', 'Repuesto agregado: queda por pedir (o por llegar, si lo trae el cliente).', cerrar)
+  const porHacer = ot.tareas.filter((t) => t.estado !== 'done')
+  return (
+    <Modal open title="Agregar un repuesto a la OT" okText="Agregar" cancelText="Cancelar" onCancel={cerrar} confirmLoading={accion.isPending} onOk={() => form.validateFields().then((v) => accion.mutate({ ...v, necesitaTareaId: v.necesitaTareaId ?? null }))} destroyOnHidden width={580}>
+      {accion.isError && <Alert type="error" showIcon title={(accion.error as Error).message} style={{ marginBottom: 12 }} />}
+      <Form form={form} layout="vertical" requiredMark={false} initialValues={{ cantidad: 1, compra: 'shop' }}>
+        <div className="columnas">
+          <Form.Item label="Repuesto" name="descripcion" rules={[{ required: true, message: 'Escribe el repuesto.' }, { min: 2 }]}>
+            <Input placeholder="Bomba de aceite" />
+          </Form.Item>
+          <Form.Item label="Cantidad" name="cantidad" rules={[{ required: true, message: 'Escribe la cantidad.' }]}>
+            <InputNumber min={1} max={10_000} style={{ width: '100%' }} />
+          </Form.Item>
+        </div>
+        <Form.Item label="Quién lo compra" name="compra">
+          <Radio.Group options={Object.entries(QUIEN_COMPRA).map(([value, label]) => ({ value, label: value === 'customer' ? `${label} (lo trae)` : label }))} />
+        </Form.Item>
+        {compra === 'shop' && (
+          <div className="columnas">
+            <Form.Item label="Proveedor" name="proveedor">
+              <Input placeholder="Repuestos Diesel Sur" />
+            </Form.Item>
+            {veMontos && (
+              <Form.Item label="Costo por unidad (sin IVA)" name="costo">
+                <InputNumber min={0} step={1000} style={{ width: '100%' }} />
+              </Form.Item>
+            )}
+          </div>
+        )}
+        <Form.Item label="Lo espera" name="necesitaTareaId" extra="Ese trabajo no se puede empezar hasta que el repuesto llegue.">
+          <Select allowClear placeholder="El armado" options={porHacer.map((t) => ({ value: t.id, label: t.nombre }))} />
+        </Form.Item>
       </Form>
     </Modal>
   )

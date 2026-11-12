@@ -55,6 +55,10 @@ describe('el sistema de la rectificadora', () => {
 
     const tablero = (await pedir('us_a_member', 'GET', '/api/servicio/taller')).cuerpo
     expect(tablero.secciones.find((s: { nombre: string }) => s.nombre === 'Culatas').tareas).toHaveLength(1)
+    // El repuesto cotizado queda por pedir; cuando llega, el trabajo que lo espera puede seguir.
+    const [metales] = enTaller.repuestos
+    expect(metales).toMatchObject({ descripcion: 'Juego de metales', compra: 'shop', estado: 'pending' })
+    expect((await pedir('us_a_jefe', 'POST', `/api/servicio/repuestos/${metales.id}/recibir`)).estado).toBe(200)
 
     for (const t of enTaller.tareas.filter((t: { diagnostico: boolean }) => !t.diagnostico)) {
       await pedir('us_a_member', 'POST', `/api/servicio/tareas/${t.id}/iniciar`)

@@ -249,3 +249,17 @@ details.tablero-grupo { display: block; }
 @media (max-width: 560px) { .columnas-3 { grid-template-columns: 1fr; } }
 .tarjeta-pie { flex-wrap: wrap; }
 .tarjeta-cabeza a { white-space: nowrap; }
+
+/* Lo que espera repuestos: dorado, con lo que falta. */
+.tarjeta.sin-repuestos { border-left-color: var(--dorado); }
+.tarjeta-aviso.dorado { color: var(--dorado); }
+.pieza.parts { border-left-color: var(--dorado); }
+.pieza.parts small { color: var(--dorado); }
+.linea-repuesto { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+
+/* Los retiros del chofer: una tarjeta por orden de compra, con lo que hay que traer. */
+.retiros { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.retiro { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--borde); border-left: 3px solid var(--marino); border-radius: 3px; background: #fff; }
+.retiro-cabeza { display: flex; justify-content: space-between; gap: 8px; width: 100%; }
+.retiro ul, .lista-simple { margin: 0; padding-left: 18px; }
+.lista-simple { margin-bottom: 12px; }

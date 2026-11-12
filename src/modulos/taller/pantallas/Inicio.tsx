@@ -7,6 +7,7 @@ import { api } from '../../../pantallas/api'
 import { Bloque, Cargando, Cifras, Problema } from '../../../pantallas/componentes'
 import { cifra, fecha, plata, porcentaje } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
+import { folioOc } from '../../compras/reglas'
 import { AvanceOt, dias, EstadoOtTag, folioOt, horas, PlazoTag, SituacionTag, usePersona, usePortal } from './comun'
 import type { Inicio as DatosInicio } from './tipos'
 
@@ -35,7 +36,8 @@ export function Inicio() {
           { rotulo: 'Control de calidad', valor: cifra(d.cifras.calidad), enlace: aOts('quality') },
           { rotulo: 'Listas para entregar', valor: cifra(d.cifras.listas), tono: d.cifras.listas ? 'verde' : undefined, enlace: aOts('ready') },
           { rotulo: 'Atrasadas', valor: cifra(d.cifras.atrasadas), nota: `${d.cifras.porVencer} por vencer`, tono: d.cifras.atrasadas ? 'rojo' : undefined },
-          { rotulo: 'Trabajos detenidos', valor: cifra(d.cifras.detenidos), nota: 'faltan repuestos, cliente…', tono: d.cifras.detenidos ? 'naranjo' : undefined, enlace: () => ir({ to: '/c/$portal/taller', params: { portal } }) },
+          { rotulo: 'Esperan repuestos', valor: cifra(d.cifras.esperanRepuestos), nota: 'trabajos sin sus repuestos', tono: d.cifras.esperanRepuestos ? 'dorado' : undefined, enlace: () => ir({ to: '/c/$portal/compras', params: { portal } }) },
+          { rotulo: 'Trabajos detenidos', valor: cifra(d.cifras.detenidos), nota: 'cliente, terceros…', tono: d.cifras.detenidos ? 'naranjo' : undefined, enlace: () => ir({ to: '/c/$portal/taller', params: { portal } }) },
           { rotulo: 'Entregadas este mes', valor: cifra(d.cifras.entregadasMes), enlace: aOts('delivered') },
         ]}
       />
@@ -49,6 +51,29 @@ export function Inicio() {
           ]}
         />
       )}
+      {d.misRetiros.length > 0 && (
+        <Bloque titulo={`Mis retiros (${d.misRetiros.length})`} extra={<Link to="/c/$portal/compras" params={{ portal }}>Abrir en compras</Link>}>
+          <div className="retiros">
+            {d.misRetiros.map((o) => (
+              <article key={o.id} className="retiro">
+                <div className="retiro-cabeza">
+                  <b>
+                    {folioOc(o.numero)} · {o.proveedor}
+                  </b>
+                  {o.llega && <span className="tenue">llega {fecha(`${o.llega}T12:00:00Z`)}</span>}
+                </div>
+                <ul>
+                  {o.repuestos.map((x, i) => (
+                    <li key={i}>
+                      {x.cantidad} × {x.descripcion} <span className="tenue">({folioOt(x.ot)})</span>
+                    </li>
+                  ))}
+                </ul>
+              </article>
+            ))}
+          </div>
+        </Bloque>
+      )}
       {d.misTareas.length > 0 && (
         <Bloque titulo={`Mis trabajos (${d.misTareas.length})`} extra={<Link to="/c/$portal/taller" params={{ portal }} search={{ mias: '1' }}>Abrir en el taller</Link>}>
           <Table
@@ -60,7 +85,7 @@ export function Inicio() {
               { title: 'Trabajo', dataIndex: 'nombre', render: (v: string, t) => <div className="fila-nombre"><b>{v}</b><small>{t.seccion}</small></div> },
               { title: 'OT', key: 'ot', render: (_, t) => <Link to="/c/$portal/ot/$id" params={{ portal, id: t.otId }}>{folioOt(t.ot)}</Link> },
               { title: 'Motor', dataIndex: 'motor' },
-              { title: 'Situación', key: 's', render: (_, t) => <SituacionTag situacion={t.situacion} espera={t.espera} /> },
+              { title: 'Situación', key: 's', render: (_, t) => <SituacionTag situacion={t.situacion} espera={t.espera} faltan={t.faltan} /> },
               { title: 'Entrega', dataIndex: 'entrega', render: (v: string | null) => (v ? fecha(`${v}T12:00:00Z`) : '—') },
             ]}
           />

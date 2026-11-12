@@ -1,5 +1,6 @@
 // Lo que responde la API del sistema de la rectificadora, como lo ven las pantallas.
 import type { EstadoCotizacion, Linea } from '../../comercial/reglas'
+import type { EstadoOc, EstadoRepuesto, QuienCompra } from '../../compras/reglas'
 import type { RolTenant } from '../../usuarios/reglas'
 import type { Criterio, EstadoOt, EstadoTarea, GrupoDeOt, MotivoDetencion, Pieza, PrioridadOt, Situacion } from '../reglas'
 
@@ -42,10 +43,12 @@ export type CargaSeccion = {
 export type CargaPersona = { id: string; nombre: string; rol: RolTenant; actividades: number; secciones: string[]; trabajos: number; enProceso: number; ahora: number; espera: number; detenidas: number; nDetenidas: number; sinAsignar: number }
 
 export type Inicio = {
-  cifras: { recibidas: number; esperando: number; enTaller: number; calidad: number; listas: number; atrasadas: number; porVencer: number; entregadasMes: number; detenidos: number }
+  cifras: { recibidas: number; esperando: number; enTaller: number; calidad: number; listas: number; atrasadas: number; porVencer: number; entregadasMes: number; detenidos: number; esperanRepuestos: number }
   urgentes: FilaOt[]
   carga: { seccionId: string; nombre: string; gente: number; enProceso: number; ahora: number; espera: number; detenidos: number; sinAsignar: number; dias: number | null }[]
-  misTareas: { id: string; nombre: string; estado: EstadoTarea; situacion: Situacion; espera: string[]; otId: string; ot: number; motor: string; entrega: string | null; seccion: string; pieza: Pieza }[]
+  misTareas: { id: string; nombre: string; estado: EstadoTarea; situacion: Situacion; espera: string[]; faltan: string[]; otId: string; ot: number; motor: string; entrega: string | null; seccion: string; pieza: Pieza }[]
+  /** Las órdenes de compra que tiene que ir a buscar quien mira (el chofer de compras). */
+  misRetiros: { id: string; numero: number; proveedor: string; llega: string | null; repuestos: { descripcion: string; cantidad: number; ot: number }[] }[]
   comercial: { enviadasMes: number; cotizadoMes: number; aceptadasMes: number; aceptadoMes: number; pendientes: number; montoPendiente: number; tasaAceptacion: number | null } | null
 }
 
@@ -66,6 +69,8 @@ export type Tarea = {
   estado: EstadoTarea
   situacion: Situacion
   espera: string[]
+  /** Los repuestos que necesita y no han llegado. */
+  faltan: string[]
   detencion: Detencion | null
   adelantado: boolean
   horas: number
@@ -76,7 +81,23 @@ export type Tarea = {
 }
 
 /** Cómo va una pieza de la OT (o su diagnóstico, o el armado y control). */
-export type PiezaDeOt = { clave: GrupoDeOt; nombre: string; avance: number; total: number; hechas: number; situacion: Situacion; actual: { nombre: string; asignado: string | null; espera: string[]; detencion: Detencion | null } | null }
+export type PiezaDeOt = { clave: GrupoDeOt; nombre: string; avance: number; total: number; hechas: number; situacion: Situacion; actual: { nombre: string; asignado: string | null; espera: string[]; faltan: string[]; detencion: Detencion | null } | null }
+
+/** Un repuesto de la OT: quién lo compra, en qué va (por pedir, pedido, recibido) y qué trabajo lo espera. */
+export type RepuestoDeOt = {
+  id: string
+  descripcion: string
+  cantidad: number
+  compra: QuienCompra
+  proveedor: string | null
+  costo: number | null
+  estado: EstadoRepuesto
+  oc: string | null
+  ocId: string | null
+  necesitaId: string | null
+  necesita: string | null
+  recibido: string | null
+}
 
 export type DetalleOt = {
   id: string
@@ -102,6 +123,7 @@ export type DetalleOt = {
   motivoAnulacion: string | null
   tareas: Tarea[]
   porPieza: PiezaDeOt[]
+  repuestos: RepuestoDeOt[]
   cotizaciones: { id: string; numero: number; estado: EstadoCotizacion; total: number; enviada: string | null; decidida: string | null }[]
   historia: { en: string; que: string; quien: string | null }[]
 }
@@ -114,6 +136,7 @@ export type TarjetaTaller = {
   estado: EstadoTarea
   situacion: Situacion
   espera: string[]
+  faltan: string[]
   detencion: Detencion | null
   horas: number
   asignadoId: string | null
@@ -173,3 +196,38 @@ export type DetalleCotizacion = {
   decidida: string | null
   nota: string | null
 }
+
+/** Un repuesto en las compras: de qué OT es, quién lo compra y qué trabajo lo espera. */
+export type RepuestoEnCompras = {
+  id: string
+  descripcion: string
+  cantidad: number
+  compra: QuienCompra
+  proveedor: string | null
+  costo: number | null
+  estado: EstadoRepuesto
+  ot: { id: string; numero: number; motor: string }
+  cliente: string
+  necesita: string | null
+  ocId: string | null
+  recibido: string | null
+  creado: string
+}
+
+export type OrdenDeCompra = {
+  id: string
+  numero: number
+  proveedor: string
+  chofer: { id: string; nombre: string } | null
+  estado: EstadoOc
+  llega: string | null
+  nota: string | null
+  creada: string
+  recibida: string | null
+  anulada: string | null
+  motivo: string | null
+  costo: number | null
+  repuestos: RepuestoEnCompras[]
+}
+
+export type Compras = { porPedir: RepuestoEnCompras[]; clientes: RepuestoEnCompras[]; ordenes: OrdenDeCompra[] }

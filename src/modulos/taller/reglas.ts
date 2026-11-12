@@ -95,7 +95,7 @@ export const MOTIVOS_DETENCION = { parts: 'Faltan repuestos', customer: 'Falta r
 export type MotivoDetencion = keyof typeof MOTIVOS_DETENCION
 
 /** Dónde está un trabajo en su ruta: lo que se ve en el tablero. */
-export const SITUACIONES = { in_progress: 'En proceso', available: 'Para hacer', waiting: 'Espera su turno', held: 'Detenido', done: 'Terminado' } as const
+export const SITUACIONES = { in_progress: 'En proceso', available: 'Para hacer', parts: 'Espera repuestos', waiting: 'Espera su turno', held: 'Detenido', done: 'Terminado' } as const
 export type Situacion = keyof typeof SITUACIONES
 
 export const PRIORIDADES_OT = { normal: 'Normal', urgent: 'Urgente' } as const
@@ -144,8 +144,8 @@ export function plazoDeOt(entrega: string | null, estado: EstadoOt, hoy: string)
   return dias <= 2 ? 'por_vencer' : null
 }
 
-/** Un trabajo de una OT visto en su ruta. */
-export type TrabajoEnRuta = { id: string; pieza: Pieza; paso: number; estado: EstadoTarea; detenido: boolean; adelantado: boolean }
+/** Un trabajo de una OT visto en su ruta. `faltanRepuestos`: cuántos de los repuestos que necesita no han llegado. */
+export type TrabajoEnRuta = { id: string; pieza: Pieza; paso: number; estado: EstadoTarea; detenido: boolean; adelantado: boolean; faltanRepuestos?: number }
 
 /**
  * Lo que falta terminar en la OT antes de empezar `t`. Cada pieza sigue su ruta: un trabajo espera a los de paso menor
@@ -156,12 +156,16 @@ export function anteriores<T extends TrabajoEnRuta>(t: TrabajoEnRuta, deLaOt: T[
   return deLaOt.filter((u) => u.id !== t.id && u.estado !== 'done' && u.paso < t.paso && (t.pieza === 'motor' || u.pieza === 'motor' || u.pieza === t.pieza))
 }
 
-/** Detenido manda; después, lo que está en proceso; lo que espera lo anterior no se puede empezar, salvo adelantado. */
+/**
+ * Detenido manda; después, lo que está en proceso. No se puede empezar lo que espera repuestos (se dice primero: es lo
+ * que hay que ir a buscar) ni lo que espera lo anterior de su ruta, salvo que el jefe de taller lo adelante.
+ */
 export function situacionDe(t: TrabajoEnRuta, deLaOt: TrabajoEnRuta[]): Situacion {
   if (t.estado === 'done') return 'done'
   if (t.detenido) return 'held'
   if (t.estado === 'in_progress') return 'in_progress'
   if (t.adelantado) return 'available'
+  if (t.faltanRepuestos) return 'parts'
   return anteriores(t, deLaOt).length ? 'waiting' : 'available'
 }
 
@@ -174,7 +178,8 @@ export const ordenDeGrupo = (g: GrupoDeOt) => ORDEN_GRUPOS.indexOf(g)
 
 /**
  * Cómo va cada pieza de una OT: lo que se contesta en el mesón («la culata está lista, el block espera pistones»).
- * La situación de la pieza es la del trabajo que la tiene ocupada: detenido, en proceso, para hacer o esperando.
+ * La situación de la pieza es la del trabajo que la tiene ocupada: detenido, en proceso, para hacer o esperando
+ * repuestos o su turno.
  */
 export function piezasDeOt<T extends TrabajoEnRuta & { diagnostico: boolean; minutos: number; situacion: Situacion }>(tareas: T[]) {
   const grupos = new Map<GrupoDeOt, T[]>()
@@ -182,7 +187,7 @@ export function piezasDeOt<T extends TrabajoEnRuta & { diagnostico: boolean; min
   return ORDEN_GRUPOS.filter((g) => grupos.has(g)).map((g) => {
     const lista = grupos.get(g)!
     const primera = (s: Situacion) => lista.find((t) => t.situacion === s)
-    const actual = primera('held') ?? primera('in_progress') ?? primera('available') ?? primera('waiting') ?? null
+    const actual = primera('held') ?? primera('in_progress') ?? primera('available') ?? primera('parts') ?? primera('waiting') ?? null
     return {
       clave: g,
       nombre: nombreDeGrupo(g),

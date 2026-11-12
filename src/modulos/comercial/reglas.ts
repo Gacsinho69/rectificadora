@@ -1,7 +1,9 @@
 // La cotización de una rectificadora: actividades de la lista (con su sección y su pieza), repuestos y otros cargos;
 // descuento, IVA 19 % y total, en pesos. Las actividades se cuentan con los datos del motor: el rectificado de
-// cilindros de un motor de 6 cilindros va por 6. Sin servidor: la pantalla calcula igual que el servidor.
+// cilindros de un motor de 6 cilindros va por 6. Cada repuesto dice quién lo compra: la rectificadora (a su proveedor,
+// a un costo) o el cliente, que lo trae y no se le cobra. Sin servidor: la pantalla calcula igual que el servidor.
 import { z } from 'zod'
+import { QUIEN_COMPRA, type QuienCompra } from '../compras/reglas'
 import { cantidadSegun, type Criterio, CRITERIOS, type Motor, ordenDeGrupo, type Pieza, PIEZAS } from '../taller/reglas'
 
 export const IVA = 0.19
@@ -28,6 +30,13 @@ export type Linea = {
   pieza?: Pieza | null
   /** Cómo se cuenta: si cambian los cilindros, las líneas por cilindro se cuentan de nuevo. */
   criterio?: Criterio | null
+  /** Repuestos: quién lo compra. Lo que trae el cliente no se cobra. */
+  compra?: QuienCompra | null
+  /** Repuestos que compra la rectificadora: a quién y a cuánto por unidad (interno; el cliente ve el precio). */
+  proveedor?: string | null
+  costo?: number | null
+  /** Repuestos: el código de la actividad cotizada que no puede empezar sin él. Vacío: el armado. */
+  necesita?: string | null
 }
 
 export const lineaSchema = z.object({
@@ -41,6 +50,10 @@ export const lineaSchema = z.object({
   horas: z.number().min(0).max(1000),
   pieza: z.enum(Object.keys(PIEZAS) as [Pieza, ...Pieza[]]).nullable().optional(),
   criterio: z.enum(Object.keys(CRITERIOS) as [Criterio, ...Criterio[]]).nullable().optional(),
+  compra: z.enum(Object.keys(QUIEN_COMPRA) as [QuienCompra, ...QuienCompra[]]).nullable().optional(),
+  proveedor: z.string().trim().max(120).nullable().optional(),
+  costo: z.number().int().min(0).max(1_000_000_000).nullable().optional(),
+  necesita: z.string().max(40).nullable().optional(),
 })
 
 export const cotizacionSchema = z.object({
@@ -58,9 +71,12 @@ export type DatosCotizacion = z.infer<typeof cotizacionSchema>
 
 const redondear = (n: number) => Math.round(n)
 
-/** Subtotal, descuento, neto, IVA y total. Cada línea se redondea al peso; las líneas sin precio no suman. */
-export function totales(lineas: Pick<Linea, 'cantidad' | 'precio'>[], descuento: number) {
-  const subtotal = lineas.reduce((s, l) => s + redondear(l.cantidad * (l.precio ?? 0)), 0)
+/** Lo que trae el cliente no se cobra: no suma ni necesita precio. */
+export const loTraeElCliente = (l: { tipo?: TipoLinea; compra?: QuienCompra | null }) => l.tipo === 'repuesto' && l.compra === 'customer'
+
+/** Subtotal, descuento, neto, IVA y total. Cada línea se redondea al peso; las sin precio y las que trae el cliente no suman. */
+export function totales(lineas: (Pick<Linea, 'cantidad' | 'precio'> & Partial<Pick<Linea, 'tipo' | 'compra'>>)[], descuento: number) {
+  const subtotal = lineas.filter((l) => !loTraeElCliente(l)).reduce((s, l) => s + redondear(l.cantidad * (l.precio ?? 0)), 0)
   const rebaja = redondear((subtotal * descuento) / 100)
   const neto = subtotal - rebaja
   const iva = redondear(neto * IVA)
@@ -68,11 +84,11 @@ export function totales(lineas: Pick<Linea, 'cantidad' | 'precio'>[], descuento:
 }
 
 /** Lo que impide enviar una cotización, en palabras del taller. Vacío: se puede enviar. */
-export function faltasParaEnviar(lineas: Pick<Linea, 'descripcion' | 'precio'>[]): string[] {
+export function faltasParaEnviar(lineas: (Pick<Linea, 'descripcion' | 'precio'> & Partial<Pick<Linea, 'tipo' | 'compra'>>)[]): string[] {
   const faltas: string[] = []
   if (!lineas.length) faltas.push('Agrega al menos una línea.')
-  const sinPrecio = lineas.filter((l) => l.precio === null || l.precio === 0)
-  if (sinPrecio.length) faltas.push(`Falta el precio de: ${sinPrecio.map((l) => l.descripcion).join(', ')}.`)
+  const sinPrecio = lineas.filter((l) => !loTraeElCliente(l) && (l.precio === null || l.precio === 0))
+  if (sinPrecio.length) faltas.push(`Falta el precio de: ${sinPrecio.map((l) => l.descripcion.trim() || 'una línea sin nombre').join(', ')}.`)
   return faltas
 }
 

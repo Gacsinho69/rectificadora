@@ -4,6 +4,8 @@
 import { and, asc, eq, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm'
 import type { Base } from '../../base'
 import { customers } from '../comercial/tablas'
+import { POR_LLEGAR } from '../compras/reglas'
+import { workOrderParts } from '../compras/tablas'
 import { users } from '../usuarios/tablas'
 import { anteriores, diasDeCola, type EstadoOt, type MotivoDetencion, responsableDe, type Situacion, situacionDe, type TrabajoEnRuta } from './reglas'
 import { services, serviceSpecialists, shopSections, taskHolds, workOrders, workOrderTasks } from './tablas'
@@ -17,13 +19,35 @@ type Fila = { t: typeof workOrderTasks.$inferSelect; detencion: { id: string | n
 export const detencionAbierta = { id: taskHolds.id, motivo: taskHolds.reason, nota: taskHolds.note, desde: taskHolds.createdAt, por: taskHolds.createdBy }
 export const unirDetencion = and(eq(taskHolds.taskId, workOrderTasks.id), isNull(taskHolds.resolvedAt))
 
+/** Los repuestos que todavía no llegan, por el trabajo que los espera: lo que hace «esperar repuestos». */
+export async function faltantesPorTrabajo(base: Base, tenantId: string, otIds: string[]) {
+  const faltan = new Map<string, string[]>()
+  if (!otIds.length) return faltan
+  const filas = await base
+    .select({ tarea: workOrderParts.neededByTaskId, nombre: workOrderParts.description })
+    .from(workOrderParts)
+    .where(and(eq(workOrderParts.tenantId, tenantId), inArray(workOrderParts.workOrderId, [...new Set(otIds)]), inArray(workOrderParts.status, POR_LLEGAR), isNotNull(workOrderParts.neededByTaskId)))
+  for (const f of filas) faltan.set(f.tarea!, [...(faltan.get(f.tarea!) ?? []), f.nombre])
+  return faltan
+}
+
 /**
- * Cada trabajo con su situación en la ruta y, si espera su turno, los trabajos que espera. `filas` trae todos los
- * trabajos de cada OT que importan: los terminados no hacen esperar a nadie, así que pueden faltar.
+ * Cada trabajo con su situación en la ruta, los trabajos que espera y los repuestos que le faltan. `filas` trae todos
+ * los trabajos de cada OT que importan: los terminados no hacen esperar a nadie, así que pueden faltar.
  */
-export function conSituacion<F extends Fila>(filas: F[]) {
+export function conSituacion<F extends Fila>(filas: F[], faltan = new Map<string, string[]>()) {
   type EnRuta = TrabajoEnRuta & { nombre: string; posicion: number }
-  const enRuta = (f: F): EnRuta => ({ id: f.t.id, nombre: f.t.name, posicion: f.t.position, pieza: f.t.piece, paso: f.t.step, estado: f.t.status, detenido: Boolean(f.detencion?.id), adelantado: Boolean(f.t.advancedAt) })
+  const enRuta = (f: F): EnRuta => ({
+    id: f.t.id,
+    nombre: f.t.name,
+    posicion: f.t.position,
+    pieza: f.t.piece,
+    paso: f.t.step,
+    estado: f.t.status,
+    detenido: Boolean(f.detencion?.id),
+    adelantado: Boolean(f.t.advancedAt),
+    faltanRepuestos: faltan.get(f.t.id)?.length ?? 0,
+  })
   const porOt = new Map<string, EnRuta[]>()
   for (const f of filas) {
     const lista = porOt.get(f.t.workOrderId) ?? []
@@ -36,7 +60,8 @@ export function conSituacion<F extends Fila>(filas: F[]) {
     const deLaOt = porOt.get(f.t.workOrderId)!
     const yo = enRuta(f)
     const situacion: Situacion = situacionDe(yo, deLaOt)
-    return { ...f, situacion, espera: situacion === 'waiting' ? anteriores(yo, deLaOt).map((u) => u.nombre) : [] }
+    const espera = situacion === 'waiting' || situacion === 'parts' ? anteriores(yo, deLaOt).map((u) => u.nombre) : []
+    return { ...f, situacion, espera, faltan: faltan.get(f.t.id) ?? [] }
   })
 }
 
@@ -61,7 +86,7 @@ export async function trabajosAbiertos(base: Base, tenantId: string) {
     .innerJoin(shopSections, eq(shopSections.id, workOrderTasks.sectionId))
     .leftJoin(taskHolds, unirDetencion)
     .where(and(eq(workOrderTasks.tenantId, tenantId), ne(workOrderTasks.status, 'done'), inArray(workOrders.status, OT_EN_TALLER)))
-  return conSituacion(filas)
+  return conSituacion(filas, await faltantesPorTrabajo(base, tenantId, filas.map((f) => f.ot.id)))
 }
 export type TrabajoAbierto = Awaited<ReturnType<typeof trabajosAbiertos>>[number]
 
@@ -74,7 +99,7 @@ function sumar(s: Suma, f: TrabajoAbierto) {
   if (f.situacion === 'held') {
     s.detenidas += minutos
     s.nDetenidas++
-  } else if (f.situacion === 'waiting') s.espera += minutos
+  } else if (f.situacion === 'waiting' || f.situacion === 'parts') s.espera += minutos
   else {
     s.ahora += minutos
     if (f.situacion === 'in_progress') s.enProceso++

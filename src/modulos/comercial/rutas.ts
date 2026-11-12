@@ -7,6 +7,8 @@ import type { Base } from '../../base'
 import { conDatos, conFiltros, rechazo } from '../../http'
 import { nuevoId } from '../../ids'
 import { type EntornoTenant, filaDelTenant, filasDelTenant } from '../acceso/guardias'
+import { trabajoQueLoNecesita } from '../compras/reglas'
+import { workOrderParts } from '../compras/tablas'
 import { origenDe, registrar } from '../eventos/registrar'
 import { exigirCupoDeOt, exigirGestion, exigirMontos, recalcularOt, siguienteNumero, sumarUso } from '../taller/comun'
 import { repartirOt } from '../taller/reparto'
@@ -92,6 +94,37 @@ async function pasarAlTaller(tx: Base, c: C, q: typeof quotes.$inferSelect) {
       }),
     )
   await repartirOt(tx, actor.tenantId, otId)
+  // Los repuestos cotizados quedan en la OT: por pedir (los compra la rectificadora) o por llegar (los trae el cliente),
+  // cada uno esperado por el trabajo que lo necesita: el que dice la línea, o el armado.
+  const repuestos = q.lines.filter((l) => l.tipo === 'repuesto')
+  if (repuestos.length) {
+    const tareas = await tx
+      .select({ id: workOrderTasks.id, codigo: services.code, pieza: workOrderTasks.piece, paso: workOrderTasks.step, estado: workOrderTasks.status, tipo: shopSections.kind })
+      .from(workOrderTasks)
+      .innerJoin(shopSections, eq(shopSections.id, workOrderTasks.sectionId))
+      .leftJoin(services, eq(services.id, workOrderTasks.serviceId))
+      .where(eq(workOrderTasks.workOrderId, otId))
+    const enLaOt = tareas.map((t) => ({ ...t, diagnostico: t.tipo === 'diagnosis' }))
+    const [{ ultimo }] = await tx.select({ ultimo: sql<number>`coalesce(max(${workOrderParts.position}), -1)`.mapWith(Number) }).from(workOrderParts).where(eq(workOrderParts.workOrderId, otId))
+    await tx.insert(workOrderParts).values(
+      repuestos.map((l, i) => ({
+        id: nuevoId('rep'),
+        tenantId: actor.tenantId,
+        workOrderId: otId!,
+        quoteId: q.id,
+        description: l.descripcion,
+        quantity: l.cantidad,
+        position: ultimo + 1 + i,
+        source: l.compra ?? ('shop' as const),
+        supplier: l.proveedor || null,
+        unitCost: l.costo ?? null,
+        neededByTaskId: trabajoQueLoNecesita(enLaOt, l.necesita)?.id ?? null,
+        status: 'pending' as const,
+        createdBy: actor.id,
+        createdAt: ahora,
+      })),
+    )
+  }
   await recalcularOt(tx, otId)
   return otId
 }

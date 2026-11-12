@@ -1,10 +1,14 @@
 // El trabajo de un taller de demostración: sus clientes, quién hace cada actividad y 90 días de motores que entran, se
-// diagnostican, se cotizan, se aprueban (o no), pasan por la ruta de cada pieza, por calidad y se entregan. Cada OT se
-// arma con su línea de tiempo completa y después se corta a la hora de «ahora»: lo que no alcanzó a pasar queda por
-// hacer, y lo que estaba detenido (faltan repuestos, el cliente no responde) sigue detenido.
+// diagnostican, se cotizan, se aprueban (o no), pasan por la ruta de cada pieza, por calidad y se entregan. Los
+// repuestos aceptados se piden al proveedor (una orden de compra por proveedor, que el chofer va a buscar) o los trae el
+// cliente, y el trabajo que los necesita empieza cuando llegan. Cada OT se arma con su línea de tiempo completa y
+// después se corta a la hora de «ahora»: lo que no alcanzó a pasar queda por hacer, lo pedido sigue por retirar y lo
+// detenido (el cliente no responde) sigue detenido.
 import type { Linea } from '../comercial/reglas'
 import { totales } from '../comercial/reglas'
 import type { customers, quotes } from '../comercial/tablas'
+import type { QuienCompra } from '../compras/reglas'
+import type { purchaseOrders, workOrderParts } from '../compras/tablas'
 import type { TipoEvento } from '../eventos/tipos'
 import { tallerInicial } from '../taller/comun'
 import { cantidadSegun, estadoDeOt, type Motor, type MotivoDetencion, nombreDeTarea, type Pieza } from '../taller/reglas'
@@ -55,22 +59,22 @@ const OFICIOS: { codigos: string[]; area: number | 'jefe'; tambien?: number | 'j
 
 /** Lo que a veces se detiene antes de empezar, por qué y qué se anota. */
 const DETENCIONES: Record<string, { motivo: MotivoDetencion; nota: string }[]> = {
-  'B-01': [{ motivo: 'parts', nota: 'Pistones sobremedida 0,50: llegan el jueves' }, { motivo: 'parts', nota: 'Esperando el kit de pistones del proveedor' }],
-  'B-03': [{ motivo: 'parts', nota: 'Camisas pedidas al proveedor' }],
-  'C-04': [{ motivo: 'parts', nota: 'Guías de válvula pedidas' }],
+  'B-05': [{ motivo: 'other', nota: 'La lineadora está en mantención hasta el jueves' }],
   'G-01': [{ motivo: 'customer', nota: 'El cliente debe aprobar el rectificado a 0,50' }],
-  'A-01': [{ motivo: 'parts', nota: 'Falta el juego de empaquetaduras' }, { motivo: 'customer', nota: 'El cliente debe aprobar el cambio de bomba de aceite' }],
+  'A-01': [{ motivo: 'customer', nota: 'El cliente debe aprobar el cambio de bomba de aceite' }],
 }
 const EQUIPOS = ['Bus', 'Camión', 'Tracto', 'Excavadora', 'Cargador frontal', 'Tractor agrícola', 'Camioneta', 'Grupo electrógeno', 'Grúa horquilla']
 const FALLAS = [
   'Consumo de aceite y humo azul', 'Pérdida de compresión en dos cilindros', 'Recalentamiento; culata con posible fisura', 'Golpe de biela',
   'Baja presión de aceite', 'Agua en el aceite', 'Fundió metales de bancada', 'Ruido en la distribución', 'Mantención mayor por horas de uso',
 ]
+/** Los repuestos que se cotizan, con el trabajo que los espera si no es el armado (los cilindros se rectifican a la medida del pistón). */
 const REPUESTOS = [
-  { descripcion: 'Kit de pistones y anillos', precio: 420_000 }, { descripcion: 'Juego de metales de bancada y biela', precio: 180_000 },
+  { descripcion: 'Kit de pistones y anillos', precio: 420_000, necesita: 'B-01' }, { descripcion: 'Juego de metales de bancada y biela', precio: 180_000 },
   { descripcion: 'Juego de empaquetaduras completo', precio: 150_000 }, { descripcion: 'Bomba de aceite', precio: 210_000 },
-  { descripcion: 'Juego de válvulas de admisión y escape', precio: 160_000 }, { descripcion: 'Camisas de cilindro (juego)', precio: 380_000 },
+  { descripcion: 'Juego de válvulas de admisión y escape', precio: 160_000, necesita: 'C-06' }, { descripcion: 'Camisas de cilindro (juego)', precio: 380_000, necesita: 'B-03' },
 ]
+const PROVEEDORES = ['Repuestos Diesel Sur', 'Importadora Motores del Pacífico', 'Distribuidora Pistones Chile', 'Casa del Repuesto Pesado']
 
 type Ayudas = { azar: () => number; entre: (a: number, b: number) => number; uno: <T>(l: readonly T[]) => T; id: (p: string) => string }
 type Persona = { id: string; role: RolTenant; status: string }
@@ -85,6 +89,8 @@ export type Taller = {
   especialistas: (typeof serviceSpecialists.$inferInsert)[]
   detenciones: (typeof taskHolds.$inferInsert)[]
   cotizaciones: (typeof quotes.$inferInsert)[]
+  ordenes: (typeof purchaseOrders.$inferInsert)[]
+  repuestos: (typeof workOrderParts.$inferInsert)[]
   /** Por día (AAAA-MM-DD): OT recibidas, cotizaciones creadas y documentos emitidos (cotizaciones enviadas y entregas). */
   porDia: Map<string, { ots: number; cotizaciones: number; documentos: number }>
 }
@@ -105,6 +111,8 @@ export function sembrarTaller(
   const tecnicos = activos.filter((p) => p.role === 'technician')
   const jefes = activos.filter((p) => p.role === 'planner' || p.role === 'admin')
   const quienRecibe = () => (jefes.length ? uno(jefes) : uno(activos))
+  // El chofer de compras: el último técnico (en un taller chico, el jefe va a buscar los repuestos).
+  const chofer = tecnicos.length > 1 ? tecnicos[tecnicos.length - 1] : (jefes[0] ?? activos[0])
 
   // Los especialistas de cada actividad, por oficio.
   const delOficio = (area: number | 'jefe') => {
@@ -132,6 +140,25 @@ export function sembrarTaller(
     const x = trabajo.get(codigo)!
     return { tipo: 'trabajo', trabajoId: x.id, seccionId: x.sectionId, codigo, descripcion: x.name, cantidad: cantidadSegun(x.criterion, m), precio: x.price ?? Math.round(entre(90, 260) * 1000), horas: x.stdHours, pieza: x.piece, criterio: x.criterion }
   }
+  /** Un repuesto cotizado: lo compra la rectificadora (con su proveedor y su costo) o, a veces, lo trae el cliente. */
+  const repuesto = (r: (typeof REPUESTOS)[number], cotizadas: Linea[]): Linea => {
+    const cliente = azar() < 0.18
+    const precio = Math.round((r.precio * (0.8 + azar() * 0.5)) / 1000) * 1000
+    return {
+      tipo: 'repuesto',
+      trabajoId: null,
+      seccionId: null,
+      codigo: null,
+      descripcion: r.descripcion,
+      cantidad: 1,
+      precio: cliente ? null : precio,
+      horas: 0,
+      compra: cliente ? 'customer' : 'shop',
+      proveedor: cliente ? null : uno(PROVEEDORES),
+      costo: cliente ? null : Math.round((precio * (0.6 + azar() * 0.15)) / 1000) * 1000,
+      necesita: r.necesita && cotizadas.some((x) => x.codigo === r.necesita) ? r.necesita : null,
+    }
+  }
   /** Lo que se cotiza según lo que llegó y lo que encontró el diagnóstico, pieza por pieza. */
   const cotizar = (piezas: Pieza[], m: Motor): Linea[] => {
     const linea = (codigo: string) => lineaDe(codigo, m)
@@ -158,14 +185,20 @@ export function sembrarTaller(
     if (completo || piezas.includes('bielas')) l.push(linea('G-05'))
     if (completo) {
       l.push(linea('A-01'), linea('A-03'), linea('Q-01'))
-      for (const r of REPUESTOS.filter(() => azar() < 0.45)) l.push({ tipo: 'repuesto', trabajoId: null, seccionId: null, codigo: null, descripcion: r.descripcion, cantidad: 1, precio: Math.round((r.precio * (0.8 + azar() * 0.5)) / 1000) * 1000, horas: 0 })
-    } else l.push(linea('Q-01'))
+      for (const r of REPUESTOS.filter(() => azar() < 0.45)) l.push(repuesto(r, l))
+    } else {
+      if (piezas.includes('culata') && azar() < 0.35) l.push(repuesto(REPUESTOS[4], l))
+      l.push(linea('Q-01'))
+    }
     return l
   }
 
   const ots: Taller['ots'] = []
   const tareas: Taller['tareas'] = []
   const detenciones: Taller['detenciones'] = []
+  const ordenes: Taller['ordenes'] = []
+  const repuestosOt: Taller['repuestos'] = []
+  let numeroOc = 0
   const cotizaciones: Taller['cotizaciones'] = []
   const porDia: Taller['porDia'] = new Map()
   const contar = (en: Date, campo: 'ots' | 'cotizaciones' | 'documentos') => {
@@ -215,8 +248,12 @@ export function sembrarTaller(
       const conLaPieza = trabajosOt.find((w) => w.tarea.piece === x.piece && w.tarea.assignedTo && gente.includes(w.tarea.assignedTo))
       return conLaPieza?.tarea.assignedTo ?? (gente.length ? uno(gente) : null)
     }
+    /** Cuándo llegan los repuestos que espera cada actividad de esta OT (por código). */
+    const llegaPara = new Map<string, Date>()
     const hacer = (x: (typeof trabajos)[number], cantidad: number) => {
       const quien = quienHace(x)
+      const repuestosListos = llegaPara.get(x.code)
+      if (repuestosListos && repuestosListos > reloj) reloj = repuestosListos
       const listo = reloj
       // A veces se detiene antes de empezar (los pistones no han llegado) y espera días a que se resuelva.
       const posible = DETENCIONES[x.code]
@@ -307,6 +344,23 @@ export function sembrarTaller(
         .filter((x) => x.tipo === 'trabajo' && !diagnosticos.includes(x.codigo!))
         .map((l) => ({ l, x: trabajo.get(l.codigo!)! }))
         .sort((a, b) => a.x.step - b.x.step)
+      // Los repuestos: el jefe pide lo suyo en el día (a veces junta pedidos y espera hasta tres), una orden por proveedor
+      // que el chofer trae en 1 a 4 días; lo del cliente llega en 1 a 5 días. Cada uno lo espera su trabajo: el que dice
+      // la cotización, o el armado.
+      const armado = (cotizados.find((c) => c.x.piece === 'motor' && c.x.sectionId !== diagnostico.id) ?? cotizados.at(-1))?.x.code
+      const pedido = enJornada(new Date(respuesta.getTime() + (2 + azar() ** 2 * 70) * HORA))
+      const llegaDe = new Map<string, Date>()
+      const repuestosCot = lineas
+        .filter((l) => l.tipo === 'repuesto')
+        .map((l) => {
+          const compra: QuienCompra = l.compra === 'customer' ? 'customer' : 'shop'
+          const proveedor = l.proveedor ?? uno(PROVEEDORES)
+          if (compra === 'shop' && !llegaDe.has(proveedor)) llegaDe.set(proveedor, enJornada(new Date(pedido.getTime() + (1 + azar() * 3) * DIA)))
+          const llega = compra === 'shop' ? llegaDe.get(proveedor)! : enJornada(new Date(respuesta.getTime() + (1 + azar() * 4) * DIA))
+          const espera = l.necesita ?? armado
+          if (espera && llega > (llegaPara.get(espera) ?? new Date(0))) llegaPara.set(espera, llega)
+          return { l, compra, proveedor, llega, espera }
+        })
       let finPiezas = respuesta
       for (const pieza of new Set(cotizados.filter((c) => c.x.piece !== 'motor').map((c) => c.x.piece))) {
         reloj = respuesta
@@ -315,6 +369,43 @@ export function sembrarTaller(
       }
       reloj = finPiezas
       for (const c of cotizados.filter((c) => c.x.piece === 'motor')) hacer(c.x, c.l.cantidad)
+      // Las órdenes de compra que alcanzaron a emitirse, y los repuestos de la OT con su estado de ahora.
+      const ocDe = new Map<string, string>()
+      if (pedido <= corte)
+        for (const [proveedor, llega] of llegaDe) {
+          const ocId = id('oc')
+          const numeroDeOc = ++numeroOc
+          const recibida = llega <= corte
+          ocDe.set(proveedor, ocId)
+          ordenes.push({ id: ocId, tenantId: t.tenantId, number: numeroDeOc, supplier: proveedor, driverId: chofer?.id ?? null, expectedAt: new Date(pedido.getTime() + 2 * DIA).toISOString().slice(0, 10), notes: null, status: recibida ? 'received' : 'open', createdBy: recibe.id, createdAt: pedido, receivedAt: recibida ? llega : null })
+          contar(pedido, 'documentos')
+          evento({ tenantId: t.tenantId, tipo: 'purchase_order.created', en: pedido, actorId: recibe.id, targetId: ocId, targetType: 'purchase_order', metadata: { numero: `OC-${String(numeroDeOc).padStart(4, '0')}`, proveedor } })
+          if (recibida) evento({ tenantId: t.tenantId, tipo: 'purchase_order.received', en: llega, actorId: chofer?.id ?? recibe.id, targetId: ocId, targetType: 'purchase_order', metadata: { numero: `OC-${String(numeroDeOc).padStart(4, '0')}`, proveedor } })
+        }
+      for (const [posicion, r] of repuestosCot.entries()) {
+        const tarea = trabajosOt.find((w) => w.tarea.serviceId === trabajo.get(r.espera ?? '')?.id)?.tarea
+        const ocId = r.compra === 'shop' ? ocDe.get(r.proveedor) : undefined
+        const recibido = r.llega <= corte && (r.compra === 'customer' || Boolean(ocId))
+        repuestosOt.push({
+          id: id('rep'),
+          tenantId: t.tenantId,
+          workOrderId: otId,
+          quoteId: qId,
+          description: r.l.descripcion,
+          quantity: r.l.cantidad,
+          position: posicion,
+          source: r.compra,
+          supplier: r.compra === 'shop' ? r.proveedor : null,
+          unitCost: r.l.costo ?? null,
+          neededByTaskId: tarea?.id ?? null,
+          status: recibido ? 'received' : ocId ? 'ordered' : 'pending',
+          purchaseOrderId: ocId ?? null,
+          createdBy: recibe.id,
+          createdAt: respuesta,
+          receivedAt: recibido ? r.llega : null,
+          receivedBy: recibido ? (r.compra === 'shop' ? (chofer?.id ?? recibe.id) : recibe.id) : null,
+        })
+      }
       calidad = enJornada(new Date(reloj.getTime() + (2 + azar() * 20) * HORA))
       entregada = enJornada(new Date(calidad.getTime() + (4 + azar() * 60) * HORA))
     } else if (estadoCot === 'rejected') {
@@ -364,5 +455,5 @@ export function sembrarTaller(
     }
     if (listaAnulacion) evento({ tenantId: t.tenantId, tipo: 'work_order.cancelled', en: listaAnulacion, actorId: recibe.id, targetId: otId, targetType: 'work_order', metadata: { numero, motivo: 'Cotización rechazada' } })
   }
-  return { secciones, trabajos, clientes, ots, tareas, especialistas, detenciones, cotizaciones, porDia }
+  return { secciones, trabajos, clientes, ots, tareas, especialistas, detenciones, cotizaciones, ordenes, repuestos: repuestosOt, porDia }
 }

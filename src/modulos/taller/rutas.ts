@@ -9,6 +9,10 @@ import { nuevoId } from '../../ids'
 import { type EntornoTenant, filaDelTenant, filasDelTenant, soloPersonaDelTenant } from '../acceso/guardias'
 import { rutasComercial } from '../comercial/rutas'
 import { quotes, customers } from '../comercial/tablas'
+import { anularRepuestosDeOt } from '../compras/comun'
+import { folioOc } from '../compras/reglas'
+import { rutasCompras } from '../compras/rutas'
+import { purchaseOrders, workOrderParts } from '../compras/tablas'
 import { origenDe, registrar } from '../eventos/registrar'
 import { diaDe } from '../plataforma/panorama'
 import { users } from '../usuarios/tablas'
@@ -31,7 +35,7 @@ import {
   type Situacion,
   unidadDe,
 } from './reglas'
-import { cargaDelTaller, conSituacion, detencionAbierta, detencionVisible, OT_EN_TALLER, repartirOt, type TrabajoAbierto, trabajosAbiertos, unirDetencion } from './reparto'
+import { cargaDelTaller, conSituacion, detencionAbierta, detencionVisible, faltantesPorTrabajo, OT_EN_TALLER, repartirOt, type TrabajoAbierto, trabajosAbiertos, unirDetencion } from './reparto'
 import { services, serviceSpecialists, shopSections, taskHolds, workOrders, workOrderTasks } from './tablas'
 
 type C = Context<EntornoTenant>
@@ -91,7 +95,7 @@ async function avancesDe(c: { var: EntornoTenant['Variables'] }, ids: string[]) 
 }
 
 /** El orden de una cola: lo que está en proceso, lo que se puede hacer (atrasado, urgente, lo que vence antes), lo que espera y lo detenido. */
-const RANGO: Record<Situacion, number> = { in_progress: 0, available: 1, waiting: 2, held: 3, done: 4 }
+const RANGO: Record<Situacion, number> = { in_progress: 0, available: 1, parts: 2, waiting: 3, held: 4, done: 5 }
 const enCola = (a: TrabajoAbierto, b: TrabajoAbierto, hoy: string) =>
   RANGO[a.situacion] - RANGO[b.situacion] ||
   Number(plazoDeOt(b.ot.entrega, b.ot.estado, hoy) === 'atrasada') - Number(plazoDeOt(a.ot.entrega, a.ot.estado, hoy) === 'atrasada') ||
@@ -136,12 +140,13 @@ async function enSuRuta(c: C, t: typeof workOrderTasks.$inferSelect) {
     .from(workOrderTasks)
     .leftJoin(taskHolds, unirDetencion)
     .where(and(eq(workOrderTasks.workOrderId, t.workOrderId), eq(workOrderTasks.tenantId, c.var.actor.tenantId), ne(workOrderTasks.status, 'done')))
-  return conSituacion(filas).find((f) => f.t.id === t.id)!
+  return conSituacion(filas, await faltantesPorTrabajo(c.var.base, c.var.actor.tenantId, [t.workOrderId])).find((f) => f.t.id === t.id)!
 }
 
-/** Lo detenido y lo que espera su turno no se inicia ni se termina; el mensaje dice qué falta. */
+/** Lo detenido, lo que espera repuestos y lo que espera su turno no se inicia ni se termina; el mensaje dice qué falta. */
 function exigirQueSePuedaHacer(f: Awaited<ReturnType<typeof enSuRuta>>) {
   if (f.situacion === 'held') throw rechazo(409, `Ese trabajo está detenido (${MOTIVOS_DETENCION[f.detencion!.motivo!].toLowerCase()}). Reanúdalo primero.`)
+  if (f.situacion === 'parts') throw rechazo(409, `Ese trabajo espera repuestos: ${enumerar(f.faltan)}. Cuando lleguen se puede empezar; el jefe de taller puede adelantarlo.`)
   if (f.situacion === 'waiting') throw rechazo(409, `Ese trabajo espera su turno: primero ${enumerar(f.espera)}. El jefe de taller puede adelantarlo.`)
 }
 
@@ -168,6 +173,19 @@ export const rutasTaller = new Hono<EntornoTenant>()
     const trabajos = await trabajosAbiertos(base, actor.tenantId)
     const { secciones } = await cargaDelTaller(base, actor.tenantId, trabajos)
     const misTareas = trabajos.filter((f) => f.t.assignedTo === actor.id).sort((a, b) => enCola(a, b, hoy))
+    // Los retiros del chofer: las órdenes de compra por retirar que tiene a su nombre, con lo que hay que traer.
+    const retiros = await base
+      .select({ id: purchaseOrders.id, numero: purchaseOrders.number, proveedor: purchaseOrders.supplier, llega: purchaseOrders.expectedAt })
+      .from(purchaseOrders)
+      .where(and(eq(purchaseOrders.tenantId, actor.tenantId), eq(purchaseOrders.driverId, actor.id), eq(purchaseOrders.status, 'open')))
+      .orderBy(asc(purchaseOrders.number))
+    const porTraer = retiros.length
+      ? await base
+          .select({ oc: workOrderParts.purchaseOrderId, descripcion: workOrderParts.description, cantidad: workOrderParts.quantity, ot: workOrders.number })
+          .from(workOrderParts)
+          .innerJoin(workOrders, eq(workOrders.id, workOrderParts.workOrderId))
+          .where(and(eq(workOrderParts.tenantId, actor.tenantId), inArray(workOrderParts.purchaseOrderId, retiros.map((r) => r.id)), eq(workOrderParts.status, 'ordered')))
+      : []
     let comercial = null
     if (veMontos(actor.rol)) {
       const inicioMes = `${hoy.slice(0, 7)}-01`
@@ -197,10 +215,12 @@ export const rutasTaller = new Hono<EntornoTenant>()
         porVencer: conPlazo.filter((o) => o.plazo === 'por_vencer').length,
         entregadasMes: ots.filter((o) => o.entregada).length,
         detenidos: trabajos.filter((f) => f.situacion === 'held').length,
+        esperanRepuestos: trabajos.filter((f) => f.situacion === 'parts').length,
       },
       urgentes: urgentes.map((o) => ({ ...o, creada: o.creada.toISOString(), entregada: undefined, ...avances.get(o.id) })),
       carga: secciones.map((s) => ({ seccionId: s.id, nombre: s.nombre, gente: s.gente.length, enProceso: s.enProceso, ahora: s.ahora, espera: s.espera, detenidos: s.nDetenidas, sinAsignar: s.sinAsignar, dias: s.dias })),
-      misTareas: misTareas.map((f) => ({ id: f.t.id, nombre: f.t.name, estado: f.t.status, situacion: f.situacion, espera: f.espera, otId: f.ot.id, ot: f.ot.numero, motor: f.ot.motor, entrega: f.ot.entrega, seccion: f.seccion, pieza: f.t.piece })),
+      misTareas: misTareas.map((f) => ({ id: f.t.id, nombre: f.t.name, estado: f.t.status, situacion: f.situacion, espera: f.espera, faltan: f.faltan, otId: f.ot.id, ot: f.ot.numero, motor: f.ot.motor, entrega: f.ot.entrega, seccion: f.seccion, pieza: f.t.piece })),
+      misRetiros: retiros.map((r) => ({ ...r, repuestos: porTraer.filter((x) => x.oc === r.id).map(({ descripcion, cantidad, ot }) => ({ descripcion, cantidad, ot })) })),
       comercial,
     })
   })
@@ -305,10 +325,16 @@ export const rutasTaller = new Hono<EntornoTenant>()
       .leftJoin(taskHolds, unirDetencion)
       .where(and(eq(workOrderTasks.workOrderId, ot.id), eq(workOrderTasks.tenantId, actor.tenantId)))
     // Por pieza (diagnóstico, cada pieza, armado y control) y, dentro, en el orden de su ruta.
-    const tareas = conSituacion(filas)
+    const tareas = conSituacion(filas, await faltantesPorTrabajo(base, actor.tenantId, [ot.id]))
       .map((f) => ({ ...f, diagnostico: f.tipoSeccion === 'diagnosis', pieza: f.t.piece }))
       .sort((a, b) => ordenDeGrupo(grupoDe(a)) - ordenDeGrupo(grupoDe(b)) || a.t.step - b.t.step || a.t.position - b.t.position)
     const detenciones = await base.select().from(taskHolds).where(and(eq(taskHolds.workOrderId, ot.id), eq(taskHolds.tenantId, actor.tenantId)))
+    const repuestos = await base
+      .select({ r: workOrderParts, oc: purchaseOrders.number })
+      .from(workOrderParts)
+      .leftJoin(purchaseOrders, eq(purchaseOrders.id, workOrderParts.purchaseOrderId))
+      .where(and(eq(workOrderParts.workOrderId, ot.id), eq(workOrderParts.tenantId, actor.tenantId)))
+      .orderBy(asc(workOrderParts.position))
     const cotizaciones = veMontos(actor.rol)
       ? await base
           .select({ id: quotes.id, numero: quotes.number, estado: quotes.status, total: quotes.total, enviada: quotes.sentAt, decidida: quotes.decidedAt })
@@ -332,6 +358,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
         t.startedAt ? { en: t.startedAt, que: `Inició: ${t.name}`, quien: quien(t.assignedTo) } : null,
         t.finishedAt ? { en: t.finishedAt, que: `Terminó: ${t.name}`, quien: quien(t.finishedBy) } : null,
       ]),
+      ...repuestos.map(({ r }) => (r.receivedAt ? { en: r.receivedAt, que: `Llegó el repuesto: ${r.description}`, quien: quien(r.receivedBy) } : null)),
       ...detenciones.flatMap((d) => [
         { en: d.createdAt, que: `Detenido: ${nombreDe.get(d.taskId) ?? 'un trabajo'} (${MOTIVOS_DETENCION[d.reason].toLowerCase()}${d.note ? `: ${d.note}` : ''})`, quien: quien(d.createdBy) },
         d.resolvedAt ? { en: d.resolvedAt, que: `Reanudado: ${nombreDe.get(d.taskId) ?? 'un trabajo'}`, quien: quien(d.resolvedBy) } : null,
@@ -357,6 +384,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
       estado: f.t.status,
       situacion: f.situacion,
       espera: f.espera,
+      faltan: f.faltan,
       detencion: detencionVisible(f.detencion, nombres),
       adelantado: Boolean(f.t.advancedAt),
       horas: f.t.stdMinutes / 60,
@@ -367,7 +395,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
     }))
     const porPieza = piezasDeOt(
       visibles.map((t) => ({ ...t, minutos: t.horas * 60, detenido: Boolean(t.detencion) })),
-    ).map((g) => ({ clave: g.clave, nombre: g.nombre, avance: g.avance, total: g.total, hechas: g.hechas, situacion: g.situacion, actual: g.actual ? { nombre: g.actual.nombre, asignado: g.actual.asignado, espera: g.actual.espera, detencion: g.actual.detencion } : null }))
+    ).map((g) => ({ clave: g.clave, nombre: g.nombre, avance: g.avance, total: g.total, hechas: g.hechas, situacion: g.situacion, actual: g.actual ? { nombre: g.actual.nombre, asignado: g.actual.asignado, espera: g.actual.espera, faltan: g.actual.faltan, detencion: g.actual.detencion } : null }))
     return c.json({
       id: ot.id,
       numero: ot.number,
@@ -392,6 +420,20 @@ export const rutasTaller = new Hono<EntornoTenant>()
       motivoAnulacion: ot.cancelReason,
       tareas: visibles,
       porPieza,
+      repuestos: repuestos.map(({ r, oc }) => ({
+        id: r.id,
+        descripcion: r.description,
+        cantidad: r.quantity,
+        compra: r.source,
+        proveedor: veMontos(actor.rol) ? r.supplier : null,
+        costo: veMontos(actor.rol) ? r.unitCost : null,
+        estado: r.status,
+        oc: oc ? folioOc(oc) : null,
+        ocId: r.purchaseOrderId,
+        necesitaId: r.neededByTaskId,
+        necesita: r.neededByTaskId ? (nombreDe.get(r.neededByTaskId) ?? null) : null,
+        recibido: iso(r.receivedAt),
+      })),
       cotizaciones: cotizaciones.map((q) => ({ ...q, enviada: iso(q.enviada), decidida: iso(q.decidida) })),
       historia,
     })
@@ -482,8 +524,9 @@ export const rutasTaller = new Hono<EntornoTenant>()
     const { motivo } = c.req.valid('json')
     await c.var.base.transaction(async (tx) => {
       await tx.update(workOrders).set({ cancelledAt: c.var.ahora, cancelReason: motivo }).where(eq(workOrders.id, ot.id))
-      // Lo detenido de una OT anulada ya no espera nada.
+      // Lo detenido de una OT anulada ya no espera nada, y sus repuestos ya no se esperan ni se compran.
       await tx.update(taskHolds).set({ resolvedAt: c.var.ahora, resolvedBy: c.var.actor.id }).where(and(eq(taskHolds.workOrderId, ot.id), isNull(taskHolds.resolvedAt)))
+      await anularRepuestosDeOt(tx, c.var.actor.tenantId, ot.id, c.var.ahora)
       await recalcularOt(tx, ot.id)
       await registrar(tx, origenDe(c), { tenantId: c.var.actor.tenantId, eventType: 'work_order.cancelled', targetId: ot.id, targetType: 'work_order', metadata: { numero: ot.number, motivo } })
     })
@@ -551,7 +594,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
     if (t.status !== 'pending') throw rechazo(409, 'Ese trabajo ya se inició.')
     const f = await enSuRuta(c, t)
     if (f.situacion === 'held') throw rechazo(409, 'Ese trabajo está detenido: reanúdalo primero.')
-    if (f.situacion !== 'waiting') throw rechazo(409, 'Ese trabajo ya se puede empezar.')
+    if (f.situacion !== 'waiting' && f.situacion !== 'parts') throw rechazo(409, 'Ese trabajo ya se puede empezar.')
     await c.var.base.update(workOrderTasks).set({ advancedAt: c.var.ahora, advancedBy: c.var.actor.id }).where(eq(workOrderTasks.id, t.id))
     return c.json({ ok: true })
   })
@@ -609,6 +652,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
         estado: f.t.status,
         situacion: f.situacion,
         espera: f.espera,
+        faltan: f.faltan,
         detencion: detencionVisible(f.detencion, nombres),
         horas: f.t.stdMinutes / 60,
         asignadoId: f.t.assignedTo,
@@ -740,6 +784,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
   })
 
   .route('/', rutasComercial)
+  .route('/', rutasCompras)
 
 async function sinAsignarEn(c: C, seccionId: string) {
   const [{ n }] = await c.var.base
