@@ -1,7 +1,7 @@
 // Lo que responde la API del sistema de la rectificadora, como lo ven las pantallas.
 import type { EstadoCotizacion, Linea } from '../../comercial/reglas'
 import type { RolTenant } from '../../usuarios/reglas'
-import type { EstadoOt, EstadoTarea, Pieza, PrioridadOt } from '../reglas'
+import type { Criterio, EstadoOt, EstadoTarea, GrupoDeOt, MotivoDetencion, Pieza, PrioridadOt, Situacion } from '../reglas'
 
 export type Plazo = 'atrasada' | 'por_vencer' | null
 
@@ -20,30 +20,63 @@ export type FilaOt = {
   avance?: number
   total?: number
   hechas?: number
+  detenidas?: number
 }
 
+/** La carga de una sección: horas para hacer ahora, esperando su turno y detenidas, y los días de cola con su gente. */
+export type CargaSeccion = {
+  id: string
+  nombre: string
+  diagnostico: boolean
+  gente: { id: string; nombre: string }[]
+  trabajos: number
+  enProceso: number
+  ahora: number
+  espera: number
+  detenidas: number
+  nDetenidas: number
+  sinAsignar: number
+  dias: number | null
+}
+
+export type CargaPersona = { id: string; nombre: string; rol: RolTenant; actividades: number; secciones: string[]; trabajos: number; enProceso: number; ahora: number; espera: number; detenidas: number; nDetenidas: number; sinAsignar: number }
+
 export type Inicio = {
-  cifras: { recibidas: number; esperando: number; enTaller: number; calidad: number; listas: number; atrasadas: number; porVencer: number; entregadasMes: number }
+  cifras: { recibidas: number; esperando: number; enTaller: number; calidad: number; listas: number; atrasadas: number; porVencer: number; entregadasMes: number; detenidos: number }
   urgentes: FilaOt[]
-  carga: { seccionId: string; nombre: string; porHacer: number; enProceso: number; horas: number }[]
-  misTareas: { id: string; nombre: string; estado: EstadoTarea; otId: string; ot: number; motor: string; entrega: string | null; seccion: string }[]
+  carga: { seccionId: string; nombre: string; gente: number; enProceso: number; ahora: number; espera: number; detenidos: number; sinAsignar: number; dias: number | null }[]
+  misTareas: { id: string; nombre: string; estado: EstadoTarea; situacion: Situacion; espera: string[]; otId: string; ot: number; motor: string; entrega: string | null; seccion: string; pieza: Pieza }[]
   comercial: { enviadasMes: number; cotizadoMes: number; aceptadasMes: number; aceptadoMes: number; pendientes: number; montoPendiente: number; tasaAceptacion: number | null } | null
 }
 
+export type Detencion = { motivo: MotivoDetencion; nota: string | null; desde: string; por: string | null }
+
 export type Tarea = {
   id: string
+  /** La actividad de la lista de la que viene: sus especialistas van primero al asignar. */
+  actividadId: string | null
   nombre: string
   cantidad: number
   seccionId: string
   seccion: string
   diagnostico: boolean
+  pieza: Pieza
+  grupo: GrupoDeOt
+  paso: number
   estado: EstadoTarea
+  situacion: Situacion
+  espera: string[]
+  detencion: Detencion | null
+  adelantado: boolean
   horas: number
   asignadoId: string | null
   asignado: string | null
   inicio: string | null
   termino: string | null
 }
+
+/** Cómo va una pieza de la OT (o su diagnóstico, o el armado y control). */
+export type PiezaDeOt = { clave: GrupoDeOt; nombre: string; avance: number; total: number; hechas: number; situacion: Situacion; actual: { nombre: string; asignado: string | null; espera: string[]; detencion: Detencion | null } | null }
 
 export type DetalleOt = {
   id: string
@@ -56,6 +89,9 @@ export type DetalleOt = {
   numeroMotor: string | null
   equipo: string | null
   piezas: Pieza[]
+  cilindros: number | null
+  valvulasPorCilindro: number | null
+  culatas: number | null
   falla: string | null
   prioridad: PrioridadOt
   entrega: string | null
@@ -65,14 +101,20 @@ export type DetalleOt = {
   anulada: string | null
   motivoAnulacion: string | null
   tareas: Tarea[]
+  porPieza: PiezaDeOt[]
   cotizaciones: { id: string; numero: number; estado: EstadoCotizacion; total: number; enviada: string | null; decidida: string | null }[]
   historia: { en: string; que: string; quien: string | null }[]
 }
 
 export type TarjetaTaller = {
   id: string
+  seccionId: string
   nombre: string
+  pieza: Pieza
   estado: EstadoTarea
+  situacion: Situacion
+  espera: string[]
+  detencion: Detencion | null
   horas: number
   asignadoId: string | null
   asignado: string | null
@@ -81,14 +123,29 @@ export type TarjetaTaller = {
   cliente: string
 }
 
-export type Catalogo = {
-  secciones: { id: string; nombre: string; diagnostico: boolean; activa: boolean }[]
-  trabajos: { id: string; seccionId: string; codigo: string; nombre: string; unidad: string; precio: number | null; horas: number; activo: boolean }[]
+export type Tablero = { secciones: (CargaSeccion & { tareas: TarjetaTaller[] })[] }
+
+export type Actividad = {
+  id: string
+  seccionId: string
+  codigo: string
+  nombre: string
+  unidad: string
+  criterio: Criterio
+  precio: number | null
+  horas: number
+  pieza: Pieza
+  paso: number
+  tipico: boolean
+  activo: boolean
+  especialistas: string[]
 }
+
+export type Catalogo = { secciones: { id: string; nombre: string; diagnostico: boolean; activa: boolean }[]; trabajos: Actividad[] }
 
 export type Cliente = { id: string; nombre: string; rut: string | null; contacto: string | null; telefono: string | null; correo: string | null; abiertas: number; total: number; ultima: string | null }
 
-export type Persona = { id: string; nombre: string; rol: RolTenant }
+export type Persona = { id: string; nombre: string; rol: RolTenant; actividades: string[] }
 
 export type FilaCotizacion = { id: string; numero: number; cliente: string; motor: string; estado: EstadoCotizacion; total: number; creada: string; enviada: string | null; decidida: string | null; otId: string | null; ot: number | null }
 
@@ -100,6 +157,9 @@ export type DetalleCotizacion = {
   otId: string | null
   ot: { numero: number; estado: EstadoOt } | null
   motor: string
+  cilindros: number | null
+  valvulasPorCilindro: number | null
+  culatas: number | null
   lineas: Linea[]
   descuento: number
   notas: string | null

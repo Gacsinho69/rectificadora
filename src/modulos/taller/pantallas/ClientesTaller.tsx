@@ -1,14 +1,14 @@
-// Los clientes del taller y su lista de precios.
+// Los clientes del taller: con quién trabaja cada rectificadora y cuántas OT tiene cada uno.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { Alert, App, Button, Form, Input, InputNumber, Modal, Switch, Table } from 'antd'
+import { Alert, App, Button, Form, Input, Modal, Table } from 'antd'
 import { useState } from 'react'
 import { api } from '../../../pantallas/api'
 import { Bloque, Cargando, Hace, Problema } from '../../../pantallas/componentes'
-import { cifra, plata } from '../../../pantallas/formato'
+import { cifra } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
 import { usePersona, usePortal } from './comun'
-import type { Catalogo, Cliente } from './tipos'
+import type { Cliente } from './tipos'
 
 export function ClientesTaller() {
   const { gestiona } = usePersona()
@@ -83,49 +83,5 @@ function NuevoCliente({ cerrar }: { cerrar: () => void }) {
         </div>
       </Form>
     </Modal>
-  )
-}
-
-/** La lista de trabajos con precio, por sección. El administrador ajusta precios y horas estándar. */
-export function Precios() {
-  const { esAdmin, veMontos } = usePersona()
-  const consultas = useQueryClient()
-  const { message } = App.useApp()
-  const r = useQuery({ queryKey: ['taller', 'catalogo'], queryFn: () => api<Catalogo>('GET', '/servicio/catalogo') })
-  const cambiar = useMutation({
-    mutationFn: ({ id, ...datos }: { id: string; precio?: number | null; horas?: number; activo?: boolean }) => api('POST', `/servicio/catalogo/${id}`, datos),
-    onSuccess: () => {
-      message.success('Guardado.')
-      return consultas.invalidateQueries({ queryKey: ['taller', 'catalogo'] })
-    },
-    onError: (e) => message.error((e as Error).message),
-  })
-  if (r.isPending) return <Cargando />
-  if (r.isError) return <Problema error={r.error} />
-  return (
-    <>
-      <Encabezado titulo="Lista de trabajos y precios" sub={esAdmin ? 'Precios en pesos, sin IVA. Los de terceros se cotizan a mano.' : 'Solo el administrador cambia precios.'} />
-      {r.data.secciones.map((s) => (
-        <Bloque key={s.id} titulo={s.nombre}>
-          <Table
-            size="small"
-            rowKey="id"
-            pagination={false}
-            dataSource={r.data.trabajos.filter((t) => t.seccionId === s.id)}
-            scroll={{ x: 640 }}
-            columns={[
-              { title: 'Código', dataIndex: 'codigo', width: 80 },
-              { title: 'Trabajo', dataIndex: 'nombre', render: (v: string, t) => (t.activo ? v : <span className="tenue">{v} (no se ofrece)</span>) },
-              { title: 'Unidad', dataIndex: 'unidad', width: 100 },
-              ...(veMontos
-                ? [{ title: 'Precio', key: 'p', width: 160, align: 'right' as const, render: (_: unknown, t: Catalogo['trabajos'][number]) => (esAdmin ? <InputNumber size="small" min={0} step={1000} defaultValue={t.precio ?? undefined} placeholder="A mano" style={{ width: 130 }} onBlur={(e) => { const v = e.target.value ? Number(e.target.value.replace(/\D/g, '')) : null; if (v !== t.precio) cambiar.mutate({ id: t.id, precio: v }) }} /> : t.precio ? plata(t.precio) : <span className="tenue">A mano</span>) }]
-                : []),
-              { title: 'Horas estándar', dataIndex: 'horas', width: 130, align: 'right', render: (v: number) => (v ? v.toLocaleString('es-CL', { maximumFractionDigits: 2 }) : '—') },
-              ...(esAdmin ? [{ title: 'Se ofrece', key: 'a', width: 100, render: (_: unknown, t: Catalogo['trabajos'][number]) => <Switch size="small" checked={t.activo} onChange={(v) => cambiar.mutate({ id: t.id, activo: v })} /> }] : []),
-            ]}
-          />
-        </Bloque>
-      ))}
-    </>
   )
 }

@@ -27,7 +27,8 @@ const Tablero = lazyRouteComponent(() => import('../modulos/taller/pantallas/Tab
 const Cotizaciones = lazyRouteComponent(() => import('../modulos/taller/pantallas/Cotizaciones'), 'Cotizaciones')
 const Cotizacion = lazyRouteComponent(() => import('../modulos/taller/pantallas/Cotizacion'), 'Cotizacion')
 const ClientesTaller = lazyRouteComponent(() => import('../modulos/taller/pantallas/ClientesTaller'), 'ClientesTaller')
-const Precios = lazyRouteComponent(() => import('../modulos/taller/pantallas/ClientesTaller'), 'Precios')
+const Actividades = lazyRouteComponent(() => import('../modulos/taller/pantallas/Actividades'), 'Actividades')
+const CargaTaller = lazyRouteComponent(() => import('../modulos/taller/pantallas/Carga'), 'Carga')
 
 const texto = (v: unknown) => (typeof v === 'string' && v ? v : undefined)
 const numero = (v: unknown) => (Number.isInteger(Number(v)) && Number(v) > 0 ? Number(v) : undefined)
@@ -124,9 +125,10 @@ function MarcoTaller() {
     { a: '/c/$portal', texto: 'Inicio', icono: <HomeOutlined />, activo: en(base) },
     { a: '/c/$portal/ot', texto: 'Órdenes de trabajo', icono: <UnorderedListOutlined />, activo: en(`${base}/ot`) },
     { a: '/c/$portal/taller', texto: 'Taller', icono: <ToolOutlined />, activo: en(`${base}/taller`) },
+    { a: '/c/$portal/carga', texto: 'Carga', icono: <DashboardOutlined />, activo: en(`${base}/carga`) },
     ...(persona.rol !== 'technician' ? [{ a: '/c/$portal/cotizaciones', texto: 'Cotizaciones', icono: <FileTextOutlined />, activo: en(`${base}/cotizaciones`) }] : []),
     { a: '/c/$portal/clientes', texto: 'Clientes', icono: <TeamOutlined />, activo: en(`${base}/clientes`) },
-    { a: '/c/$portal/precios', texto: 'Lista de precios', icono: <TagsOutlined />, activo: en(`${base}/precios`) },
+    { a: '/c/$portal/actividades', texto: 'Actividades', icono: <TagsOutlined />, activo: en(`${base}/actividades`) },
     ...(persona.rol === 'admin' ? [{ a: '/organizacion', texto: 'Administración', icono: <SettingOutlined />, activo: false }] : []),
   ].map((e) => ({ ...e, params: { portal } }))
   return (
@@ -298,7 +300,10 @@ const tallerCotizaciones = createRoute({
 })
 const tallerCotizacion = createRoute({ getParentRoute: () => taller, path: 'cotizaciones/$id', validateSearch: (s: Record<string, unknown>): { ot?: string } => ({ ot: texto(s.ot) }), component: Cotizacion })
 const tallerClientes = createRoute({ getParentRoute: () => taller, path: 'clientes', component: ClientesTaller })
-const precios = createRoute({ getParentRoute: () => taller, path: 'precios', component: Precios })
+const actividades = createRoute({ getParentRoute: () => taller, path: 'actividades', component: Actividades })
+const carga = createRoute({ getParentRoute: () => taller, path: 'carga', component: CargaTaller })
+/** La dirección de antes de la lista de precios lleva a las actividades. */
+const precios = createRoute({ getParentRoute: () => taller, path: 'precios', component: () => <Navigate to="/c/$portal/actividades" params={(p) => ({ portal: p.portal ?? '' })} replace /> })
 
 export const router = createRouter({
   routeTree: raiz.addChildren([
@@ -306,7 +311,7 @@ export const router = createRouter({
     entrar,
     plataforma.addChildren([resumen, clientes, cliente, alertas, actividad, auditoria]),
     organizacion.addChildren([panel]),
-    taller.addChildren([tallerInicio, tallerOts, tallerOt, tablero, tallerCotizaciones, tallerCotizacion, tallerClientes, precios]),
+    taller.addChildren([tallerInicio, tallerOts, tallerOt, tablero, carga, tallerCotizaciones, tallerCotizacion, tallerClientes, actividades, precios]),
   ]),
   defaultPreload: 'intent',
 })

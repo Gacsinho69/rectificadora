@@ -7,7 +7,7 @@ import { Problema } from '../../../pantallas/componentes'
 import { cifra, fecha } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
 import { ESTADOS_OT, PIEZAS, type Pieza, PRIORIDADES_OT } from '../reglas'
-import { AvanceOt, EstadoOtTag, folioOt, PlazoTag, usePersona, usePortal } from './comun'
+import { AvanceOt, CamposDelMotor, EstadoOtTag, folioOt, PlazoTag, usePersona, usePortal } from './comun'
 import type { Cliente, FilaOt } from './tipos'
 
 const ruta = getRouteApi('/c/$portal/ot')
@@ -63,7 +63,7 @@ export function OrdenesDeTrabajo() {
             { title: 'Cliente', dataIndex: 'cliente' },
             { title: 'Motor', key: 'm', render: (_, o) => <div className="fila-nombre"><span>{o.motor}</span>{o.equipo && <small>{o.equipo}</small>}</div> },
             { title: 'Piezas', key: 'p', render: (_, o) => (o.piezas ?? []).map((p) => PIEZAS[p]).join(', ') },
-            { title: 'Estado', key: 'e', render: (_, o) => <EstadoOtTag estado={o.estado} /> },
+            { title: 'Estado', key: 'e', render: (_, o) => <span className="evento-nombre"><EstadoOtTag estado={o.estado} />{o.detenidas ? <span className="estado naranjo" title={`${o.detenidas} ${o.detenidas === 1 ? 'trabajo detenido' : 'trabajos detenidos'}`}>Detenida</span> : null}</span> },
             { title: 'Avance', key: 'a', render: (_, o) => <span title={`${o.hechas} de ${o.total} trabajos`}><AvanceOt estado={o.estado} fraccion={o.avance ?? 0} ancho={60} /></span> },
             { title: 'Recibida', key: 'c', render: (_, o) => fecha(o.creada) },
             { title: 'Entrega', key: 'en', render: (_, o) => <span className="evento-nombre">{o.entrega ? fecha(`${o.entrega}T12:00:00Z`) : '—'} <PlazoTag plazo={o.plazo} />{o.prioridad === 'urgent' && <span className="estado rojo">Urgente</span>}</span> },
@@ -75,9 +75,9 @@ export function OrdenesDeTrabajo() {
   )
 }
 
-type DatosRecepcion = { clienteId: string; motor: string; numeroMotor?: string; equipo?: string; piezas: Pieza[]; falla?: string; entrega?: { format: (f: string) => string }; prioridad: 'normal' | 'urgent'; diagnostico: boolean }
+type DatosRecepcion = { clienteId: string; motor: string; numeroMotor?: string; equipo?: string; piezas: Pieza[]; cilindros?: number; valvulasPorCilindro?: number; culatas?: number; falla?: string; entrega?: { format: (f: string) => string }; prioridad: 'normal' | 'urgent'; diagnostico: boolean }
 
-/** Recibir un motor o sus piezas: nace la OT con su desarme y medición. */
+/** Recibir un motor o sus piezas: nace la OT con su diagnóstico. Los cilindros, válvulas y culatas cuentan las actividades al cotizar. */
 function Recepcion({ cerrar }: { cerrar: () => void }) {
   const [form] = Form.useForm<DatosRecepcion>()
   const portal = usePortal()
@@ -106,6 +106,7 @@ function Recepcion({ cerrar }: { cerrar: () => void }) {
             <Input />
           </Form.Item>
         </div>
+        <CamposDelMotor />
         <Form.Item label="Equipo y patente" name="equipo">
           <Input placeholder="Bus Marcopolo · KJ-RT-54" />
         </Form.Item>
@@ -124,7 +125,7 @@ function Recepcion({ cerrar }: { cerrar: () => void }) {
           </Form.Item>
         </div>
         <Form.Item name="diagnostico" valuePropName="checked">
-          <Checkbox>Agregar desarme, lavado y medición (para cotizar después del diagnóstico)</Checkbox>
+          <Checkbox>Agregar el diagnóstico para cotizar: desarme, lavado y medición; si son piezas sueltas, prueba de fisuras (y la hidráulica, si viene la culata)</Checkbox>
         </Form.Item>
       </Form>
     </Modal>

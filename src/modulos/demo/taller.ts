@@ -1,13 +1,14 @@
-// El trabajo de un taller de demostración: sus clientes y 90 días de motores que entran, se diagnostican, se cotizan,
-// se aprueban (o no), pasan por las secciones, por calidad y se entregan. Cada OT se arma con su línea de tiempo
-// completa y después se corta a la hora de «ahora»: lo que no alcanzó a pasar queda por hacer.
+// El trabajo de un taller de demostración: sus clientes, quién hace cada actividad y 90 días de motores que entran, se
+// diagnostican, se cotizan, se aprueban (o no), pasan por la ruta de cada pieza, por calidad y se entregan. Cada OT se
+// arma con su línea de tiempo completa y después se corta a la hora de «ahora»: lo que no alcanzó a pasar queda por
+// hacer, y lo que estaba detenido (faltan repuestos, el cliente no responde) sigue detenido.
 import type { Linea } from '../comercial/reglas'
 import { totales } from '../comercial/reglas'
 import type { customers, quotes } from '../comercial/tablas'
 import type { TipoEvento } from '../eventos/tipos'
 import { tallerInicial } from '../taller/comun'
-import { estadoDeOt, type Pieza } from '../taller/reglas'
-import type { workOrders, workOrderTasks } from '../taller/tablas'
+import { cantidadSegun, estadoDeOt, type Motor, type MotivoDetencion, nombreDeTarea, type Pieza } from '../taller/reglas'
+import type { serviceSpecialists, taskHolds, workOrders, workOrderTasks } from '../taller/tablas'
 import type { RolTenant } from '../usuarios/reglas'
 
 const DIA = 86_400_000
@@ -30,12 +31,36 @@ const EMPRESAS = [
 ]
 const PERSONAS = ['Juan Pérez', 'Luis Carrasco', 'Marcela Ruiz', 'Pedro Gallardo', 'Héctor Bravo', 'Ana Vergara']
 const MOTORES = [
-  { nombre: 'Mercedes-Benz OM 457', cil: 6 }, { nombre: 'Mercedes-Benz OM 926', cil: 6 }, { nombre: 'Mercedes-Benz OM 936', cil: 6 },
-  { nombre: 'Cummins ISX15', cil: 6 }, { nombre: 'Cummins ISL 8.9', cil: 6 }, { nombre: 'Detroit DD15', cil: 6 }, { nombre: 'Volvo D13', cil: 6 },
-  { nombre: 'Scania DC13', cil: 6 }, { nombre: 'Caterpillar C15', cil: 6 }, { nombre: 'Caterpillar 3306', cil: 6 }, { nombre: 'Navistar DT466', cil: 6 },
-  { nombre: 'Isuzu 4HK1', cil: 4 }, { nombre: 'Hino J08E', cil: 6 }, { nombre: 'Toyota 1KD-FTV', cil: 4 }, { nombre: 'Nissan YD25', cil: 4 },
-  { nombre: 'Hyundai D4CB', cil: 4 }, { nombre: 'Perkins 1104D', cil: 4 }, { nombre: 'John Deere 6068', cil: 6 },
+  { nombre: 'Mercedes-Benz OM 457', cil: 6, val: 4 }, { nombre: 'Mercedes-Benz OM 926', cil: 6, val: 4 }, { nombre: 'Mercedes-Benz OM 936', cil: 6, val: 4 },
+  { nombre: 'Cummins ISX15', cil: 6, val: 4 }, { nombre: 'Cummins ISL 8.9', cil: 6, val: 4 }, { nombre: 'Detroit DD15', cil: 6, val: 4 }, { nombre: 'Volvo D13', cil: 6, val: 4 },
+  { nombre: 'Scania DC13', cil: 6, val: 4 }, { nombre: 'Caterpillar C15', cil: 6, val: 4 }, { nombre: 'Caterpillar 3306', cil: 6, val: 2 }, { nombre: 'Navistar DT466', cil: 6, val: 2 },
+  { nombre: 'Isuzu 4HK1', cil: 4, val: 4 }, { nombre: 'Hino J08E', cil: 6, val: 4 }, { nombre: 'Toyota 1KD-FTV', cil: 4, val: 4 }, { nombre: 'Nissan YD25', cil: 4, val: 4 },
+  { nombre: 'Hyundai D4CB', cil: 4, val: 4 }, { nombre: 'Perkins 1104D', cil: 4, val: 2 }, { nombre: 'John Deere 6068', cil: 6, val: 2 },
 ]
+
+/**
+ * Quién hace qué en el taller de demostración: un desarmador, un culatero, el del block, el de cigüeñales y bielas y
+ * un armador (con más técnicos, de a dos; con menos, uno hace varias cosas). El jefe de taller mide, aprueba la calidad
+ * y lleva lo de terceros.
+ */
+const OFICIOS: { codigos: string[]; area: number | 'jefe'; tambien?: number | 'jefe' }[] = [
+  { codigos: ['D-01', 'D-03'], area: 0 },
+  { codigos: ['D-02'], area: 'jefe', tambien: 0 },
+  { codigos: ['D-04', 'C-01', 'C-02', 'C-03', 'C-04', 'C-05', 'C-06'], area: 1 },
+  { codigos: ['B-01', 'B-02', 'B-03', 'B-04', 'B-05', 'B-06'], area: 2 },
+  { codigos: ['G-01', 'G-02', 'G-03', 'G-04', 'G-05', 'G-06'], area: 3 },
+  { codigos: ['A-01', 'A-02', 'A-03'], area: 4, tambien: 0 },
+  { codigos: ['Q-01', 'T-01', 'T-02', 'T-03'], area: 'jefe' },
+]
+
+/** Lo que a veces se detiene antes de empezar, por qué y qué se anota. */
+const DETENCIONES: Record<string, { motivo: MotivoDetencion; nota: string }[]> = {
+  'B-01': [{ motivo: 'parts', nota: 'Pistones sobremedida 0,50: llegan el jueves' }, { motivo: 'parts', nota: 'Esperando el kit de pistones del proveedor' }],
+  'B-03': [{ motivo: 'parts', nota: 'Camisas pedidas al proveedor' }],
+  'C-04': [{ motivo: 'parts', nota: 'Guías de válvula pedidas' }],
+  'G-01': [{ motivo: 'customer', nota: 'El cliente debe aprobar el rectificado a 0,50' }],
+  'A-01': [{ motivo: 'parts', nota: 'Falta el juego de empaquetaduras' }, { motivo: 'customer', nota: 'El cliente debe aprobar el cambio de bomba de aceite' }],
+}
 const EQUIPOS = ['Bus', 'Camión', 'Tracto', 'Excavadora', 'Cargador frontal', 'Tractor agrícola', 'Camioneta', 'Grupo electrógeno', 'Grúa horquilla']
 const FALLAS = [
   'Consumo de aceite y humo azul', 'Pérdida de compresión en dos cilindros', 'Recalentamiento; culata con posible fisura', 'Golpe de biela',
@@ -57,6 +82,8 @@ export type Taller = {
   clientes: (typeof customers.$inferInsert)[]
   ots: (typeof workOrders.$inferInsert)[]
   tareas: (typeof workOrderTasks.$inferInsert)[]
+  especialistas: (typeof serviceSpecialists.$inferInsert)[]
+  detenciones: (typeof taskHolds.$inferInsert)[]
   cotizaciones: (typeof quotes.$inferInsert)[]
   /** Por día (AAAA-MM-DD): OT recibidas, cotizaciones creadas y documentos emitidos (cotizaciones enviadas y entregas). */
   porDia: Map<string, { ots: number; cotizaciones: number; documentos: number }>
@@ -78,7 +105,21 @@ export function sembrarTaller(
   const tecnicos = activos.filter((p) => p.role === 'technician')
   const jefes = activos.filter((p) => p.role === 'planner' || p.role === 'admin')
   const quienRecibe = () => (jefes.length ? uno(jefes) : uno(activos))
-  const quienTrabaja = () => (tecnicos.length ? uno(tecnicos) : uno(activos))
+
+  // Los especialistas de cada actividad, por oficio.
+  const delOficio = (area: number | 'jefe') => {
+    if (area === 'jefe') return jefes.length ? jefes.filter((_, i) => i < 2) : activos.slice(0, 1)
+    if (!tecnicos.length) return jefes.length ? [jefes[0]] : activos.slice(0, 1)
+    const suyos = tecnicos.filter((_, i) => i % 5 === area)
+    return suyos.length ? suyos : [tecnicos[area % tecnicos.length]]
+  }
+  const hacenDe = new Map<string, string[]>()
+  for (const o of OFICIOS)
+    for (const codigo of o.codigos) {
+      const gente = [...delOficio(o.area), ...(o.tambien !== undefined ? delOficio(o.tambien) : [])]
+      hacenDe.set(trabajo.get(codigo)!.id, [...new Set(gente.map((g) => g.id))])
+    }
+  const especialistas: Taller['especialistas'] = [...hacenDe].flatMap(([serviceId, gente]) => gente.map((userId) => ({ tenantId: t.tenantId, serviceId, userId, createdAt: t.creado })))
 
   const clientes: Taller['clientes'] = Array.from({ length: Math.min(EMPRESAS.length, 5 + Math.round(activos.length * 0.6)) }, (_, i) => {
     const particular = i % 7 === 6
@@ -86,22 +127,25 @@ export function sembrarTaller(
     return { id: id('cl'), tenantId: t.tenantId, name: nombre, taxId: particular ? null : `${entre(76, 79)}.${entre(100, 999)}.${entre(100, 999)}-${entre(0, 9)}`, contact: uno(PERSONAS), phone: `+56 9 ${entre(5000, 9999)} ${entre(1000, 9999)}`, email: null, createdAt: t.creado }
   }).filter((c, i, l) => l.findIndex((x) => x.name === c.name) === i)
 
-  const linea = (codigo: string, cantidad = 1): Linea => {
+  /** Una actividad cotizada, contada para este motor (por cilindro, válvula, biela, culata o una vez). */
+  const lineaDe = (codigo: string, m: Motor): Linea => {
     const x = trabajo.get(codigo)!
-    return { tipo: 'trabajo', trabajoId: x.id, seccionId: x.sectionId, codigo, descripcion: x.name, cantidad, precio: x.price ?? Math.round(entre(90, 260) * 1000), horas: x.stdHours }
+    return { tipo: 'trabajo', trabajoId: x.id, seccionId: x.sectionId, codigo, descripcion: x.name, cantidad: cantidadSegun(x.criterion, m), precio: x.price ?? Math.round(entre(90, 260) * 1000), horas: x.stdHours, pieza: x.piece, criterio: x.criterion }
   }
-  /** Lo que se cotiza según lo que llegó y lo que encontró el diagnóstico. */
-  const cotizar = (piezas: Pieza[], cil: number): Linea[] => {
+  /** Lo que se cotiza según lo que llegó y lo que encontró el diagnóstico, pieza por pieza. */
+  const cotizar = (piezas: Pieza[], m: Motor): Linea[] => {
+    const linea = (codigo: string) => lineaDe(codigo, m)
     const l: Linea[] = []
     const completo = piezas.includes('motor')
+    if (completo) l.push(linea('D-01'), linea('D-02'))
     if (completo || piezas.includes('culata')) {
-      l.push(linea('D-04'), linea('C-01'), linea('C-02', cil * 2), linea('C-03', cil * 2))
-      if (azar() < 0.4) l.push(linea('C-04', cil * 2))
+      l.push(linea('D-04'), linea('C-01'), linea('C-02'), linea('C-03'))
+      if (azar() < 0.4) l.push(linea('C-04'))
       if (azar() < 0.15) l.push(linea('T-01'))
       l.push(linea('C-06'))
     }
     if (completo || piezas.includes('block')) {
-      l.push(azar() < 0.3 ? linea('B-03', cil) : linea('B-01', cil), linea('B-02', cil))
+      l.push(azar() < 0.3 ? linea('B-03') : linea('B-01'), linea('B-02'))
       if (azar() < 0.4) l.push(linea('B-04'))
       if (azar() < 0.2) l.push(linea('B-05'))
     }
@@ -111,7 +155,7 @@ export function sembrarTaller(
       if (azar() < 0.35) l.push(linea('G-03'))
       if (azar() < 0.1) l.push(linea('T-02'))
     }
-    if (completo || piezas.includes('bielas')) l.push(linea('G-05', cil))
+    if (completo || piezas.includes('bielas')) l.push(linea('G-05'))
     if (completo) {
       l.push(linea('A-01'), linea('A-03'), linea('Q-01'))
       for (const r of REPUESTOS.filter(() => azar() < 0.45)) l.push({ tipo: 'repuesto', trabajoId: null, seccionId: null, codigo: null, descripcion: r.descripcion, cantidad: 1, precio: Math.round((r.precio * (0.8 + azar() * 0.5)) / 1000) * 1000, horas: 0 })
@@ -121,6 +165,7 @@ export function sembrarTaller(
 
   const ots: Taller['ots'] = []
   const tareas: Taller['tareas'] = []
+  const detenciones: Taller['detenciones'] = []
   const cotizaciones: Taller['cotizaciones'] = []
   const porDia: Taller['porDia'] = new Map()
   const contar = (en: Date, campo: 'ots' | 'cotizaciones' | 'documentos') => {
@@ -148,6 +193,7 @@ export function sembrarTaller(
   for (const { en: recibida } of recibidas.sort((x, y) => x.en.getTime() - y.en.getTime())) {
     if (recibida > corte) continue
     const motor = uno(MOTORES)
+    const medidas: Motor = { cilindros: motor.cil, valvulasPorCilindro: motor.val, culatas: 1 }
     const cliente = uno(clientes)
     const sorteo = azar()
     const piezas: Pieza[] = sorteo < 0.55 ? ['motor'] : sorteo < 0.72 ? ['culata'] : sorteo < 0.85 ? ['block', 'cigüeñal'] : sorteo < 0.93 ? ['cigüeñal'] : ['cigüeñal', 'bielas']
@@ -158,44 +204,57 @@ export function sembrarTaller(
     const entrega = new Date(recibida.getTime() + (urgente ? entre(4, 6) : entre(7, 15)) * DIA)
     let posicion = 0
 
-    // Diagnóstico: desarme y medición (motor o block) o prueba de fisuras (piezas sueltas).
+    // Diagnóstico: desarme y medición (motor o block) o prueba de fisuras (piezas sueltas, y la hidráulica si viene la culata).
     const conDesarme = piezas.includes('motor') || piezas.includes('block')
+    const diagnosticos = conDesarme ? ['D-01', 'D-02'] : ['D-03', ...(piezas.includes('culata') ? ['D-04'] : [])]
     let reloj = new Date(recibida.getTime() + (2 + azar() * 20) * HORA)
     const trabajosOt: { tarea: Taller['tareas'][number]; fin: Date }[] = []
-    const hacer = (codigo: string, nombre: string, seccionId: string, cantidad: number, horas: number, servicio: string | null) => {
-      const inicio = enJornada(new Date(reloj.getTime() + azar() * 5 * HORA))
-      const fin = enJornada(new Date(inicio.getTime() + Math.max(1, horas * cantidad) * (1.2 + azar() * 1.3) * HORA))
+    /** A uno de quienes hacen la actividad: al que ya tiene esa pieza de la OT, si también la hace. */
+    const quienHace = (x: (typeof trabajos)[number]) => {
+      const gente = hacenDe.get(x.id) ?? []
+      const conLaPieza = trabajosOt.find((w) => w.tarea.piece === x.piece && w.tarea.assignedTo && gente.includes(w.tarea.assignedTo))
+      return conLaPieza?.tarea.assignedTo ?? (gente.length ? uno(gente) : null)
+    }
+    const hacer = (x: (typeof trabajos)[number], cantidad: number) => {
+      const quien = quienHace(x)
+      const listo = reloj
+      // A veces se detiene antes de empezar (los pistones no han llegado) y espera días a que se resuelva.
+      const posible = DETENCIONES[x.code]
+      const detencion = posible && azar() < 0.18 ? { ...uno(posible), desde: enJornada(new Date(listo.getTime() + azar() * 3 * HORA)), dias: 1 + azar() * 3 } : null
+      const hasta = detencion ? enJornada(new Date(detencion.desde.getTime() + detencion.dias * DIA)) : null
+      const inicio = enJornada(new Date(Math.max(reloj.getTime() + azar() * 5 * HORA, hasta?.getTime() ?? 0)))
+      const fin = enJornada(new Date(inicio.getTime() + Math.max(1, x.stdHours * cantidad) * (1.2 + azar() * 1.3) * HORA))
       reloj = fin
-      const quien = quienTrabaja()
       const tarea = {
         id: id('tar'),
         tenantId: t.tenantId,
         workOrderId: otId,
-        sectionId: seccionId,
-        serviceId: servicio,
-        name: cantidad === 1 ? nombre : `${nombre} ×${cantidad}`,
+        sectionId: x.sectionId,
+        serviceId: x.id,
+        name: nombreDeTarea(x.name, cantidad, x.criterion),
         quantity: cantidad,
-        stdMinutes: Math.round(horas * cantidad * 60),
+        stdMinutes: Math.round(x.stdHours * cantidad * 60),
         position: posicion++,
+        piece: x.piece,
+        step: x.step,
         status: 'pending' as const,
-        assignedTo: azar() < 0.6 ? quien.id : null,
+        assignedTo: quien,
         startedAt: null as Date | null,
         finishedAt: null as Date | null,
         finishedBy: null as string | null,
       }
-      if (inicio <= corte) Object.assign(tarea, { status: 'in_progress', startedAt: inicio, assignedTo: quien.id })
-      if (fin <= corte) Object.assign(tarea, { status: 'done', finishedAt: fin, finishedBy: quien.id })
+      if (inicio <= corte) Object.assign(tarea, { status: 'in_progress', startedAt: inicio })
+      if (fin <= corte) Object.assign(tarea, { status: 'done', finishedAt: fin, finishedBy: quien })
+      if (detencion && hasta && detencion.desde <= corte)
+        detenciones.push({ id: id('det'), tenantId: t.tenantId, taskId: tarea.id, workOrderId: otId, reason: detencion.motivo, note: detencion.nota, createdAt: detencion.desde, createdBy: quien, resolvedAt: hasta <= corte ? hasta : null, resolvedBy: hasta <= corte ? quien : null })
       tareas.push(tarea)
       trabajosOt.push({ tarea, fin })
       return fin
     }
-    for (const codigo of conDesarme ? ['D-01', 'D-02'] : ['D-03']) {
-      const x = trabajo.get(codigo)!
-      hacer(codigo, x.name, diagnostico.id, 1, x.stdHours, x.id)
-    }
+    for (const codigo of diagnosticos) hacer(trabajo.get(codigo)!, cantidadSegun(trabajo.get(codigo)!.criterion, medidas))
 
     // Cotización: al terminar el diagnóstico; se envía ese día o el siguiente; el cliente responde en unos días.
-    const lineas = cotizar(piezas, motor.cil)
+    const lineas = cotizar(piezas, medidas)
     const descuento = azar() < 0.25 ? uno([5, 10]) : 0
     const tot = totales(lineas, descuento)
     const creada = enJornada(new Date(reloj.getTime() + azar() * 6 * HORA))
@@ -214,6 +273,9 @@ export function sembrarTaller(
         customerId: cliente.id,
         workOrderId: otId,
         engine: motor.nombre,
+        cylinders: medidas.cilindros,
+        valvesPerCylinder: medidas.valvulasPorCilindro,
+        heads: medidas.culatas,
         lines: lineas,
         discountPct: descuento,
         net: tot.neto,
@@ -235,25 +297,24 @@ export function sembrarTaller(
         evento({ tenantId: t.tenantId, tipo: estadoCot === 'accepted' ? 'quote.accepted' : 'quote.rejected', en: respuesta, actorId: recibe.id, targetId: qId, targetType: 'quote', metadata: { numero: qNumero, total: tot.total } })
     }
 
-    // Aprobada: los trabajos pasan a su sección, uno tras otro; después calidad y entrega.
+    // Aprobada: desarmado, cada pieza sigue su ruta (un paso tras otro, a la vez que las otras piezas); el armado y el
+    // control final, lo de toda la OT, esperan a todas. Lo que ya se hizo en el diagnóstico no se repite.
     let calidad: Date | null = null
     let entregada: Date | null = null
     let anulada: Date | null = null
     if (estadoCot === 'accepted') {
-      // Las secciones trabajan en paralelo: culatas, block, cigüeñal y terceros a la vez; el armado espera a todas y
-      // el control de calidad, al armado. Dentro de una sección, un trabajo tras otro.
-      const cotizados = lineas.filter((x) => x.tipo === 'trabajo')
-      let inicioFase = respuesta
-      for (const fase of [[0, 1, 2, 3, 6], [4], [5]]) {
-        let finFase = inicioFase
-        for (const s of fase) {
-          reloj = inicioFase
-          for (const l of cotizados.filter((x) => x.seccionId === secciones[s].id)) hacer(l.codigo!, l.descripcion, l.seccionId!, l.cantidad, l.horas, l.trabajoId)
-          if (reloj > finFase) finFase = reloj
-        }
-        inicioFase = finFase
+      const cotizados = lineas
+        .filter((x) => x.tipo === 'trabajo' && !diagnosticos.includes(x.codigo!))
+        .map((l) => ({ l, x: trabajo.get(l.codigo!)! }))
+        .sort((a, b) => a.x.step - b.x.step)
+      let finPiezas = respuesta
+      for (const pieza of new Set(cotizados.filter((c) => c.x.piece !== 'motor').map((c) => c.x.piece))) {
+        reloj = respuesta
+        for (const c of cotizados.filter((c) => c.x.piece === pieza)) hacer(c.x, c.l.cantidad)
+        if (reloj > finPiezas) finPiezas = reloj
       }
-      reloj = inicioFase
+      reloj = finPiezas
+      for (const c of cotizados.filter((c) => c.x.piece === 'motor')) hacer(c.x, c.l.cantidad)
       calidad = enJornada(new Date(reloj.getTime() + (2 + azar() * 20) * HORA))
       entregada = enJornada(new Date(calidad.getTime() + (4 + azar() * 60) * HORA))
     } else if (estadoCot === 'rejected') {
@@ -277,6 +338,9 @@ export function sembrarTaller(
       quoteId: estadoCot && estadoCot !== 'draft' ? qId : null,
       engine: motor.nombre,
       engineSerial: `${entre(100, 999)}${entre(100000, 999999)}`,
+      cylinders: medidas.cilindros,
+      valvesPerCylinder: medidas.valvulasPorCilindro,
+      heads: medidas.culatas,
       equipment: azar() < 0.8 ? `${uno(EQUIPOS)} ${String.fromCharCode(65 + entre(0, 25), 65 + entre(0, 25))}${String.fromCharCode(65 + entre(0, 25), 65 + entre(0, 25))}-${entre(10, 99)}` : null,
       pieces: piezas,
       complaint: uno(FALLAS),
@@ -300,5 +364,5 @@ export function sembrarTaller(
     }
     if (listaAnulacion) evento({ tenantId: t.tenantId, tipo: 'work_order.cancelled', en: listaAnulacion, actorId: recibe.id, targetId: otId, targetType: 'work_order', metadata: { numero, motivo: 'Cotización rechazada' } })
   }
-  return { secciones, trabajos, clientes, ots, tareas, cotizaciones, porDia }
+  return { secciones, trabajos, clientes, ots, tareas, especialistas, detenciones, cotizaciones, porDia }
 }

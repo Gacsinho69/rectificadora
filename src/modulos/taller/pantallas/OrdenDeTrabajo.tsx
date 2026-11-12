@@ -1,40 +1,20 @@
-// Una orden de trabajo: el motor, sus trabajos por sección con quién los tiene, su avance, su cotización y su historia.
+// Una orden de trabajo: el motor, cómo va cada pieza (lo que se contesta en el mesón), sus trabajos en el orden de la
+// ruta de su pieza con quién los tiene, su cotización y su historia.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getRouteApi, Link, useNavigate } from '@tanstack/react-router'
-import { Alert, App, Button, Form, Input, InputNumber, Modal, Select, Table } from 'antd'
+import { Alert, App, Button, DatePicker, Form, Input, InputNumber, Modal, Select, Table } from 'antd'
+import dayjs from 'dayjs'
 import { useState } from 'react'
 import { api } from '../../../pantallas/api'
 import { Bloque, Cargando, Cifras, Problema } from '../../../pantallas/componentes'
 import { fecha, fechaHora, plata } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
-import { PIEZAS } from '../reglas'
-import { Avance, EstadoCotTag, EstadoOtTag, EstadoTareaTag, folioCot, folioOt, PlazoTag, usePersona, usePortal } from './comun'
-import type { Catalogo, DetalleOt, Persona, Tarea } from './tipos'
+import { cantidadSegun, MOTIVOS_DETENCION, nombreDeGrupo, PIEZAS, PIEZAS_SUELTAS, type Pieza, PRIORIDADES_OT } from '../reglas'
+import { Avance, CamposDelMotor, comoSeCuenta, EstadoCotTag, EstadoOtTag, folioCot, folioOt, horas, motorDeDatos, PlazoTag, SituacionTag, textoEspera, textoMotor, usePersona, usePortal } from './comun'
+import type { Catalogo, DetalleOt, Persona, PiezaDeOt, Tarea } from './tipos'
+import { BotonesDeTarea, useAccionesDeTarea } from './Trabajo'
 
 const ruta = getRouteApi('/c/$portal/ot/$id')
-
-/** Las acciones sobre una tarea: iniciar y terminar (quien la tiene o el jefe), asignar (el jefe). */
-export function useAccionesDeTarea() {
-  const consultas = useQueryClient()
-  const { message } = App.useApp()
-  return useMutation({
-    mutationFn: ({ id, accion, datos }: { id: string; accion: 'iniciar' | 'terminar' | 'asignar'; datos?: unknown }) => api('POST', `/servicio/tareas/${id}/${accion}`, datos ?? {}),
-    onSuccess: () => consultas.invalidateQueries({ queryKey: ['taller'] }),
-    onError: (e) => message.error((e as Error).message),
-  })
-}
-
-export function BotonesDeTarea({ t, yo, gestiona, trabaja, accion }: { t: { id: string; estado: Tarea['estado']; asignadoId: string | null }; yo?: string; gestiona: boolean; trabaja: boolean; accion: ReturnType<typeof useAccionesDeTarea> }) {
-  if (!trabaja || t.estado === 'done') return null
-  const suya = !t.asignadoId || t.asignadoId === yo || gestiona
-  if (!suya) return null
-  const cargando = accion.isPending && accion.variables?.id === t.id
-  return t.estado === 'pending' ? (
-    <Button size="small" loading={cargando} onClick={(e) => { e.stopPropagation(); accion.mutate({ id: t.id, accion: 'iniciar' }) }}>Iniciar</Button>
-  ) : (
-    <Button size="small" type="primary" loading={cargando} onClick={(e) => { e.stopPropagation(); accion.mutate({ id: t.id, accion: 'terminar' }) }}>Terminar</Button>
-  )
-}
 
 export function OrdenDeTrabajo() {
   const { id } = ruta.useParams()
@@ -43,13 +23,16 @@ export function OrdenDeTrabajo() {
   const ir = useNavigate()
   const consultas = useQueryClient()
   const { message } = App.useApp()
-  const [dialogo, setDialogo] = useState<'trabajo' | 'entregar' | 'anular' | null>(null)
+  const [dialogo, setDialogo] = useState<'trabajo' | 'editar' | 'entregar' | 'anular' | null>(null)
   const r = useQuery({ queryKey: ['taller', 'ot', id], queryFn: () => api<DetalleOt>('GET', `/servicio/ot/${id}`) })
   const personas = useQuery({ queryKey: ['taller', 'personas'], queryFn: () => api<Persona[]>('GET', '/servicio/personas'), enabled: gestiona })
   const tarea = useAccionesDeTarea()
   const calidad = useMutation({
     mutationFn: () => api('POST', `/servicio/ot/${id}/calidad`),
-    onSuccess: () => { message.success('Control de calidad aprobado: lista para entregar.'); return consultas.invalidateQueries({ queryKey: ['taller'] }) },
+    onSuccess: () => {
+      message.success('Control de calidad aprobado: lista para entregar.')
+      return consultas.invalidateQueries({ queryKey: ['taller'] })
+    },
     onError: (e) => message.error((e as Error).message),
   })
   if (r.isPending) return <Cargando />
@@ -58,7 +41,17 @@ export function OrdenDeTrabajo() {
   const abierta = ot.estado !== 'delivered' && ot.estado !== 'cancelled'
   const puede = gestiona && !suspendida && abierta
   const cotizacionVigente = ot.cotizaciones.find((q) => q.estado === 'accepted' || q.estado === 'sent' || q.estado === 'draft')
-  const porSeccion = [...new Set(ot.tareas.map((t) => t.seccion))]
+  const soloDiagnostico = ot.tareas.every((t) => t.diagnostico)
+  /** Para asignar: primero quienes hacen esa actividad. */
+  const opcionesDe = (t: Tarea) => {
+    const lista = personas.data ?? []
+    const hacen = lista.filter((p) => t.actividadId && p.actividades.includes(t.actividadId))
+    const otras = lista.filter((p) => !hacen.includes(p))
+    return [
+      ...(hacen.length ? [{ label: 'Hacen esta actividad', options: hacen.map((p) => ({ value: p.id, label: p.nombre })) }] : []),
+      { label: hacen.length ? 'Otras personas' : 'Personas', options: otras.map((p) => ({ value: p.id, label: p.nombre })) },
+    ]
+  }
 
   return (
     <>
@@ -81,6 +74,7 @@ export function OrdenDeTrabajo() {
               {ot.estado === 'quality' && <Button type="primary" loading={calidad.isPending} onClick={() => calidad.mutate()}>Aprobar control de calidad</Button>}
               {ot.estado === 'ready' && <Button type="primary" onClick={() => setDialogo('entregar')}>Entregar</Button>}
               {ot.estado !== 'ready' && <Button onClick={() => setDialogo('trabajo')}>Agregar trabajo</Button>}
+              <Button onClick={() => setDialogo('editar')}>Editar</Button>
               <Button danger onClick={() => setDialogo('anular')}>Anular</Button>
             </>
           ) : null
@@ -94,21 +88,47 @@ export function OrdenDeTrabajo() {
           { rotulo: 'Trabajos', valor: `${ot.tareas.filter((t) => t.estado === 'done').length} de ${ot.tareas.length}`, nota: 'terminados' },
           { rotulo: 'Recibida', valor: fecha(ot.creada) },
           { rotulo: 'Entrega comprometida', valor: ot.entrega ? fecha(`${ot.entrega}T12:00:00Z`) : '—', tono: ot.plazo === 'atrasada' ? 'rojo' : ot.plazo === 'por_vencer' ? 'naranjo' : undefined },
-          { rotulo: 'Piezas', valor: <span style={{ fontSize: 14 }}>{ot.piezas.map((p) => PIEZAS[p]).join(', ')}</span> },
+          { rotulo: 'Llegó', valor: <span style={{ fontSize: 14 }}>{ot.piezas.map((p) => PIEZAS[p]).join(', ')}</span> },
         ]}
       />
-      <Bloque titulo="Trabajos por sección">
+      {!soloDiagnostico && abierta && <ComoVaCadaPieza piezas={ot.porPieza} />}
+      <Bloque titulo="Trabajos por pieza">
         <Table<Tarea>
           size="small"
           rowKey="id"
           pagination={false}
           dataSource={ot.tareas}
-          scroll={{ x: 820 }}
+          scroll={{ x: 1120 }}
           locale={{ emptyText: 'Sin trabajos todavía.' }}
           columns={[
-            { title: 'Sección', dataIndex: 'seccion', width: 170, render: (v: string, t, i) => (i === 0 || ot.tareas[i - 1].seccion !== v ? <b>{v}</b> : null) },
-            { title: 'Trabajo', dataIndex: 'nombre' },
-            { title: 'Estado', dataIndex: 'estado', render: (v) => <EstadoTareaTag estado={v} /> },
+            { title: 'Pieza', dataIndex: 'grupo', width: 150, render: (g: Tarea['grupo'], _, i) => (i === 0 || ot.tareas[i - 1].grupo !== g ? <b>{nombreDeGrupo(g)}</b> : null) },
+            {
+              title: 'Trabajo',
+              key: 'n',
+              render: (_, t) => (
+                <div className="fila-nombre">
+                  <span>{t.nombre}</span>
+                  <small>
+                    {t.seccion}
+                    {t.adelantado ? ' · adelantado' : ''}
+                  </small>
+                </div>
+              ),
+            },
+            {
+              title: 'Situación',
+              key: 's',
+              width: 210,
+              render: (_, t) => (
+                <div className="fila-nombre">
+                  <span>
+                    <SituacionTag situacion={t.situacion} detencion={t.detencion} espera={t.espera} />
+                  </span>
+                  {t.situacion === 'waiting' && <small>{textoEspera(t.espera)}</small>}
+                  {t.situacion === 'held' && t.detencion?.nota && <small>{t.detencion.nota}</small>}
+                </div>
+              ),
+            },
             {
               title: 'Asignado a',
               key: 'a',
@@ -122,21 +142,21 @@ export function OrdenDeTrabajo() {
                     style={{ width: 180 }}
                     value={t.asignadoId ?? undefined}
                     loading={personas.isPending}
-                    options={personas.data?.map((p) => ({ value: p.id, label: p.nombre }))}
+                    options={opcionesDe(t)}
                     onChange={(v) => tarea.mutate({ id: t.id, accion: 'asignar', datos: { usuario: v ?? null } })}
                   />
                 ) : (
-                  t.asignado ?? <span className="tenue">—</span>
+                  (t.asignado ?? <span className="tenue">—</span>)
                 ),
             },
-            { title: 'Horas estándar', dataIndex: 'horas', align: 'right', render: (v: number) => (v ? v.toLocaleString('es-CL', { maximumFractionDigits: 1 }) : '—') },
-            { title: 'Terminó', dataIndex: 'termino', render: (v: string | null) => (v ? fechaHora(v) : <span className="tenue">—</span>) },
-            { title: '', key: 'b', width: 1, render: (_, t) => (abierta && ot.estado !== 'ready' ? <BotonesDeTarea t={t} yo={persona?.id} gestiona={gestiona} trabaja={trabaja && !suspendida} accion={tarea} /> : null) },
+            { title: 'Horas estándar', dataIndex: 'horas', align: 'right', width: 110, render: (v: number) => (v ? horas(v) : '—') },
+            { title: 'Terminó', dataIndex: 'termino', width: 120, render: (v: string | null) => (v ? fechaHora(v) : <span className="tenue">—</span>) },
+            { title: '', key: 'b', width: 1, render: (_, t) => (abierta && ot.estado !== 'ready' && ot.estado !== 'waiting_approval' ? <BotonesDeTarea t={t} yo={persona?.id} gestiona={gestiona} trabaja={trabaja && !suspendida} accion={tarea} /> : null) },
           ]}
         />
-        {porSeccion.length === 1 && ot.tareas.every((t) => t.diagnostico) && ot.estado !== 'cancelled' && (
+        {soloDiagnostico && ot.estado !== 'cancelled' && (
           <p className="tenue" style={{ margin: '10px 14px' }}>
-            Cuando se apruebe la cotización, sus trabajos aparecen aquí, cada uno en su sección.
+            Cuando se apruebe la cotización, sus trabajos aparecen aquí, cada uno en la ruta de su pieza y con su especialista.
           </p>
         )}
       </Bloque>
@@ -144,9 +164,15 @@ export function OrdenDeTrabajo() {
         <Bloque titulo="El motor">
           <dl className="ficha">
             <dt>Cliente</dt>
-            <dd>{ot.cliente.nombre}{ot.cliente.contacto && ` · ${ot.cliente.contacto}`}{ot.cliente.telefono && ` · ${ot.cliente.telefono}`}</dd>
+            <dd>
+              {ot.cliente.nombre}
+              {ot.cliente.contacto && ` · ${ot.cliente.contacto}`}
+              {ot.cliente.telefono && ` · ${ot.cliente.telefono}`}
+            </dd>
             <dt>Motor</dt>
             <dd>{ot.motor}</dd>
+            <dt>Cilindros, válvulas y culatas</dt>
+            <dd>{textoMotor(ot) ?? <span className="tenue">Sin datos: se cotiza como 4 cilindros, 2 válvulas por cilindro y 1 culata</span>}</dd>
             <dt>Número de motor</dt>
             <dd>{ot.numeroMotor ?? '—'}</dd>
             <dt>Equipo</dt>
@@ -191,10 +217,39 @@ export function OrdenDeTrabajo() {
           ))}
         </ul>
       </Bloque>
-      {dialogo === 'trabajo' && <AgregarTrabajo otId={ot.id} cerrar={() => setDialogo(null)} />}
+      {dialogo === 'trabajo' && <AgregarTrabajo ot={ot} cerrar={() => setDialogo(null)} />}
+      {dialogo === 'editar' && <Editar ot={ot} cerrar={() => setDialogo(null)} />}
       {dialogo === 'entregar' && <Entregar otId={ot.id} contacto={ot.cliente.contacto} cerrar={() => setDialogo(null)} />}
       {dialogo === 'anular' && <Anular otId={ot.id} cerrar={() => setDialogo(null)} />}
     </>
+  )
+}
+
+/** Una tarjeta por pieza: su avance y lo que la tiene ocupada («Culata: en proceso, rectificado de válvulas»). */
+function ComoVaCadaPieza({ piezas }: { piezas: PiezaDeOt[] }) {
+  const resumen = (p: PiezaDeOt) => {
+    const a = p.actual
+    if (p.situacion === 'done' || !a) return 'Lista'
+    if (p.situacion === 'held' && a.detencion) return `Detenida: ${MOTIVOS_DETENCION[a.detencion.motivo].toLowerCase()}${a.detencion.nota ? ` (${a.detencion.nota})` : ''}`
+    if (p.situacion === 'in_progress') return `En proceso: ${a.nombre}${a.asignado ? ` · ${a.asignado}` : ''}`
+    if (p.situacion === 'available') return `Para hacer: ${a.nombre} · ${a.asignado ?? 'sin asignar'}`
+    return textoEspera(a.espera)
+  }
+  return (
+    <div className="piezas" aria-label="Cómo va cada pieza">
+      {piezas.map((p) => (
+        <div key={p.clave} className={`pieza ${p.situacion}`}>
+          <div className="pieza-cabeza">
+            <b>{p.nombre}</b>
+            <span className="tenue">
+              {p.hechas} de {p.total}
+            </span>
+          </div>
+          <Avance fraccion={p.avance} ancho={90} />
+          <small>{resumen(p)}</small>
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -202,7 +257,7 @@ function useAccionOt(otId: string, ruta: string, exito: string, cerrar: () => vo
   const consultas = useQueryClient()
   const { message } = App.useApp()
   return useMutation({
-    mutationFn: (datos: unknown) => api('POST', `/servicio/ot/${otId}/${ruta}`, datos),
+    mutationFn: (datos: unknown) => api('POST', `/servicio/ot/${otId}${ruta ? `/${ruta}` : ''}`, datos),
     onSuccess: async () => {
       message.success(exito)
       cerrar()
@@ -211,21 +266,91 @@ function useAccionOt(otId: string, ruta: string, exito: string, cerrar: () => vo
   })
 }
 
-function AgregarTrabajo({ otId, cerrar }: { otId: string; cerrar: () => void }) {
-  const [form] = Form.useForm<{ trabajoId: string; cantidad: number }>()
+/** Agregar una actividad de la lista: entra en la ruta de su pieza, contada con los datos del motor. */
+function AgregarTrabajo({ ot, cerrar }: { ot: DetalleOt; cerrar: () => void }) {
+  const [form] = Form.useForm<{ trabajoId: string; cantidad: number; pieza: Pieza }>()
   const catalogo = useQuery({ queryKey: ['taller', 'catalogo'], queryFn: () => api<Catalogo>('GET', '/servicio/catalogo') })
-  const accion = useAccionOt(otId, 'tareas', 'Trabajo agregado.', cerrar)
-  const opciones = catalogo.data?.secciones.map((s) => ({ label: s.nombre, options: catalogo.data.trabajos.filter((t) => t.seccionId === s.id && t.activo).map((t) => ({ value: t.id, label: `${t.codigo} · ${t.nombre}` })) }))
+  const accion = useAccionOt(ot.id, 'tareas', 'Trabajo agregado.', cerrar)
+  const trabajoId = Form.useWatch('trabajoId', form)
+  const elegida = catalogo.data?.trabajos.find((t) => t.id === trabajoId)
+  const grupos: Pieza[] = [...PIEZAS_SUELTAS, 'motor']
+  const opciones = grupos
+    .map((p) => ({ label: PIEZAS[p], options: (catalogo.data?.trabajos ?? []).filter((t) => t.pieza === p && t.activo).map((t) => ({ value: t.id, label: `${t.codigo} · ${t.nombre}` })) }))
+    .filter((g) => g.options.length)
   return (
     <Modal open title="Agregar un trabajo a la OT" okText="Agregar" cancelText="Cancelar" onCancel={cerrar} confirmLoading={accion.isPending} onOk={() => form.validateFields().then((v) => accion.mutate(v))} destroyOnHidden>
       {accion.isError && <Alert type="error" showIcon title={(accion.error as Error).message} style={{ marginBottom: 12 }} />}
-      <Form form={form} layout="vertical" requiredMark={false} initialValues={{ cantidad: 1 }}>
-        <Form.Item label="Trabajo" name="trabajoId" rules={[{ required: true, message: 'Elige el trabajo.' }]}>
-          <Select showSearch optionFilterProp="label" loading={catalogo.isPending} options={opciones} />
+      <Form form={form} layout="vertical" requiredMark={false}>
+        <Form.Item label="Actividad" name="trabajoId" rules={[{ required: true, message: 'Elige la actividad.' }]}>
+          <Select
+            showSearch
+            optionFilterProp="label"
+            loading={catalogo.isPending}
+            options={opciones}
+            onChange={(v) => {
+              const t = catalogo.data?.trabajos.find((x) => x.id === v)
+              if (t) form.setFieldsValue({ pieza: t.pieza, cantidad: cantidadSegun(t.criterio, motorDeDatos(ot)) })
+            }}
+          />
         </Form.Item>
-        <Form.Item label="Cantidad (cilindros, válvulas, bielas…)" name="cantidad">
-          <InputNumber min={1} max={1000} />
+        <div className="columnas">
+          <Form.Item label="Pieza" name="pieza">
+            <Select options={Object.entries(PIEZAS).map(([value, label]) => ({ value, label }))} />
+          </Form.Item>
+          <Form.Item label="Cantidad" name="cantidad" rules={[{ required: true, message: 'Escribe la cantidad.' }]} extra={elegida && comoSeCuenta(elegida.criterio) ? `Se cuenta ${comoSeCuenta(elegida.criterio)}, con los datos del motor.` : undefined}>
+            <InputNumber min={1} max={1000} />
+          </Form.Item>
+        </div>
+      </Form>
+    </Modal>
+  )
+}
+
+type DatosEdicion = { numeroMotor?: string; equipo?: string; falla?: string; cilindros?: number | null; valvulasPorCilindro?: number | null; culatas?: number | null; entrega?: dayjs.Dayjs | null; prioridad: 'normal' | 'urgent' }
+
+/** Lo que se sabe del motor y la entrega comprometida: se completa o corrige mientras la OT está abierta. */
+function Editar({ ot, cerrar }: { ot: DetalleOt; cerrar: () => void }) {
+  const [form] = Form.useForm<DatosEdicion>()
+  const accion = useAccionOt(ot.id, '', 'OT actualizada.', cerrar)
+  return (
+    <Modal
+      open
+      title={`Editar ${folioOt(ot.numero)}`}
+      okText="Guardar"
+      cancelText="Cancelar"
+      onCancel={cerrar}
+      confirmLoading={accion.isPending}
+      onOk={() => form.validateFields().then((v) => accion.mutate({ ...v, cilindros: v.cilindros ?? null, valvulasPorCilindro: v.valvulasPorCilindro ?? null, culatas: v.culatas ?? null, entrega: v.entrega ? v.entrega.format('YYYY-MM-DD') : null }))}
+      destroyOnHidden
+      width={620}
+    >
+      {accion.isError && <Alert type="error" showIcon title={(accion.error as Error).message} style={{ marginBottom: 12 }} />}
+      <Form
+        form={form}
+        layout="vertical"
+        requiredMark={false}
+        initialValues={{ numeroMotor: ot.numeroMotor ?? '', equipo: ot.equipo ?? '', falla: ot.falla ?? '', cilindros: ot.cilindros, valvulasPorCilindro: ot.valvulasPorCilindro, culatas: ot.culatas, entrega: ot.entrega ? dayjs(ot.entrega) : null, prioridad: ot.prioridad }}
+      >
+        <CamposDelMotor />
+        <div className="columnas">
+          <Form.Item label="Número de motor" name="numeroMotor">
+            <Input />
+          </Form.Item>
+          <Form.Item label="Equipo y patente" name="equipo">
+            <Input />
+          </Form.Item>
+        </div>
+        <Form.Item label="Falla informada" name="falla">
+          <Input.TextArea rows={2} />
         </Form.Item>
+        <div className="columnas">
+          <Form.Item label="Entrega comprometida" name="entrega">
+            <DatePicker style={{ width: '100%' }} format="DD-MM-YYYY" />
+          </Form.Item>
+          <Form.Item label="Prioridad" name="prioridad">
+            <Select options={Object.entries(PRIORIDADES_OT).map(([value, label]) => ({ value, label }))} />
+          </Form.Item>
+        </div>
       </Form>
     </Modal>
   )

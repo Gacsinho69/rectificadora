@@ -1,6 +1,6 @@
 # Rectificadora — SaaS para rectificadoras
 
-Un sistema para rectificadoras de motores, al estilo del ERP de Baufer, que se ofrece a muchas rectificadoras a la vez (multicliente). Cada rectificadora tiene **su propio sistema**: recibe motores, cotiza, reparte los trabajos por sección y sigue cada orden hasta la entrega. Nadie ve los datos de otra. Por encima, **la consola de la plataforma** deja al equipo interno administrar a todos los clientes: uso, salud, cobros, seguridad y soporte.
+Un sistema para rectificadoras de motores, al estilo del ERP de Baufer, que se ofrece a muchas rectificadoras a la vez (multicliente). Cada rectificadora tiene **su propio sistema**: recibe motores, cotiza con sus actividades valorizadas, reparte el trabajo por pieza entre sus especialistas y sigue cada orden hasta la entrega. Nadie ve los datos de otra. Por encima, **la consola de la plataforma** deja al equipo interno administrar a todos los clientes: uso, salud, cobros, seguridad y soporte.
 
 Estado (11-11-2026): **MVP completo con datos de demostración.** Falta conectar el inicio de sesión real y el cobro real (ver «Qué falta»).
 
@@ -14,21 +14,36 @@ Estado (11-11-2026): **MVP completo con datos de demostración.** Falta conectar
 
 ## Cómo trabaja una rectificadora en el sistema
 
-1. **Recepción.** Llega un motor completo o piezas (culata, block, cigüeñal, bielas). Se anota el cliente, el motor y su número, el equipo y su patente, la falla y la entrega comprometida. Nace la **OT** (OT-0001, correlativa por rectificadora) con su desarme, lavado y medición en la sección de diagnóstico.
-2. **Diagnóstico y cotización.** Con lo que se midió se arma la **cotización** con la lista de trabajos con precio del taller (cepillado de culata, rectificado de cilindros por cilindro, rectificado de cigüeñal, armado…), repuestos y otros cargos, descuento e IVA 19 %. Un trabajo de terceros (nitrurado, soldadura) se cotiza con precio a mano y no se envía sin él.
-3. **Aprobación.** Enviada, la OT queda «esperando aprobación». Si el cliente acepta, cada trabajo cotizado pasa a **su sección** como una tarea. Si rechaza, la OT se anula o se recotiza. También se puede cotizar sin OT; al aceptar, nace la OT.
-4. **Taller.** El **tablero** muestra una columna por sección (recepción y diagnóstico, culatas, block, cigüeñal y bielas, armado, control de calidad y terceros) con lo que falta hacer: primero lo que está en proceso, después lo urgente y lo que vence antes. El jefe de taller asigna; el técnico inicia y termina. La OT muestra su **avance** (por horas estándar), si va **atrasada** o **por vencer**, y su historia.
+1. **Recepción.** Llega un motor completo o piezas (culata, block, cigüeñal, bielas). Se anota el cliente, el motor y su número, sus cilindros, válvulas por cilindro y culatas, el equipo y su patente, la falla y la entrega comprometida. Nace la **OT** (OT-0001, correlativa por rectificadora) con su diagnóstico: desarme, lavado y medición si viene el motor o el block; prueba de fisuras (y la hidráulica, si viene la culata) si son piezas sueltas.
+2. **Diagnóstico y cotización.** Con lo que se midió se arma la **cotización** con las **actividades** del taller. Cada una se cuenta sola con los datos del motor: el rectificado de cilindros de un motor de 6 cilindros va por 6, el de asientos de 24 válvulas va por 24. Si se cambian los cilindros, se recuenta todo. **Desglose por pieza** trae lo típico de cada pieza (culata, block, cigüeñal, bielas, y el desarme, armado y control del motor completo), y quien cotiza quita lo que no corresponde. Se suman repuestos y otros cargos, descuento e IVA 19 %. Un trabajo de terceros (nitrurado, soldadura) se cotiza con precio a mano y no se envía sin él.
+3. **Aprobación.** Enviada, la OT queda «esperando aprobación». Si el cliente acepta, cada actividad cotizada pasa a la OT como un trabajo: a **su sección**, a la **ruta de su pieza** y a **uno de sus especialistas**. Lo que ya se hizo en el diagnóstico se cobra, pero no se repite. Si rechaza, la OT se anula o se recotiza. También se puede cotizar sin OT; al aceptar, nace la OT.
+4. **Taller.** Desarmado, el motor deja de ser una sola cosa. Cada pieza sigue su ruta, un paso tras otro (en la culata: cepillado, guías, asientos, válvulas, armado de culata), y las piezas avanzan a la vez. El armado y el control final esperan a todas. El **tablero** tiene una columna por sección:
+   - arriba, lo que se puede hacer ahora: primero lo en proceso, después lo atrasado, lo urgente y lo que vence antes;
+   - abajo, lo que **espera su turno** y lo **detenido** con su motivo (faltan repuestos, falta la respuesta del cliente, está donde un tercero).
+
+   El jefe de taller puede **adelantar** un trabajo, como armar el block mientras la culata sigue en su sección. La OT muestra **cómo va cada pieza**, lo que se contesta en el mesón: «la culata va en asientos con Pedro; el block espera los pistones».
 5. **Calidad y entrega.** Con todos los trabajos terminados, la OT pasa sola a control de calidad. El jefe de taller lo aprueba, queda lista y se entrega anotando quién la recibe.
 
-El estado de una OT no se marca a mano: sale de sus tareas y de su cotización (`estadoDeOt` en `src/modulos/taller/reglas.ts`). Solo la aprobación de calidad, la entrega y la anulación las decide una persona.
+El estado de una OT no se marca a mano: sale de sus trabajos y de su cotización (`estadoDeOt`). Tampoco la situación de cada trabajo (para hacer, espera su turno, detenido): sale de su pieza y su paso (`situacionDe`). Las dos están en `src/modulos/taller/reglas.ts`. Solo la aprobación de calidad, la entrega, la anulación, las detenciones y lo adelantado lo decide una persona.
+
+**Actividades.** Cada rectificadora tiene su lista de actividades, ordenada por pieza. Cada actividad tiene:
+- la pieza a la que se hace y su paso en la ruta;
+- cómo se cuenta: por cilindro, válvula, biela o culata, o una vez;
+- su valor y sus horas por unidad;
+- si va en el desglose típico;
+- quiénes la hacen (sus especialistas).
+
+Por ejemplo, la prueba hidráulica de culata se cobra por cilindro: la culata más grande cuesta más. Al aprobarse una cotización, cada trabajo va solo a uno de sus especialistas. Va al que ya tiene esa pieza de la OT, si también hace la actividad; si no, al que tiene menos horas pendientes. Al reasignar una pieza, lo que sigue de ella en la sección va con ella. El administrador crea y ajusta las actividades. Quién hace cada una lo decide también el jefe de taller.
+
+**Carga.** Por sección: su gente (los especialistas de sus actividades), las horas para hacer ahora, las que esperan su turno, lo detenido, lo sin asignar (que se reparte con un botón) y los días de cola. Por persona: lo que tiene cada uno.
 
 **Roles dentro de cada rectificadora:**
-- **Administrador:** todo, más la administración de la organización y la lista de precios.
-- **Jefe de taller:** recibe, cotiza, asigna, aprueba calidad y entrega.
-- **Técnico:** ve el taller y las OT y trabaja lo suyo; no ve cotizaciones ni montos.
+- **Administrador:** todo, más la administración de la organización y las actividades con sus valores.
+- **Jefe de taller:** recibe, cotiza, elige quién hace cada actividad, asigna, adelanta, aprueba calidad y entrega.
+- **Técnico:** ve el taller y las OT, trabaja lo suyo y lo detiene si falta algo; no ve cotizaciones ni montos.
 - **Solo lectura:** mira todo y no cambia nada.
 
-Cada rectificadora nace con 7 secciones y 29 trabajos con precio (`SECCIONES_INICIALES` y `TRABAJOS_INICIALES`), que después ajusta.
+Cada rectificadora nace con 7 secciones y 29 actividades con su pieza, su paso, su criterio y su valor (`SECCIONES_INICIALES` y `TRABAJOS_INICIALES`), que después ajusta.
 
 ## Cómo se corre
 
@@ -39,7 +54,7 @@ npm install
 npm run dev
 ```
 
-Se abre en http://localhost:5180. La primera vez crea la base en `.datos/desarrollo` (PGlite) y siembra la demostración: 30 rectificadoras ficticias, unas 400 personas y unas 2.000 OT en 90 días, con sus cotizaciones y sus trabajos por sección. Siembra en unos 4 segundos. En «Entrar como» (solo en desarrollo) se elige a alguien del equipo, o una rectificadora y una persona de cada rol.
+Se abre en http://localhost:5180. La primera vez crea la base en `.datos/desarrollo` (PGlite) y siembra la demostración: 30 rectificadoras ficticias, unas 400 personas con sus oficios (desarmador, culatero, el del block, el de cigüeñales, armador) y unas 2.000 OT en 90 días, con sus cotizaciones contadas por cilindro, sus trabajos en la ruta de cada pieza y algunos detenidos. Siembra en unos 4 segundos. En «Entrar como» (solo en desarrollo) se elige a alguien del equipo, o una rectificadora y una persona de cada rol.
 
 - `npm test`: pruebas (Vitest, cada una con su base en memoria).
 - `npm run tipos`: TypeScript.
@@ -77,7 +92,7 @@ El stack es el mismo de ERP Nuevo: TypeScript, Hono dentro de Vite, React + Ant 
 
 | Módulo | Contenido |
 |---|---|
-| `taller` | Secciones, lista de trabajos, OT, tareas y tablero |
+| `taller` | Secciones, actividades, OT y sus trabajos, el reparto (ruta por pieza, especialistas, detenciones, carga) y el tablero |
 | `comercial` | Clientes y cotizaciones |
 | `organizacion` | Panel del administrador de cada rectificadora |
 | `plataforma` | Consola |
@@ -93,9 +108,9 @@ El stack es el mismo de ERP Nuevo: TypeScript, Hono dentro de Vite, React + Ant 
 - **Del taller, para la siguiente vuelta:**
   - PDF de la cotización y del acta de entrega, y envío por correo;
   - fotos y mediciones del diagnóstico;
-  - especialidades por técnico, para sugerir a quién asignar;
-  - horas reales con reloj;
-  - repuestos y compras;
+  - horas reales con reloj (para comparar con las estándar y afinar la cola);
+  - fecha de entrega sugerida según la cola de cada sección y los repuestos;
+  - repuestos y compras, ligados al trabajo que los espera (hoy se detiene a mano con «faltan repuestos»);
   - portal para los clientes de cada rectificadora;
   - facturación al cliente final.
 - **Zona horaria.** Los días se agrupan en UTC.

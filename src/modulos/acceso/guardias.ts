@@ -4,7 +4,7 @@
 // 3. Si lo nombrado existe pero es de otro cliente, si se abre el portal de otro cliente, o si alguien de un cliente
 //    pide la consola global, se responde como si no existiera (o sin permiso) y queda un evento crítico
 //    `security.cross_tenant_access_attempt`.
-import { eq } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import type { PgColumn, PgTable } from 'drizzle-orm/pg-core'
 import type { Context, MiddlewareHandler } from 'hono'
 import { type Entorno, rechazo } from '../../http'
@@ -112,6 +112,17 @@ export async function filaDelTenant<T extends PgTable & { id: PgColumn; tenantId
     throw rechazo(404, `No existe ${nombre}.`)
   }
   return fila
+}
+
+/** Varios ids de una vez (los trabajos de una cotización, la gente de una sección): todos tienen que ser del propio cliente. */
+export async function filasDelTenant<T extends PgTable & { id: PgColumn; tenantId: PgColumn }>(c: Context<EntornoTenant>, tabla: T, ids: string[], tipo: string, nombre: string) {
+  const unicos = [...new Set(ids)]
+  if (!unicos.length) return []
+  const filas = (await c.var.base.select().from(tabla as PgTable).where(inArray(tabla.id, unicos))) as (T['$inferSelect'] & { id: string; tenantId: string })[]
+  const ajenas = filas.filter((f) => f.tenantId !== c.var.actor.tenantId)
+  for (const f of ajenas) await anotarCrossTenant(c, { tenant_objetivo: f.tenantId }, { id: f.id, tipo })
+  if (ajenas.length || filas.length !== unicos.length) throw rechazo(404, `No existe ${nombre}.`)
+  return filas
 }
 
 /** Un usuario del propio cliente. */

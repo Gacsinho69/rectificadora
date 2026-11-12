@@ -1,18 +1,41 @@
-// Piezas del sistema de la rectificadora: estados con su color, la barra de avance, el plazo y quién puede qué.
+// Piezas del sistema de la rectificadora: estados con su color, la situación de un trabajo en su ruta, la barra de
+// avance, el plazo y quién puede qué.
 import { useParams } from '@tanstack/react-router'
+import { Form, InputNumber, Select } from 'antd'
 import { Estado, type Tono } from '../../../pantallas/componentes'
 import { useYo } from '../../../pantallas/sesion'
 import type { PersonaDelTenant } from '../../acceso/identidad'
 import { ESTADOS_COTIZACION, type EstadoCotizacion } from '../../comercial/reglas'
-import { ESTADOS_OT, ESTADOS_TAREA, type EstadoOt, type EstadoTarea } from '../reglas'
+import { CILINDROS, type Criterio, CRITERIOS, ESTADOS_OT, ESTADOS_TAREA, type EstadoOt, type EstadoTarea, MOTIVOS_DETENCION, type Motor, MOTOR_POR_OMISION, SITUACIONES, type Situacion } from '../reglas'
+import type { Detencion } from './tipos'
 
 const TONO_OT: Record<EstadoOt, Tono> = { received: 'gris', diagnosis: 'azul', waiting_approval: 'dorado', in_progress: 'azul', quality: 'naranjo', ready: 'verde', delivered: 'gris', cancelled: 'gris' }
 const TONO_TAREA: Record<EstadoTarea, Tono> = { pending: 'gris', in_progress: 'azul', done: 'verde' }
 const TONO_COT: Record<EstadoCotizacion, Tono> = { draft: 'gris', sent: 'dorado', accepted: 'verde', rejected: 'rojo', cancelled: 'gris' }
+const TONO_SITUACION: Record<Situacion, Tono> = { in_progress: 'azul', available: 'gris', waiting: 'gris', held: 'naranjo', done: 'verde' }
 
 export const EstadoOtTag = ({ estado }: { estado: EstadoOt }) => <Estado tono={TONO_OT[estado]}>{ESTADOS_OT[estado]}</Estado>
 export const EstadoTareaTag = ({ estado }: { estado: EstadoTarea }) => <Estado tono={TONO_TAREA[estado]}>{ESTADOS_TAREA[estado]}</Estado>
 export const EstadoCotTag = ({ estado }: { estado: EstadoCotizacion }) => <Estado tono={TONO_COT[estado]}>{ESTADOS_COTIZACION[estado]}</Estado>
+
+/** «a», «a y b», «a, b y c». */
+export const enumerar = (l: string[]) => (l.length <= 1 ? l.join('') : `${l.slice(0, -1).join(', ')} y ${l.at(-1)}`)
+
+/** Dónde está un trabajo en su ruta. Detenido dice por qué; lo que espera dice qué espera al pasar el mouse. */
+export function SituacionTag({ situacion, detencion, espera }: { situacion: Situacion; detencion?: Detencion | null; espera?: string[] }) {
+  if (situacion === 'held' && detencion) return <Estado tono="naranjo" titulo={detencion.nota ?? undefined}>{MOTIVOS_DETENCION[detencion.motivo]}</Estado>
+  return (
+    <Estado tono={TONO_SITUACION[situacion]} titulo={situacion === 'waiting' && espera?.length ? `Espera: ${enumerar(espera)}` : undefined}>
+      {SITUACIONES[situacion]}
+    </Estado>
+  )
+}
+
+/** Qué espera un trabajo, en una línea: «Espera: Cepillado de culata». */
+export const textoEspera = (espera: string[]) => (espera.length > 2 ? `Espera: ${espera.slice(0, 2).join(', ')} y ${espera.length - 2} más` : `Espera: ${enumerar(espera)}`)
+
+/** Cómo se contó una línea o un trabajo: «6 · por cilindro»; lo que va una vez no lo dice. */
+export const comoSeCuenta = (criterio: Criterio | null | undefined) => (criterio && criterio !== 'fixed' ? CRITERIOS[criterio].toLowerCase() : null)
 
 export function PlazoTag({ plazo }: { plazo: 'atrasada' | 'por_vencer' | null | undefined }) {
   if (!plazo) return null
@@ -37,6 +60,44 @@ export function AvanceOt({ estado, fraccion, ancho }: { estado: EstadoOt; fracci
   if (estado === 'waiting_approval') return <span className="tenue">Por aprobar</span>
   if (estado === 'cancelled') return <span className="tenue">—</span>
   return <Avance fraccion={fraccion} ancho={ancho} />
+}
+
+/** Horas con un decimal, a la chilena: «1,5 h». */
+export const horas = (h: number) => `${h.toLocaleString('es-CL', { maximumFractionDigits: 1 })} h`
+/** Días de cola: «0,5 días», «sin gente». */
+export const dias = (d: number | null) => (d === null ? 'sin gente' : `${d.toLocaleString('es-CL', { maximumFractionDigits: 1 })} ${d === 1 ? 'día' : 'días'}`)
+
+/** Lo que se sabe del motor; lo que falta, con lo más común. */
+export const motorDeDatos = (x: { cilindros: number | null; valvulasPorCilindro: number | null; culatas: number | null }): Motor => ({
+  cilindros: x.cilindros ?? MOTOR_POR_OMISION.cilindros,
+  valvulasPorCilindro: x.valvulasPorCilindro ?? MOTOR_POR_OMISION.valvulasPorCilindro,
+  culatas: x.culatas ?? MOTOR_POR_OMISION.culatas,
+})
+
+/** «6 cilindros · 24 válvulas · 1 culata», o «Sin datos». */
+export function textoMotor(x: { cilindros: number | null; valvulasPorCilindro: number | null; culatas: number | null }) {
+  if (!x.cilindros) return null
+  const partes = [`${x.cilindros} cilindros`]
+  if (x.valvulasPorCilindro) partes.push(`${x.cilindros * x.valvulasPorCilindro} válvulas (${x.valvulasPorCilindro} por cilindro)`)
+  if (x.culatas) partes.push(x.culatas === 1 ? '1 culata' : `${x.culatas} culatas`)
+  return partes.join(' · ')
+}
+
+/** Cilindros, válvulas por cilindro y culatas: con esto se cuentan las actividades al cotizar. */
+export function CamposDelMotor() {
+  return (
+    <div className="columnas-3">
+      <Form.Item label="Cilindros" name="cilindros">
+        <Select allowClear placeholder="No sé" options={CILINDROS.map((n) => ({ value: n, label: String(n) }))} />
+      </Form.Item>
+      <Form.Item label="Válvulas por cilindro" name="valvulasPorCilindro">
+        <Select allowClear placeholder="No sé" options={[2, 3, 4, 5].map((n) => ({ value: n, label: String(n) }))} />
+      </Form.Item>
+      <Form.Item label="Culatas" name="culatas">
+        <InputNumber min={1} max={24} placeholder="1" style={{ width: '100%' }} />
+      </Form.Item>
+    </div>
+  )
 }
 
 export const folioOt = (n: number) => `OT-${String(n).padStart(4, '0')}`

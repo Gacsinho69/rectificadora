@@ -6,20 +6,22 @@ import { z } from 'zod'
 import type { Base } from '../../base'
 import { conDatos, conFiltros, rechazo } from '../../http'
 import { nuevoId } from '../../ids'
-import { type EntornoTenant, filaDelTenant } from '../acceso/guardias'
+import { type EntornoTenant, filaDelTenant, filasDelTenant } from '../acceso/guardias'
 import { origenDe, registrar } from '../eventos/registrar'
 import { exigirCupoDeOt, exigirGestion, exigirMontos, recalcularOt, siguienteNumero, sumarUso } from '../taller/comun'
-import { OT_ABIERTAS } from '../taller/reglas'
-import { shopSections, workOrders, workOrderTasks } from '../taller/tablas'
+import { repartirOt } from '../taller/reparto'
+import { nombreDeTarea, OT_ABIERTAS } from '../taller/reglas'
+import { services, shopSections, workOrders, workOrderTasks } from '../taller/tablas'
 import { clienteSchema, cotizacionSchema, type DatosCotizacion, ESTADOS_COTIZACION, type EstadoCotizacion, faltasParaEnviar, totales } from './reglas'
 import { customers, quotes } from './tablas'
 
 type C = Context<EntornoTenant>
 
-/** Lo que llega de la pantalla se revisa contra el tenant: el cliente, la OT y las secciones deben ser suyos. */
+/** Lo que llega de la pantalla se revisa contra el tenant: el cliente, la OT, las actividades y las secciones deben ser suyos. */
 async function revisar(c: C, d: DatosCotizacion) {
   await filaDelTenant(c, customers, d.clienteId, 'customer', 'ese cliente')
   if (d.otId) await filaDelTenant(c, workOrders, d.otId, 'work_order', 'esa orden de trabajo')
+  await filasDelTenant(c, services, d.lineas.map((l) => l.trabajoId).filter((t): t is string => Boolean(t)), 'service', 'esa actividad')
   const secciones = [...new Set(d.lineas.map((l) => l.seccionId).filter((s): s is string => Boolean(s)))]
   if (secciones.length) {
     const propias = await c.var.base.select({ id: shopSections.id }).from(shopSections).where(and(eq(shopSections.tenantId, c.var.actor.tenantId), inArray(shopSections.id, secciones)))
@@ -28,42 +30,68 @@ async function revisar(c: C, d: DatosCotizacion) {
   return { ...totales(d.lineas, d.descuento) }
 }
 
+const motorGuardado = (d: DatosCotizacion) => ({ cylinders: d.cilindros ?? null, valvesPerCylinder: d.valvulasPorCilindro ?? null, heads: d.culatas ?? null })
+
 async function cotizacionDe(c: C) {
   return filaDelTenant(c, quotes, c.req.param('id') ?? '', 'quote', 'esa cotización')
 }
 
-/** Al aceptar: los trabajos cotizados pasan a la OT, cada uno a su sección. Si la cotización no venía de una OT, nace una. */
+/**
+ * Al aceptar: las actividades cotizadas pasan a la OT, cada una a su sección y a la ruta de su pieza, y se reparten
+ * entre sus especialistas. Si la cotización no venía de una OT, nace una. Lo que la OT ya tiene de su diagnóstico (el
+ * desarme, la medición) no se repite: se cobra, pero ya se hizo o se está haciendo.
+ */
 async function pasarAlTaller(tx: Base, c: C, q: typeof quotes.$inferSelect) {
   const { actor, ahora } = c.var
+  const motor = { cylinders: q.cylinders, valvesPerCylinder: q.valvesPerCylinder, heads: q.heads }
   let otId = q.workOrderId
   if (!otId) {
     otId = nuevoId('ot')
     const numero = await siguienteNumero(tx, workOrders, actor.tenantId)
-    await tx.insert(workOrders).values({ id: otId, tenantId: actor.tenantId, number: numero, customerId: q.customerId, quoteId: q.id, engine: q.engine, pieces: ['motor'], status: 'received', createdBy: actor.id, createdAt: ahora })
+    await tx.insert(workOrders).values({ id: otId, tenantId: actor.tenantId, number: numero, customerId: q.customerId, quoteId: q.id, engine: q.engine, ...motor, pieces: ['motor'], status: 'received', createdBy: actor.id, createdAt: ahora })
     await tx.update(quotes).set({ workOrderId: otId }).where(eq(quotes.id, q.id))
     await registrar(tx, origenDe(c), { tenantId: actor.tenantId, eventType: 'work_order.created', targetId: otId, targetType: 'work_order', metadata: { numero, desde: `COT-${q.number}` } })
     await sumarUso(tx, actor.tenantId, ahora, { workOrders: 1, features: { work_orders: 1 } })
   } else {
-    await tx.update(workOrders).set({ quoteId: q.id }).where(eq(workOrders.id, otId))
+    // Lo que dice la cotización aceptada del motor (después del diagnóstico) queda en la OT, si se sabía.
+    const sabido = Object.fromEntries(Object.entries(motor).filter(([, v]) => v !== null))
+    await tx.update(workOrders).set({ quoteId: q.id, ...sabido }).where(eq(workOrders.id, otId))
   }
   const [primera] = await tx.select({ id: shopSections.id }).from(shopSections).where(and(eq(shopSections.tenantId, actor.tenantId), eq(shopSections.kind, 'work'))).orderBy(asc(shopSections.position)).limit(1)
-  const trabajos = q.lines.filter((l) => l.tipo === 'trabajo')
+  const yaEnDiagnostico = new Set(
+    (
+      await tx
+        .select({ servicio: workOrderTasks.serviceId })
+        .from(workOrderTasks)
+        .innerJoin(shopSections, eq(shopSections.id, workOrderTasks.sectionId))
+        .where(and(eq(workOrderTasks.workOrderId, otId), eq(shopSections.kind, 'diagnosis')))
+    ).map((t) => t.servicio),
+  )
+  const trabajos = q.lines.filter((l) => l.tipo === 'trabajo' && !(l.trabajoId && yaEnDiagnostico.has(l.trabajoId)))
+  const ids = trabajos.map((l) => l.trabajoId).filter((t): t is string => Boolean(t))
+  const actividades = new Map((ids.length ? await tx.select().from(services).where(and(eq(services.tenantId, actor.tenantId), inArray(services.id, ids))) : []).map((a) => [a.id, a]))
   const [{ ultima }] = await tx.select({ ultima: sql<number>`coalesce(max(${workOrderTasks.position}), -1)`.mapWith(Number) }).from(workOrderTasks).where(eq(workOrderTasks.workOrderId, otId))
   if (trabajos.length)
     await tx.insert(workOrderTasks).values(
-      trabajos.map((l, i) => ({
-        id: nuevoId('tar'),
-        tenantId: actor.tenantId,
-        workOrderId: otId!,
-        sectionId: l.seccionId ?? primera.id,
-        serviceId: l.trabajoId,
-        name: l.cantidad === 1 ? l.descripcion : `${l.descripcion} ×${l.cantidad}`,
-        quantity: l.cantidad,
-        stdMinutes: Math.round(l.horas * l.cantidad * 60),
-        position: ultima + 1 + i,
-        status: 'pending' as const,
-      })),
+      trabajos.map((l, i) => {
+        const a = l.trabajoId ? actividades.get(l.trabajoId) : undefined
+        return {
+          id: nuevoId('tar'),
+          tenantId: actor.tenantId,
+          workOrderId: otId!,
+          sectionId: l.seccionId ?? a?.sectionId ?? primera.id,
+          serviceId: l.trabajoId,
+          name: nombreDeTarea(l.descripcion, l.cantidad, l.criterio ?? a?.criterion),
+          quantity: l.cantidad,
+          stdMinutes: Math.round(l.horas * l.cantidad * 60),
+          position: ultima + 1 + i,
+          piece: l.pieza ?? a?.piece ?? 'motor',
+          step: a?.step ?? 100,
+          status: 'pending' as const,
+        }
+      }),
     )
+  await repartirOt(tx, actor.tenantId, otId)
   await recalcularOt(tx, otId)
   return otId
 }
@@ -143,6 +171,9 @@ export const rutasComercial = new Hono<EntornoTenant>()
       otId: q.workOrderId,
       ot: ot ? { numero: ot.numero, estado: ot.estado } : null,
       motor: q.engine,
+      cilindros: q.cylinders,
+      valvulasPorCilindro: q.valvesPerCylinder,
+      culatas: q.heads,
       lineas: q.lines,
       descuento: q.discountPct,
       notas: q.notes,
@@ -163,7 +194,7 @@ export const rutasComercial = new Hono<EntornoTenant>()
     const id = nuevoId('cot')
     const numero = await c.var.base.transaction(async (tx) => {
       const numero = await siguienteNumero(tx, quotes, actor.tenantId)
-      await tx.insert(quotes).values({ id, tenantId: actor.tenantId, number: numero, customerId: d.clienteId, workOrderId: d.otId ?? null, engine: d.motor, lines: d.lineas, discountPct: d.descuento, net: t.neto, tax: t.iva, total: t.total, notes: d.notas || null, status: 'draft', createdBy: actor.id, createdAt: ahora })
+      await tx.insert(quotes).values({ id, tenantId: actor.tenantId, number: numero, customerId: d.clienteId, workOrderId: d.otId ?? null, engine: d.motor, ...motorGuardado(d), lines: d.lineas, discountPct: d.descuento, net: t.neto, tax: t.iva, total: t.total, notes: d.notas || null, status: 'draft', createdBy: actor.id, createdAt: ahora })
       await sumarUso(tx, actor.tenantId, ahora, { quotes: 1, features: { quotes: 1 } })
       return numero
     })
@@ -178,7 +209,7 @@ export const rutasComercial = new Hono<EntornoTenant>()
     const t = await revisar(c, d)
     await c.var.base
       .update(quotes)
-      .set({ customerId: d.clienteId, workOrderId: d.otId ?? null, engine: d.motor, lines: d.lineas, discountPct: d.descuento, net: t.neto, tax: t.iva, total: t.total, notes: d.notas || null })
+      .set({ customerId: d.clienteId, workOrderId: d.otId ?? null, engine: d.motor, ...motorGuardado(d), lines: d.lineas, discountPct: d.descuento, net: t.neto, tax: t.iva, total: t.total, notes: d.notas || null })
       .where(and(eq(quotes.id, q.id), eq(quotes.tenantId, c.var.actor.tenantId)))
     return c.json({ ok: true })
   })

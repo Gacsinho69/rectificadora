@@ -1,6 +1,8 @@
-// La cotización de una rectificadora: trabajos de la lista (con su sección), repuestos y otros cargos; descuento,
-// IVA 19 % y total, en pesos. Sin servidor: la pantalla calcula igual que el servidor.
+// La cotización de una rectificadora: actividades de la lista (con su sección y su pieza), repuestos y otros cargos;
+// descuento, IVA 19 % y total, en pesos. Las actividades se cuentan con los datos del motor: el rectificado de
+// cilindros de un motor de 6 cilindros va por 6. Sin servidor: la pantalla calcula igual que el servidor.
 import { z } from 'zod'
+import { cantidadSegun, type Criterio, CRITERIOS, type Motor, ordenDeGrupo, type Pieza, PIEZAS } from '../taller/reglas'
 
 export const IVA = 0.19
 
@@ -22,6 +24,10 @@ export type Linea = {
   precio: number | null
   /** Horas estándar por unidad, para planificar el taller. */
   horas: number
+  /** La pieza a la que va (la de la actividad, salvo que se cambie): ordena la cotización y la ruta en el taller. */
+  pieza?: Pieza | null
+  /** Cómo se cuenta: si cambian los cilindros, las líneas por cilindro se cuentan de nuevo. */
+  criterio?: Criterio | null
 }
 
 export const lineaSchema = z.object({
@@ -33,12 +39,17 @@ export const lineaSchema = z.object({
   cantidad: z.number().positive('La cantidad debe ser mayor que cero.').max(10_000),
   precio: z.number().int().min(0).max(1_000_000_000).nullable(),
   horas: z.number().min(0).max(1000),
+  pieza: z.enum(Object.keys(PIEZAS) as [Pieza, ...Pieza[]]).nullable().optional(),
+  criterio: z.enum(Object.keys(CRITERIOS) as [Criterio, ...Criterio[]]).nullable().optional(),
 })
 
 export const cotizacionSchema = z.object({
   clienteId: z.string({ error: 'Elige el cliente.' }).min(1, 'Elige el cliente.'),
   otId: z.string().nullable().optional(),
   motor: z.string().trim().min(2, 'Escribe el motor.').max(80),
+  cilindros: z.number().int().min(1).max(24).nullable().optional(),
+  valvulasPorCilindro: z.number().int().min(1).max(6).nullable().optional(),
+  culatas: z.number().int().min(1).max(24).nullable().optional(),
   lineas: z.array(lineaSchema).max(200),
   descuento: z.number().int().min(0).max(100).default(0),
   notas: z.string().trim().max(1000).optional(),
@@ -72,3 +83,37 @@ export const clienteSchema = z.object({
   telefono: z.string().trim().max(40).optional(),
   correo: z.union([z.literal(''), z.email('El correo no es válido.')]).optional(),
 })
+
+/** Una actividad de la lista, como la ve la cotización. */
+export type ActividadDeLista = { id: string; seccionId: string; codigo: string; nombre: string; precio: number | null; horas: number; pieza: Pieza; paso: number; criterio: Criterio; tipico: boolean; activo: boolean }
+
+/** La línea de una actividad, contada para este motor. */
+export const lineaDe = (a: ActividadDeLista, m: Motor, pieza: Pieza = a.pieza): Linea => ({
+  tipo: 'trabajo',
+  trabajoId: a.id,
+  seccionId: a.seccionId,
+  codigo: a.codigo,
+  descripcion: a.nombre,
+  cantidad: cantidadSegun(a.criterio, m),
+  precio: a.precio,
+  horas: a.horas,
+  pieza,
+  criterio: a.criterio,
+})
+
+/**
+ * El desglose por pieza: las actividades típicas de las piezas elegidas, contadas para este motor y en el orden de su
+ * ruta (lo del motor completo: el desarme primero, el armado y el control al final). Lo que ya está no se repite.
+ * Quien cotiza quita después lo que no corresponda.
+ */
+export function desglose(actividades: ActividadDeLista[], piezas: Pieza[], m: Motor, yaEstan: Linea[], diagnostico: Set<string>): Linea[] {
+  const ya = new Set(yaEstan.map((l) => l.trabajoId).filter(Boolean))
+  const orden = (a: ActividadDeLista) => (a.pieza === 'motor' ? (diagnostico.has(a.seccionId) ? -1 : 99) : ordenDeGrupo(a.pieza))
+  return actividades
+    .filter((a) => a.activo && a.tipico && piezas.includes(a.pieza) && !ya.has(a.id))
+    .sort((a, b) => orden(a) - orden(b) || a.paso - b.paso || a.codigo.localeCompare(b.codigo))
+    .map((a) => lineaDe(a, m))
+}
+
+/** Si cambian los datos del motor, las líneas por cilindro, válvula, biela o culata se cuentan de nuevo. */
+export const recontar = (lineas: Linea[], m: Motor): Linea[] => lineas.map((l) => (l.criterio && l.criterio !== 'fixed' ? { ...l, cantidad: cantidadSegun(l.criterio, m) } : l))

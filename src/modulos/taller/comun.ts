@@ -12,7 +12,7 @@ import { tenants } from '../tenants/tablas'
 import { usageDaily } from '../uso/tablas'
 import type { RolTenant } from '../usuarios/reglas'
 import { nuevoId } from '../../ids'
-import { estadoDeOt, SECCIONES_INICIALES, TRABAJOS_INICIALES } from './reglas'
+import { estadoDeOt, type Motor, MOTOR_POR_OMISION, SECCIONES_INICIALES, TRABAJOS_INICIALES } from './reglas'
 import { shopSections, workOrders, workOrderTasks } from './tablas'
 
 /** Recibe, cotiza, asigna, aprueba calidad y entrega: el jefe de taller y el administrador. */
@@ -87,6 +87,13 @@ export async function exigirCupoDeOt(base: Base, tenantId: string, ahora: Date) 
   if (usadas >= limite) throw rechazo(409, `Llegaste al límite de tu plan: ${limite} órdenes de trabajo al mes. Pide al administrador ampliarlo.`)
 }
 
+/** Los datos del motor de una OT o cotización; lo que falta, con lo más común. */
+export const motorDe = (x: { cylinders: number | null; valvesPerCylinder: number | null; heads: number | null }): Motor => ({
+  cilindros: x.cylinders ?? MOTOR_POR_OMISION.cilindros,
+  valvulasPorCilindro: x.valvesPerCylinder ?? MOTOR_POR_OMISION.valvulasPorCilindro,
+  culatas: x.heads ?? MOTOR_POR_OMISION.culatas,
+})
+
 /** Recalcula y guarda el estado de la OT a partir de sus tareas y su cotización. */
 export async function recalcularOt(tx: Base, otId: string) {
   const [ot] = await tx.select().from(workOrders).where(eq(workOrders.id, otId))
@@ -121,8 +128,12 @@ export function tallerInicial(tenantId: string, id: (prefijo: string) => string 
     code: t.codigo,
     name: t.nombre,
     unit: t.unidad,
+    criterion: t.criterio,
     price: t.precio === null ? null : Math.round((t.precio * factor(t.codigo)) / 500) * 500,
     stdHours: t.horas,
+    piece: t.pieza,
+    step: t.paso,
+    typical: t.tipico,
     active: true,
   }))
   return { secciones, trabajos }

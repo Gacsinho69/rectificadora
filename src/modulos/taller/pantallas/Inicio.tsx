@@ -1,5 +1,5 @@
-// La primera pantalla del taller: cuántos motores hay en cada etapa, qué va atrasado, cuánta carga tiene cada sección
-// y, para quien ve montos, cómo va lo cotizado. El técnico ve primero sus trabajos.
+// La primera pantalla del taller: cuántos motores hay en cada etapa, qué va atrasado o detenido, cuánta carga tiene cada
+// sección y, para quien ve montos, cómo va lo cotizado. El técnico ve primero sus trabajos, en el orden en que tocan.
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { Button, Table } from 'antd'
@@ -7,7 +7,7 @@ import { api } from '../../../pantallas/api'
 import { Bloque, Cargando, Cifras, Problema } from '../../../pantallas/componentes'
 import { cifra, fecha, plata, porcentaje } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
-import { AvanceOt, EstadoOtTag, EstadoTareaTag, folioOt, PlazoTag, usePersona, usePortal } from './comun'
+import { AvanceOt, dias, EstadoOtTag, folioOt, horas, PlazoTag, SituacionTag, usePersona, usePortal } from './comun'
 import type { Inicio as DatosInicio } from './tipos'
 
 export function Inicio() {
@@ -19,7 +19,7 @@ export function Inicio() {
   if (r.isError) return <Problema error={r.error} />
   const d = r.data
   const aOts = (estado: string) => () => ir({ to: '/c/$portal/ot', params: { portal }, search: { estado } })
-  const maxHoras = Math.max(1, ...d.carga.map((s) => s.horas))
+  const maxHoras = Math.max(1, ...d.carga.map((s) => s.ahora))
   return (
     <>
       <Encabezado
@@ -35,6 +35,7 @@ export function Inicio() {
           { rotulo: 'Control de calidad', valor: cifra(d.cifras.calidad), enlace: aOts('quality') },
           { rotulo: 'Listas para entregar', valor: cifra(d.cifras.listas), tono: d.cifras.listas ? 'verde' : undefined, enlace: aOts('ready') },
           { rotulo: 'Atrasadas', valor: cifra(d.cifras.atrasadas), nota: `${d.cifras.porVencer} por vencer`, tono: d.cifras.atrasadas ? 'rojo' : undefined },
+          { rotulo: 'Trabajos detenidos', valor: cifra(d.cifras.detenidos), nota: 'faltan repuestos, cliente…', tono: d.cifras.detenidos ? 'naranjo' : undefined, enlace: () => ir({ to: '/c/$portal/taller', params: { portal } }) },
           { rotulo: 'Entregadas este mes', valor: cifra(d.cifras.entregadasMes), enlace: aOts('delivered') },
         ]}
       />
@@ -59,7 +60,7 @@ export function Inicio() {
               { title: 'Trabajo', dataIndex: 'nombre', render: (v: string, t) => <div className="fila-nombre"><b>{v}</b><small>{t.seccion}</small></div> },
               { title: 'OT', key: 'ot', render: (_, t) => <Link to="/c/$portal/ot/$id" params={{ portal, id: t.otId }}>{folioOt(t.ot)}</Link> },
               { title: 'Motor', dataIndex: 'motor' },
-              { title: 'Estado', dataIndex: 'estado', render: (v) => <EstadoTareaTag estado={v} /> },
+              { title: 'Situación', key: 's', render: (_, t) => <SituacionTag situacion={t.situacion} espera={t.espera} /> },
               { title: 'Entrega', dataIndex: 'entrega', render: (v: string | null) => (v ? fecha(`${v}T12:00:00Z`) : '—') },
             ]}
           />
@@ -85,28 +86,30 @@ export function Inicio() {
             ]}
           />
         </Bloque>
-        <Bloque titulo="Carga por sección" extra={<Link to="/c/$portal/taller" params={{ portal }}>Abrir el tablero</Link>}>
+        <Bloque titulo="Carga por sección" extra={<Link to="/c/$portal/carga" params={{ portal }}>Ver la carga</Link>}>
           <Table
             size="small"
             rowKey="seccionId"
             pagination={false}
             dataSource={d.carga}
+            scroll={{ x: 520 }}
             columns={[
               { title: 'Sección', dataIndex: 'nombre' },
-              { title: 'Por hacer', dataIndex: 'porHacer', align: 'right' },
-              { title: 'En proceso', dataIndex: 'enProceso', align: 'right' },
               {
-                title: 'Horas pendientes',
+                title: 'Para hacer ahora',
                 key: 'h',
                 render: (_, s) => (
                   <span className="medidor">
-                    <span className="medidor-barra azul" style={{ width: 90 }}>
-                      <span style={{ width: `${(s.horas / maxHoras) * 100}%` }} />
+                    <span className="medidor-barra azul" style={{ width: 80 }}>
+                      <span style={{ width: `${(s.ahora / maxHoras) * 100}%` }} />
                     </span>
-                    <span className="medidor-valor">{Math.round(s.horas)} h</span>
+                    <span className="medidor-valor">{horas(Math.round(s.ahora))}</span>
                   </span>
                 ),
               },
+              { title: 'Esperan', dataIndex: 'espera', align: 'right', render: (v: number) => (v ? horas(Math.round(v)) : <span className="tenue">—</span>) },
+              { title: 'Detenidos', dataIndex: 'detenidos', align: 'right', render: (v: number) => (v ? <span className="estado naranjo">{v}</span> : <span className="tenue">—</span>) },
+              { title: 'Cola', dataIndex: 'dias', align: 'right', render: (v: number | null) => dias(v === null ? null : Math.round(v * 10) / 10) },
             ]}
           />
         </Bloque>

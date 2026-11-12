@@ -35,6 +35,10 @@ export const quotes = pgTable(
     customerId: text().notNull(),
     workOrderId: text(),
     engine: text().notNull(),
+    /** Los datos del motor con que se contaron las líneas por cilindro, válvula, biela o culata. */
+    cylinders: integer(),
+    valvesPerCylinder: integer(),
+    heads: integer(),
     lines: jsonb().$type<Linea[]>().notNull(),
     discountPct: integer().notNull().default(0),
     net: integer().notNull(),

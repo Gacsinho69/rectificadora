@@ -14,7 +14,7 @@ import type { EstadoIntegracion } from '../integraciones/reglas'
 import { apiKeys, integrations } from '../integraciones/tablas'
 import { customers, quotes } from '../comercial/tablas'
 import { impersonations } from '../soporte/tablas'
-import { services, shopSections, workOrders, workOrderTasks } from '../taller/tablas'
+import { services, serviceSpecialists, shopSections, taskHolds, workOrders, workOrderTasks } from '../taller/tablas'
 import { type EstadoPago, type EstadoTenant, FUNCIONES_DEL_PLAN, type Funcion, PLANES, type Plan, type Region, type UsoClave } from '../tenants/reglas'
 import { tenants } from '../tenants/tablas'
 import { usageDaily } from '../uso/tablas'
@@ -180,6 +180,8 @@ export async function sembrarDemo(base: Base, ahora = new Date(), semilla = 2026
   const filasClientes: (typeof customers.$inferInsert)[] = []
   const filasOts: (typeof workOrders.$inferInsert)[] = []
   const filasTareas: (typeof workOrderTasks.$inferInsert)[] = []
+  const filasEspecialistas: (typeof serviceSpecialists.$inferInsert)[] = []
+  const filasDetenciones: (typeof taskHolds.$inferInsert)[] = []
   const filasCotizaciones: (typeof quotes.$inferInsert)[] = []
   const admins = new Map<string, string>()
   const usuariosDe = new Map<string, string[]>()
@@ -354,6 +356,8 @@ export async function sembrarDemo(base: Base, ahora = new Date(), semilla = 2026
     filasClientes.push(...taller.clientes)
     filasOts.push(...taller.ots)
     filasTareas.push(...taller.tareas)
+    filasEspecialistas.push(...taller.especialistas)
+    filasDetenciones.push(...taller.detenciones)
     filasCotizaciones.push(...taller.cotizaciones)
 
     // ── Uso diario: las OT, cotizaciones y documentos salen del taller; la API y el almacenamiento, del perfil ──
@@ -494,6 +498,8 @@ export async function sembrarDemo(base: Base, ahora = new Date(), semilla = 2026
     await enLotes(tx, customers, filasClientes)
     await enLotes(tx, workOrders, filasOts)
     await enLotes(tx, workOrderTasks, filasTareas)
+    await enLotes(tx, serviceSpecialists, filasEspecialistas)
+    await enLotes(tx, taskHolds, filasDetenciones)
     await enLotes(tx, quotes, filasCotizaciones, 200)
     await enLotes(tx, events, listaEventos, 300)
   })
