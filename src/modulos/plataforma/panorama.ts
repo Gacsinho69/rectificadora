@@ -167,6 +167,7 @@ export async function panorama(base: Base, ahora: Date, soloTenant?: string): Pr
             estadoPago: t.billingStatus,
             errores7d: fallas.errores7d,
             usoMaximo,
+            diasDeVida: (ahora.getTime() - t.createdAt.getTime()) / DIA,
           })
     const alertas = alertasDeTenant(
       {

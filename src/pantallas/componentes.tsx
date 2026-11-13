@@ -63,6 +63,7 @@ export function SaludTag({ salud }: { salud: Salud | null }) {
     >
       <Estado tono={TONO_SALUD[salud.estado]}>
         {ESTADOS_SALUD[salud.estado]} · {salud.puntaje}
+        {salud.nuevo ? ' · nuevo' : ''}
       </Estado>
     </Tooltip>
   )

@@ -5,6 +5,15 @@ import { calcularSalud, type DatosSalud } from './reglas'
 const sano: DatosSalud = { diasSinLogin: 0.2, usuariosTotal: 10, usuariosActivos7d: 8, funcionesUsadas: 5, funcionesTotal: 6, estadoPago: 'paid', errores7d: 0, usoMaximo: 0.4 }
 
 describe('salud del cliente', () => {
+  it('un cliente recién creado tiene 14 días de gracia para empezar a usar el sistema; el pago cuenta desde el primero', () => {
+    const recien: DatosSalud = { diasSinLogin: null, usuariosTotal: 1, usuariosActivos7d: 0, funcionesUsadas: 0, funcionesTotal: 6, estadoPago: 'none', errores7d: 0, usoMaximo: 0.1 }
+    const nuevo = calcularSalud({ ...recien, diasDeVida: 2 })
+    expect(nuevo).toMatchObject({ estado: 'healthy', puntaje: 100, nuevo: true })
+    expect(nuevo.factores[0].detalle).toBe('Nadie ha entrado nunca · en sus primeros 14 días no se descuenta')
+    expect(calcularSalud({ ...recien, diasDeVida: 20 })).toMatchObject({ estado: 'at_risk', puntaje: 40, nuevo: false })
+    expect(calcularSalud({ ...recien, diasDeVida: 2, estadoPago: 'failed' }).puntaje).toBe(80)
+  })
+
   it('un cliente activo, al día y sin errores está sano', () => {
     const s = calcularSalud(sano)
     expect(s.estado).toBe('healthy')
