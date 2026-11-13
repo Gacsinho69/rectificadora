@@ -1,8 +1,9 @@
 // Para las pruebas: una base PGlite en memoria con dos clientes (A y B), el equipo (con y sin permisos) y la app
-// armada con la identidad por cookie y una hora fija.
+// armada con la sesión de verdad, la identidad por cookie («como») y una hora fija.
 import { eq } from 'drizzle-orm'
 import { abrirBase } from './base'
 import { identidadPorCookie } from './modulos/acceso/identidad'
+import { identidadPorSesion, primeraQueReconozca } from './modulos/acceso/sesion'
 import { TODOS_LOS_PERMISOS } from './modulos/acceso/permisos'
 import { events } from './modulos/eventos/tablas'
 import type { TipoEvento } from './modulos/eventos/tipos'
@@ -38,7 +39,7 @@ export async function armarPrueba(ahora = AHORA) {
     { ...persona('us_a_jefe', 'tn_a', 'technician'), role: 'planner' as const },
     { ...persona('us_a_lector', 'tn_a', 'technician'), role: 'viewer' as const },
   ])
-  const app = crearApp(base, identidadPorCookie(base), () => ahora)
+  const app = crearApp(base, primeraQueReconozca(identidadPorSesion(base), identidadPorCookie(base)), () => ahora)
 
   /** Un pedido como `quien` (id de la cookie `como`). `cookies` agrega otras (la de impersonación). */
   async function pedir(quien: string | null, metodo: string, ruta: string, datos?: unknown, cookies: Record<string, string> = {}, encabezados: Record<string, string> = {}) {
@@ -52,5 +53,7 @@ export async function armarPrueba(ahora = AHORA) {
   }
 
   const eventos = (tipo: TipoEvento) => base.select().from(events).where(eq(events.eventType, tipo))
-  return { base, app, pedir, eventos, ahora }
+  /** Acepta una invitación (el enlace que devuelve el alta) con una clave: la persona queda activa y ya puede entrar. */
+  const aceptar = (enlace: string, clave = 'clave del taller') => pedir(null, 'POST', `/api${enlace}`, { clave })
+  return { base, app, pedir, eventos, aceptar, ahora }
 }

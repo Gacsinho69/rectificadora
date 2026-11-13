@@ -6,6 +6,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { Alert, App, Form, Input, InputNumber, Modal, Radio, Select } from 'antd'
 import { useState } from 'react'
 import { api } from '../../../pantallas/api'
+import { type Invitacion, ModalEnlace } from '../../../pantallas/componentes'
 import { plata, plural } from '../../../pantallas/formato'
 import { PLANTILLAS_TALLER, type PlantillaTaller } from '../../taller/reglas'
 import { faltaDelSubdominio, PLANES, type Plan, REGIONES, type Region, subdominioDe } from '../../tenants/reglas'
@@ -37,15 +38,29 @@ export function NuevoCliente({ cerrar }: { cerrar: () => void }) {
   const opciones = useQuery({ queryKey: ['opciones'], queryFn: () => api<{ dominio: string }>('GET', '/plataforma/opciones') })
   const estado = Form.useWatch('estado', form)
   const plan = Form.useWatch('plan', form)
+  // Creada, se muestra el enlace de su administrador; al cerrarlo, se va a su ficha.
+  const [creada, setCreada] = useState<{ id: string; administrador: string; invitacion: Invitacion } | null>(null)
   const crear = useMutation({
-    mutationFn: (v: Datos) => api<{ id: string }>('POST', '/plataforma/tenants', { ...v, mrr: v.mrr ?? null }),
-    onSuccess: async (r) => {
-      message.success('Rectificadora creada. Su administrador ya puede entrar y sumar a su gente.')
+    mutationFn: (v: Datos) => api<{ id: string; invitacion: Invitacion }>('POST', '/plataforma/tenants', { ...v, mrr: v.mrr ?? null }),
+    onSuccess: async (r, v) => {
+      message.success('Rectificadora creada.')
       await Promise.all(['tenants', 'resumen', 'opciones', 'alertas'].map((k) => consultas.invalidateQueries({ queryKey: [k] })))
-      cerrar()
-      ir({ to: '/plataforma/clientes/$id', params: { id: r.id } })
+      setCreada({ id: r.id, administrador: v.administrador.nombre, invitacion: r.invitacion })
     },
   })
+  if (creada)
+    return (
+      <ModalEnlace
+        nombre={creada.administrador}
+        invitacion={creada.invitacion}
+        cerrar={() => {
+          cerrar()
+          ir({ to: '/plataforma/clientes/$id', params: { id: creada.id } })
+        }}
+      >
+        <p>Es su administrador: al entrar, suma a su gente desde «Administración».</p>
+      </ModalEnlace>
+    )
   return (
     <Modal open title="Nueva rectificadora" okText="Dar de alta" cancelText="Cancelar" onCancel={() => !crear.isPending && cerrar()} confirmLoading={crear.isPending} onOk={() => form.validateFields().then((v) => crear.mutate(v))} destroyOnHidden width={680}>
       {crear.isError && <Alert type="error" showIcon title={(crear.error as Error).message} style={{ marginBottom: 12 }} />}

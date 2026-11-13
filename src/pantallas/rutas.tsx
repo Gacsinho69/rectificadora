@@ -9,6 +9,7 @@ import { ROLES_TENANT } from '../modulos/usuarios/reglas'
 import { api } from './api'
 import { Cargando, Problema } from './componentes'
 import { Entrar } from './Entrar'
+import { Invitacion } from './Invitacion'
 import { hora } from './formato'
 import { Marco } from './Marco'
 import { useYo } from './sesion'
@@ -124,7 +125,7 @@ function MarcoTaller() {
   if (yo.isPending) return <Cargando />
   if (yo.isError) return <Problema error={yo.error} />
   const { actor, impersonacion } = yo.data
-  if (!actor) return <Navigate to="/entrar" />
+  if (!actor) return <Navigate to="/entrar" search={{ portal }} />
   if (actor.tipo === 'plataforma' && !impersonacion) return <Navigate to="/plataforma" />
   const persona = actor.tipo === 'tenant' ? actor : impersonacion!
   const base = `/c/${portal}`
@@ -216,7 +217,8 @@ function MarcoOrganizacion() {
 
 const raiz = createRootRoute({ component: Outlet, notFoundComponent: () => <Navigate to="/" /> })
 const inicio = createRoute({ getParentRoute: () => raiz, path: '/', component: Inicio })
-const entrar = createRoute({ getParentRoute: () => raiz, path: '/entrar', component: Entrar })
+const entrar = createRoute({ getParentRoute: () => raiz, path: '/entrar', validateSearch: (s: Record<string, unknown>): { portal?: string } => ({ portal: texto(s.portal) }), component: Entrar })
+const invitacion = createRoute({ getParentRoute: () => raiz, path: '/invitacion/$token', component: Invitacion })
 const plataforma = createRoute({ getParentRoute: () => raiz, path: '/plataforma', component: MarcoPlataforma })
 const resumen = createRoute({ getParentRoute: () => plataforma, path: '/', component: Resumen })
 
@@ -330,6 +332,7 @@ export const router = createRouter({
   routeTree: raiz.addChildren([
     inicio,
     entrar,
+    invitacion,
     plataforma.addChildren([resumen, clientes, cliente, alertas, actividad, auditoria]),
     organizacion.addChildren([panel]),
     taller.addChildren([tallerInicio, tallerOts, tallerOt, tablero, carga, rendimiento, maquinas, compras, imprimirOrden, bodega, proveedores, imprimirCotizacion, actaEntrega, tallerCotizaciones, tallerCotizacion, tallerClientes, actividades, precios]),

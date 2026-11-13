@@ -186,6 +186,13 @@ button.enlace:hover { text-decoration: underline; }
 .entrar .persona:hover { border-color: var(--marino); }
 .entrar .persona b { display: block; }
 .entrar .persona small { display: block; color: var(--tinta-2); }
+.entrar .persona:disabled { cursor: default; opacity: 0.6; }
+.entrar-caja { max-width: 380px; margin: 0 auto 32px; padding: 20px 22px; background: #fff; border: 1px solid var(--borde); border-radius: 3px; }
+.entrar-caja .personas { grid-template-columns: 1fr; }
+.entrar-nota { margin: 12px 0 0; font-size: 12px; }
+.entrar-como { border-top: 1px solid var(--borde); padding-top: 20px; }
+.entrar-como h2 { font-size: 16px; margin: 0 0 4px; }
+.enlace-url { padding: 8px 10px; background: var(--fondo); border: 1px solid var(--borde); border-radius: 3px; word-break: break-all; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 .ant-table-wrapper .ant-table-thead > tr > th { white-space: nowrap; }
 .ant-table-wrapper td .estado, .ant-table-wrapper td .medidor { vertical-align: middle; }
 

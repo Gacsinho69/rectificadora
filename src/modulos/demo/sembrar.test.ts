@@ -8,7 +8,7 @@ import { platformAdmins, users } from '../usuarios/tablas'
 import { TIPOS_ALERTA } from '../alertas/reglas'
 import { filtrarTenants, filtrosTenants } from '../plataforma/listado'
 import { panorama, todasLasAlertas } from '../plataforma/panorama'
-import { sembrarDemo } from './sembrar'
+import { CLAVE_DEMO, sembrarDemo } from './sembrar'
 
 describe('la demostración', () => {
   it('siembra una vez y trae cada tipo de alerta y cada estado de salud', async () => {
@@ -38,6 +38,9 @@ describe('la demostración', () => {
       const r = await app.request(ruta, { headers: { cookie: `como=${quien}` } })
       return { estado: r.status, cuerpo: (await r.json()) as any }
     }
+    // Todas sus personas entran con la clave de la demostración.
+    const entra = await app.request('/api/entrar', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ correo: admin.email, clave: CLAVE_DEMO }) })
+    expect(entra.status).toBe(200)
     for (const ruta of ['/api/plataforma/resumen', '/api/plataforma/alertas', '/api/plataforma/actividad?dias=14', '/api/plataforma/eventos?categoria=soporte', '/api/plataforma/usuarios?q=gonzalez'])
       expect((await pedir(admin.id, ruta)).estado, ruta).toBe(200)
     expect((await pedir(admin.id, '/api/plataforma/usuarios?q=gonzalez')).cuerpo.length).toBeGreaterThan(0)

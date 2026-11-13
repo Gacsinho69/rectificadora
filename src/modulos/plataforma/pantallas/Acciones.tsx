@@ -3,7 +3,9 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { Alert, App, Form, Input, InputNumber, Modal, Select } from 'antd'
+import { useState } from 'react'
 import { api } from '../../../pantallas/api'
+import { type Invitacion, ModalEnlace } from '../../../pantallas/componentes'
 import { megas, plata } from '../../../pantallas/formato'
 import { CAMBIOS_DE_ESTADO, ESTADOS_TENANT, FUNCIONES, type Funcion, LIMITES, type Limites, PLANES, type Plan } from '../../tenants/reglas'
 import { ROLES_TENANT, type RolTenant } from '../../usuarios/reglas'
@@ -19,6 +21,7 @@ export type Dialogo =
   | { tipo: 'agregar' }
   | { tipo: 'bloqueo'; usuario: UsuarioVisible }
   | { tipo: 'rol'; usuario: UsuarioVisible }
+  | { tipo: 'enlace'; usuario: UsuarioVisible }
 
 const MOTIVO = [
   { required: true, message: 'Escribe el motivo.' },
@@ -58,6 +61,8 @@ export function Acciones({ tenant, dialogo, cerrar }: { tenant: DetalleTenant; d
       return <Bloquear {...props} usuario={dialogo.usuario} />
     case 'rol':
       return <CambiarRol {...props} usuario={dialogo.usuario} />
+    case 'enlace':
+      return <EnlaceNuevo {...props} usuario={dialogo.usuario} />
   }
 }
 
@@ -158,11 +163,26 @@ function CambiarFuncion({ tenant, cerrar, funcion, activa }: Props & { funcion: 
   )
 }
 
-/** Agregar a alguien al cliente, dentro del límite de usuarios de su plan. */
+/** Una acción que devuelve un enlace de invitación: en vez de cerrarse, muestra el enlace para mandarlo. */
+function useInvitacion(tenantId: string, ruta: string) {
+  const consultas = useQueryClient()
+  const [invitacion, setInvitacion] = useState<Invitacion | null>(null)
+  const accion = useMutation({
+    mutationFn: (datos: unknown) => api<Invitacion>('POST', `/plataforma/tenants/${tenantId}${ruta}`, datos),
+    onSuccess: async (r) => {
+      setInvitacion(r)
+      await Promise.all(['tenant', 'tenants', 'resumen'].map((k) => consultas.invalidateQueries({ queryKey: [k] })))
+    },
+  })
+  return { accion, invitacion }
+}
+
+/** Agregar a alguien al cliente, dentro del límite de usuarios de su plan. Queda invitado, con su enlace. */
 function AgregarPersona({ tenant, cerrar }: Props) {
   const [form] = Form.useForm<{ nombre: string; correo: string; rol: RolTenant; motivo: string }>()
-  const accion = useAccion(tenant.id, cerrar, '/usuarios', 'Persona agregada.')
+  const { accion, invitacion } = useInvitacion(tenant.id, '/usuarios')
   const cupo = tenant.usos.find((u) => u.clave === 'users')
+  if (invitacion) return <ModalEnlace nombre={form.getFieldValue('nombre')} invitacion={invitacion} cerrar={cerrar} />
   return (
     <Dialogo cerrar={cerrar} titulo={`Agregar a alguien a ${tenant.nombre}`} accion={accion} enviar={() => form.validateFields().then((v) => accion.mutate(v))} textoOk="Agregar">
       {cupo && <p className="tenue" style={{ marginTop: 0 }}>Usa {cupo.usado} de {cupo.limite} usuarios de su plan. Si ya no caben, primero se ajusta el límite.</p>}
@@ -170,6 +190,23 @@ function AgregarPersona({ tenant, cerrar }: Props) {
         <CamposDePersona />
         <Form.Item label="Motivo" name="motivo" rules={MOTIVO}>
           <Input.TextArea rows={2} placeholder="El cliente lo pidió por correo: su administrador dejó la empresa" />
+        </Form.Item>
+      </Form>
+    </Dialogo>
+  )
+}
+
+/** Un enlace nuevo para una invitación pendiente (se le perdió, venció). El anterior deja de servir. */
+function EnlaceNuevo({ tenant, cerrar, usuario }: Props & { usuario: UsuarioVisible }) {
+  const [form] = Form.useForm<{ motivo: string }>()
+  const { accion, invitacion } = useInvitacion(tenant.id, `/usuarios/${usuario.id}/invitacion`)
+  if (invitacion) return <ModalEnlace nombre={usuario.nombre} invitacion={invitacion} cerrar={cerrar} />
+  return (
+    <Dialogo cerrar={cerrar} titulo={`Enlace nuevo para ${usuario.nombre}`} accion={accion} enviar={() => form.validateFields().then((v) => accion.mutate(v))} textoOk="Hacer enlace nuevo">
+      <p>Sale un enlace nuevo, que sirve 7 días; el anterior deja de servir. Lo normal es que lo pida su administrador desde su panel.</p>
+      <Form form={form} layout="vertical" requiredMark={false}>
+        <Form.Item label="Motivo" name="motivo" rules={MOTIVO}>
+          <Input.TextArea rows={2} placeholder="El administrador llamó: se le venció el enlace" />
         </Form.Item>
       </Form>
     </Dialogo>

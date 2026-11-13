@@ -16,6 +16,8 @@ export const users = pgTable(
     role: text().$type<RolTenant>().notNull(),
     status: text().$type<EstadoUsuario>().notNull(),
     mfaEnabled: boolean().notNull().default(false),
+    /** La clave, derivada con scrypt (`cifrarClave`). Vacía mientras la persona no acepta su invitación. */
+    passwordHash: text(),
     lastLoginAt: timestamp({ withTimezone: true }),
     lastLoginIp: text(),
     invitedAt: timestamp({ withTimezone: true }),
@@ -35,6 +37,7 @@ export const platformAdmins = pgTable('platform_admins', {
   email: text().notNull().unique(),
   /** Lo sensible (suspender, cambiar plan, impersonar…) pide su permiso aparte, además de ser del equipo. */
   permissions: text().array().$type<PermisoPlataforma[]>().notNull().default([]),
+  passwordHash: text(),
   active: boolean().notNull().default(true),
   createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 })

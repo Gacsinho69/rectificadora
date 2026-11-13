@@ -71,6 +71,13 @@
       "when": 1794603819937,
       "tag": "0009_repuestos_en_bodega",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794604558683,
+      "tag": "0010_sesiones",
+      "breakpoints": true
     }
   ]
 }

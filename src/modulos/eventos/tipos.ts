@@ -36,6 +36,7 @@ export const TIPOS_DE_EVENTO = {
   'user.blocked': { nombre: 'Usuario bloqueado', categoria: 'usuarios', severidad: 'warning' },
   'user.unblocked': { nombre: 'Usuario desbloqueado', categoria: 'usuarios', severidad: 'info' },
   'user.role_changed': { nombre: 'Cambio de rol', categoria: 'usuarios', severidad: 'warning' },
+  'user.password_changed': { nombre: 'Cambio de clave', categoria: 'seguridad', severidad: 'info' },
   'billing.payment_succeeded': { nombre: 'Pago recibido', categoria: 'facturacion', severidad: 'info' },
   'billing.payment_failed': { nombre: 'Pago fallido', categoria: 'facturacion', severidad: 'error' },
   'billing.subscription_cancelled': { nombre: 'Suscripción cancelada', categoria: 'facturacion', severidad: 'warning' },

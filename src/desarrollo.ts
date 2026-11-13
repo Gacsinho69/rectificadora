@@ -1,5 +1,6 @@
 // En desarrollo: la base queda en .datos/desarrollo (o donde diga BASE_DESARROLLO) y al partir vacía se siembra la
-// demostración. Se entra con «Entrar como» (cookie `como`, sin clave), que existe solo aquí para probar cada perfil.
+// demostración. Se entra con correo y clave (todas las personas de la demostración tienen la clave «demo1234») o con
+// «Entrar como» (cookie `como`, sin clave), que existe solo aquí para probar cada perfil.
 // Vite recarga este archivo con cada cambio; la base se abre una vez.
 import { and, asc, eq, inArray } from 'drizzle-orm'
 import { Hono } from 'hono'
@@ -7,6 +8,7 @@ import { setCookie } from 'hono/cookie'
 import { abrirBase, type Base } from './base'
 import { ipDe } from './http'
 import { identidadPorCookie, personaPorId } from './modulos/acceso/identidad'
+import { identidadPorSesion, primeraQueReconozca } from './modulos/acceso/sesion'
 import { sembrarDemo } from './modulos/demo/sembrar'
 import { registrar } from './modulos/eventos/registrar'
 import { tenants } from './modulos/tenants/tablas'
@@ -72,6 +74,7 @@ app.post('/api/desarrollo/entrar', async (c) => {
   return c.json({ ok: true })
 })
 
-app.route('/', crearApp(base, identidadPorCookie(base)))
+// La sesión de verdad (correo y clave) y, si no hay, «Entrar como».
+app.route('/', crearApp(base, primeraQueReconozca(identidadPorSesion(base), identidadPorCookie(base))))
 
 export default app

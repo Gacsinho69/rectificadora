@@ -6,7 +6,7 @@ import { getRouteApi, useNavigate } from '@tanstack/react-router'
 import { Alert, App, Button, Dropdown, Form, Input, Modal, Select, Table, Tooltip } from 'antd'
 import { useState } from 'react'
 import { api } from '../../../pantallas/api'
-import { Bloque, Cargando, Cifras, Hace, PagoTag, Problema, TablaEventos } from '../../../pantallas/componentes'
+import { Bloque, Cargando, Cifras, Hace, type Invitacion, ModalEnlace, PagoTag, Problema, TablaEventos } from '../../../pantallas/componentes'
 import { cifra, fecha, plata } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
 import { PESTANAS_ORGANIZACION, type PestanaOrganizacion } from '../../../pantallas/rutas'
@@ -142,7 +142,7 @@ type Cupo = { usados: number; limite: number; plan: string }
 function Usuarios({ yo, suspendida }: { yo?: string; suspendida: boolean }) {
   const r = useQuery({ queryKey: ['organizacion', 'usuarios'], queryFn: () => api<UsuarioVisible[]>('GET', '/organizacion/usuarios') })
   const cupo = useQuery({ queryKey: ['organizacion', 'usuarios', 'cupo'], queryFn: () => api<Cupo>('GET', '/organizacion/usuarios/cupo') })
-  const [dialogo, setDialogo] = useState<{ tipo: 'bloqueo' | 'rol'; usuario: UsuarioVisible } | null>(null)
+  const [dialogo, setDialogo] = useState<{ tipo: 'bloqueo' | 'rol' | 'enlace' | 'anular'; usuario: UsuarioVisible } | null>(null)
   const [agregando, setAgregando] = useState(false)
   if (r.isPending) return <Cargando />
   if (r.isError) return <Problema error={r.error} />
@@ -175,8 +175,10 @@ function Usuarios({ yo, suspendida }: { yo?: string; suspendida: boolean }) {
               <Dropdown
                 trigger={['click']}
                 menu={{
-                  items: [u.estado !== 'invited' ? { key: 'bloqueo', label: u.estado === 'blocked' ? 'Desbloquear…' : 'Bloquear…' } : null, { key: 'rol', label: 'Cambiar rol…' }].filter(Boolean),
-                  onClick: ({ key }) => setDialogo({ tipo: key as 'bloqueo' | 'rol', usuario: u }),
+                  items: (u.estado === 'invited'
+                    ? [{ key: 'enlace', label: 'Enlace nuevo…' }, { key: 'anular', label: 'Anular invitación…' }, { key: 'rol', label: 'Cambiar rol…' }]
+                    : [{ key: 'bloqueo', label: u.estado === 'blocked' ? 'Desbloquear…' : 'Bloquear…' }, { key: 'rol', label: 'Cambiar rol…' }]),
+                  onClick: ({ key }) => setDialogo({ tipo: key as 'bloqueo' | 'rol' | 'enlace' | 'anular', usuario: u }),
                 }}
               >
                 <Button size="small" type="text" icon={<DownOutlined />} aria-label={`Acciones para ${u.nombre}`} />
@@ -185,31 +187,78 @@ function Usuarios({ yo, suspendida }: { yo?: string; suspendida: boolean }) {
           }
         />
       </Bloque>
-      {dialogo && <AccionUsuario {...dialogo} cerrar={() => setDialogo(null)} />}
+      {dialogo && (dialogo.tipo === 'enlace' || dialogo.tipo === 'anular' ? <AccionInvitacion tipo={dialogo.tipo} usuario={dialogo.usuario} cerrar={() => setDialogo(null)} /> : <AccionUsuario tipo={dialogo.tipo} usuario={dialogo.usuario} cerrar={() => setDialogo(null)} />)}
       {agregando && <AgregarPersona cerrar={() => setAgregando(false)} />}
     </>
   )
 }
 
-/** Sumar a alguien de la organización. Al técnico nuevo, después se le dan sus actividades en el sistema del taller. */
+/**
+ * Sumar a alguien de la organización: queda invitado y sale su enlace, para mandárselo. Al técnico nuevo, después se le
+ * dan sus actividades en el sistema del taller.
+ */
 function AgregarPersona({ cerrar }: { cerrar: () => void }) {
   const [form] = Form.useForm<{ nombre: string; correo: string; rol: RolTenant }>()
   const consultas = useQueryClient()
-  const { message } = App.useApp()
+  const [hecha, setHecha] = useState<{ nombre: string; rol: RolTenant; invitacion: Invitacion } | null>(null)
   const agregar = useMutation({
-    mutationFn: (v: { nombre: string; correo: string; rol: RolTenant }) => api('POST', '/organizacion/usuarios', v),
-    onSuccess: async (_, v) => {
-      message.success(v.rol === 'technician' ? `${v.nombre} quedó agregado. Dale sus actividades en «Actividades» para que le lleguen sus trabajos.` : `${v.nombre} quedó agregado.`)
-      cerrar()
+    mutationFn: (v: { nombre: string; correo: string; rol: RolTenant }) => api<Invitacion & { id: string }>('POST', '/organizacion/usuarios', v),
+    onSuccess: async (r, v) => {
+      setHecha({ nombre: v.nombre, rol: v.rol, invitacion: r })
       await consultas.invalidateQueries({ queryKey: ['organizacion'] })
     },
   })
+  if (hecha)
+    return (
+      <ModalEnlace nombre={hecha.nombre} invitacion={hecha.invitacion} cerrar={cerrar}>
+        {hecha.rol === 'technician' && <p>Dale sus actividades en «Actividades» del sistema para que le lleguen sus trabajos.</p>}
+      </ModalEnlace>
+    )
   return (
     <Modal open title="Agregar a alguien de la organización" okText="Agregar" cancelText="Cancelar" confirmLoading={agregar.isPending} onCancel={() => !agregar.isPending && cerrar()} onOk={() => form.validateFields().then((v) => agregar.mutate(v))} destroyOnHidden width={600}>
       {agregar.isError && <Alert type="error" showIcon title={(agregar.error as Error).message} style={{ marginBottom: 12 }} />}
       <Form form={form} layout="vertical" requiredMark={false} initialValues={{ rol: 'technician' }}>
         <CamposDePersona />
       </Form>
+    </Modal>
+  )
+}
+
+/** Para una invitación pendiente: un enlace nuevo (el anterior deja de servir), o anularla y liberar su lugar en el plan. */
+function AccionInvitacion({ tipo, usuario, cerrar }: { tipo: 'enlace' | 'anular'; usuario: UsuarioVisible; cerrar: () => void }) {
+  const consultas = useQueryClient()
+  const { message } = App.useApp()
+  const [invitacion, setInvitacion] = useState<Invitacion | null>(null)
+  const accion = useMutation({
+    mutationFn: (): Promise<Invitacion | { ok: true }> => (tipo === 'enlace' ? api<Invitacion>('POST', `/organizacion/usuarios/${usuario.id}/invitacion`) : api<{ ok: true }>('DELETE', `/organizacion/usuarios/${usuario.id}/invitacion`)),
+    onSuccess: async (r) => {
+      if ('enlace' in r) setInvitacion(r)
+      else {
+        message.success(`Invitación de ${usuario.nombre} anulada.`)
+        cerrar()
+      }
+      await consultas.invalidateQueries({ queryKey: ['organizacion'] })
+    },
+  })
+  if (invitacion) return <ModalEnlace nombre={usuario.nombre} invitacion={invitacion} cerrar={cerrar} />
+  return (
+    <Modal
+      open
+      title={tipo === 'enlace' ? `Enlace nuevo para ${usuario.nombre}` : `Anular la invitación de ${usuario.nombre}`}
+      okText={tipo === 'enlace' ? 'Hacer enlace nuevo' : 'Anular invitación'}
+      okButtonProps={{ danger: tipo === 'anular' }}
+      cancelText="Cancelar"
+      confirmLoading={accion.isPending}
+      onCancel={() => !accion.isPending && cerrar()}
+      onOk={() => accion.mutate()}
+      destroyOnHidden
+    >
+      {accion.isError && <Alert type="error" showIcon title={(accion.error as Error).message} style={{ marginBottom: 12 }} />}
+      <p>
+        {tipo === 'enlace'
+          ? 'Sale un enlace nuevo, que sirve 7 días. El que le mandaste antes deja de servir.'
+          : `${usuario.nombre} (${usuario.correo}) no alcanzó a entrar: se borra su invitación y queda libre su lugar en el plan.`}
+      </p>
     </Modal>
   )
 }
@@ -248,7 +297,7 @@ function AccionUsuario({ tipo, usuario, cerrar }: { tipo: 'bloqueo' | 'rol'; usu
           </Form.Item>
         ) : (
           <>
-            {bloquear && <p>No podrá entrar hasta que lo desbloquees.</p>}
+            {bloquear && <p>No podrá entrar hasta que lo desbloquees. Si tiene la sesión abierta, se le cierra.</p>}
             <Form.Item label="Motivo (opcional)" name="motivo">
               <Input.TextArea rows={2} />
             </Form.Item>

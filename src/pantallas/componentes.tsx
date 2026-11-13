@@ -1,6 +1,6 @@
 // Las piezas que se repiten en todas las pantallas: bloques, cifras, estados, medidores, el gráfico de barras y la
 // tabla de eventos. El color va solo en los estados y siempre junto a su texto, nunca solo.
-import { Alert, Skeleton, Table, Tooltip } from 'antd'
+import { Alert, Button, Modal, Skeleton, Table, Tooltip, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { useState } from 'react'
 import type { Prioridad } from '../modulos/alertas/reglas'
@@ -13,7 +13,7 @@ import { ESTADOS_SALUD, type EstadoSalud, type Salud } from '../modulos/salud/re
 import { ESTADOS_PAGO, ESTADOS_TENANT, type EstadoPago, type EstadoTenant } from '../modulos/tenants/reglas'
 import { ESTADOS_USUARIO, type EstadoUsuario } from '../modulos/usuarios/reglas'
 import { Rechazo } from './api'
-import { cifraCorta, fechaHora, hace, porcentaje } from './formato'
+import { cifraCorta, fecha, fechaHora, hace, porcentaje } from './formato'
 
 export type Tono = 'gris' | 'azul' | 'verde' | 'rojo' | 'naranjo' | 'dorado'
 
@@ -124,6 +124,35 @@ export const Hace = ({ iso }: { iso: string | null | undefined }) => (
 export function Problema({ error }: { error: unknown }) {
   const mensaje = error instanceof Rechazo || error instanceof Error ? error.message : 'No se pudo cargar.'
   return <Alert type="error" showIcon title={mensaje} className="problema" />
+}
+
+/** Lo que devuelve el servidor al invitar a alguien. */
+export type Invitacion = { enlace: string; vence: string }
+
+/**
+ * El enlace de invitación recién hecho, para mandárselo a la persona. Se ve una sola vez (el servidor guarda solo su
+ * huella): se copia o se manda por WhatsApp.
+ */
+export function ModalEnlace({ nombre, invitacion, cerrar, children }: { nombre: string; invitacion: Invitacion; cerrar: () => void; children?: React.ReactNode }) {
+  const url = `${location.origin}${invitacion.enlace}`
+  const mensaje = `Hola ${nombre}: con este enlace eliges tu clave y entras al sistema. Sirve hasta el ${fecha(invitacion.vence)}.\n${url}`
+  return (
+    <Modal open title={`Invitación para ${nombre}`} onCancel={cerrar} footer={<Button type="primary" onClick={cerrar}>Listo</Button>} destroyOnHidden>
+      <p>
+        Mándale este enlace a <b>{nombre}</b>: con él elige su clave y entra. Sirve una sola vez, hasta el {fecha(invitacion.vence)}.
+      </p>
+      <Typography.Paragraph className="enlace-url" copyable={{ text: url, tooltips: ['Copiar el enlace', 'Copiado'] }}>
+        {url}
+      </Typography.Paragraph>
+      <p>
+        <a href={`https://wa.me/?text=${encodeURIComponent(mensaje)}`} target="_blank" rel="noreferrer">
+          Mandarlo por WhatsApp
+        </a>
+      </p>
+      {children}
+      <p className="tenue">El enlace no se vuelve a mostrar. Si se pierde, pide uno nuevo desde la lista de usuarios: el anterior deja de servir.</p>
+    </Modal>
+  )
 }
 
 export const Cargando = () => (

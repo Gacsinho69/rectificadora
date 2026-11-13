@@ -6,6 +6,8 @@ import { HTTPException } from 'hono/http-exception'
 import type { Base } from './base'
 import type { Entorno } from './http'
 import { impersonacionVigente, type Identidad } from './modulos/acceso/identidad'
+import { rutasAcceso } from './modulos/acceso/rutas'
+import { cerrarSesion } from './modulos/acceso/sesion'
 import { origenDe, registrar, SISTEMA } from './modulos/eventos/registrar'
 import { rutasOrganizacion } from './modulos/organizacion/rutas'
 import { rutasPlataforma } from './modulos/plataforma/rutas'
@@ -44,11 +46,15 @@ export function crearApp(base: Base, identidad: Identidad, reloj: Reloj = () => 
     return c.json({ actor, impersonacion })
   })
 
-  app.post('/api/salir', (c) => {
+  /** Salir: cierra la sesión de este navegador (y, en desarrollo, deja de «entrar como»). */
+  app.post('/api/salir', async (c) => {
+    await cerrarSesion(c, base, c.var.ahora)
     deleteCookie(c, 'como', { path: '/' })
     deleteCookie(c, 'impersonacion', { path: '/' })
     return c.json({ ok: true })
   })
+
+  app.route('/api', rutasAcceso)
 
   app.route('/api/plataforma', rutasPlataforma)
   app.route('/api/organizacion', rutasOrganizacion)

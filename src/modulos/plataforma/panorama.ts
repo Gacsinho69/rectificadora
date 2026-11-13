@@ -128,7 +128,8 @@ export async function panorama(base: Base, ahora: Date, soloTenant?: string): Pr
     const limites = limitesDe(t.plan, t.limitsOverride)
     const usuarios = { total: p?.total ?? 0, activos30d: p?.activos30d ?? 0, activos7d: p?.activos7d ?? 0, activos24h: p?.activos24h ?? 0, invitados: p?.invitados ?? 0, bloqueados: p?.bloqueados ?? 0 }
     const usado: Limites = {
-      users: usuarios.total,
+      // Una invitación ya ocupa su lugar en el plan.
+      users: usuarios.total + usuarios.invitados,
       storage_mb: dias.at(-1)?.storageMb ?? 0,
       api_calls_month: sumar(delMes, 'apiCalls'),
       work_orders_month: sumar(delMes, 'workOrders'),

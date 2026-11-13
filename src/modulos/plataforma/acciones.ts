@@ -16,7 +16,8 @@ import { diaDe } from './panorama'
 import { services, shopSections } from '../taller/tablas'
 import { altaTenantSchema, CAMBIOS_DE_ESTADO, ESTADOS_TENANT, type EstadoTenant, FUNCIONES, FUNCIONES_DEL_PLAN, type Funcion, LIMITES, type Limites, PLANES, type Plan } from '../tenants/reglas'
 import { tenants } from '../tenants/tablas'
-import { agregarPersona } from '../usuarios/alta'
+import { cerrarSesionesDe } from '../acceso/sesion'
+import { agregarPersona, reenviarInvitacion } from '../usuarios/alta'
 import { personaSchema, ROLES_TENANT, type RolTenant } from '../usuarios/reglas'
 import { users } from '../usuarios/tablas'
 
@@ -68,7 +69,7 @@ export const accionesPlataforma = new Hono<EntornoPlataforma>()
     const { secciones, trabajos } = tallerInicial(id, nuevoId, () => 1, d.plantilla)
     const { maquinas, usos } = maquinasIniciales(id, secciones, trabajos, nuevoId, diaDe(ahora))
     const despues = { nombre: d.nombre, subdominio: d.subdominio, region: d.region, plan: d.plan, estado: d.estado, mrr, plantilla: d.plantilla, prueba_hasta: pruebaHasta?.toISOString() ?? null }
-    const administradorId = await base.transaction(async (tx) => {
+    const administrador = await base.transaction(async (tx) => {
       await tx.insert(tenants).values({
         id,
         name: d.nombre,
@@ -94,7 +95,7 @@ export const accionesPlataforma = new Hono<EntornoPlataforma>()
       await registrar(tx, origenDe(c), { tenantId: id, eventType: 'tenant.created', targetId: id, targetType: 'tenant', metadata: { antes: null, despues, motivo: d.motivo } })
       return agregarPersona(tx, origenDe(c), id, { ...d.administrador, rol: 'admin' }, ahora, { motivo: d.motivo })
     })
-    return c.json({ id, administradorId, subdominio: d.subdominio })
+    return c.json({ id, administradorId: administrador.id, invitacion: { enlace: administrador.enlace, vence: administrador.vence }, subdominio: d.subdominio })
   })
 
   /** Agregar a alguien a un cliente (lo pide el cliente, o su administrador se fue). Respeta el límite de su plan. */
@@ -103,8 +104,17 @@ export const accionesPlataforma = new Hono<EntornoPlataforma>()
     await exigirPermiso(c, 'users.create', t.id)
     if (t.status === 'cancelled') throw rechazo(409, 'El cliente está cancelado.')
     const { motivo, ...persona } = c.req.valid('json')
-    const id = await c.var.base.transaction((tx) => agregarPersona(tx, origenDe(c), t.id, persona, c.var.ahora, { motivo }))
-    return c.json({ id })
+    return c.json(await c.var.base.transaction((tx) => agregarPersona(tx, origenDe(c), t.id, persona, c.var.ahora, { motivo })))
+  })
+
+  /** Un enlace nuevo para una invitación pendiente de un cliente (se le perdió, venció). */
+  .post('/tenants/:id/usuarios/:usuario/invitacion', conDatos(z.object({ motivo })), async (c) => {
+    const t = await tenantOError(c, c.req.param('id'))
+    await exigirPermiso(c, 'users.create', t.id)
+    if (t.status === 'cancelled') throw rechazo(409, 'El cliente está cancelado.')
+    const u = await usuarioDe(c, t.id, c.req.param('usuario'))
+    const { motivo } = c.req.valid('json')
+    return c.json(await c.var.base.transaction((tx) => reenviarInvitacion(tx, origenDe(c), t.id, u, c.var.ahora, { motivo })))
   })
 
   .post('/tenants/:id/estado', conDatos(z.object({ estado: z.enum(claves(ESTADOS_TENANT)), motivo })), async (c) => {
@@ -208,6 +218,7 @@ export const accionesPlataforma = new Hono<EntornoPlataforma>()
     if ((u.status === 'blocked') === bloqueado) throw rechazo(409, bloqueado ? 'Ya estaba bloqueado.' : 'No estaba bloqueado.')
     await c.var.base.transaction(async (tx) => {
       await tx.update(users).set({ status: bloqueado ? 'blocked' : 'active', blockedAt: bloqueado ? c.var.ahora : null }).where(eq(users.id, u.id))
+      if (bloqueado) await cerrarSesionesDe(tx, u.id, c.var.ahora)
       await registrar(tx, origenDe(c), { tenantId: t.id, eventType: bloqueado ? 'user.blocked' : 'user.unblocked', userId: u.id, targetId: u.id, targetType: 'user', metadata: { motivo } })
     })
     return c.json({ ok: true })

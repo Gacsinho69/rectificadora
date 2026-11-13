@@ -8,7 +8,7 @@ import type { Actor } from './modulos/acceso/identidad'
 /** Lo que cada pedido trae consigo. `ahora` es una sola hora para todo el pedido (y la que fijan las pruebas). */
 export type Entorno = { Variables: { base: Base; actor: Actor; ahora: Date } }
 
-export const rechazo = (estado: 400 | 401 | 403 | 404 | 409, mensaje: string) => new HTTPException(estado, { message: mensaje })
+export const rechazo = (estado: 400 | 401 | 403 | 404 | 409 | 429, mensaje: string) => new HTTPException(estado, { message: mensaje })
 
 /** Revisa lo que llega con un esquema Zod; si no sirve, responde 400 con el primer motivo. */
 export const conDatos = <T extends z.ZodType>(esquema: T) =>

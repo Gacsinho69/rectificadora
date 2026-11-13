@@ -1,10 +1,12 @@
 // Datos de demostración: rectificadoras ficticias con perfiles distintos, para que cada alerta, cada estado de salud
 // y cada filtro tengan algo que mostrar. Todo sale de una semilla: con la misma semilla y la misma hora, los mismos
-// datos. Los nombres, correos (.test) e IPs son inventados. Solo corre en desarrollo, con la base vacía.
+// datos. Los nombres, correos (.test) e IPs son inventados. Solo corre en desarrollo, con la base vacía. Todas las
+// personas (del equipo y de cada rectificadora) entran con la clave «demo1234»; las invitadas, con un enlace nuevo.
 import { count } from 'drizzle-orm'
 import type { PgTable } from 'drizzle-orm/pg-core'
 import type { Base } from '../../base'
 import { nuevoId } from '../../ids'
+import { cifrarClave } from '../acceso/claves'
 import { TODOS_LOS_PERMISOS } from '../acceso/permisos'
 import { events } from '../eventos/tablas'
 import type { Severidad, TipoActor, TipoEvento } from '../eventos/tipos'
@@ -114,9 +116,14 @@ async function enLotes<T extends PgTable>(base: Base, tabla: T, filas: T['$infer
   for (let i = 0; i < filas.length; i += tamano) await base.insert(tabla).values(filas.slice(i, i + tamano) as never)
 }
 
+/** La clave de todas las personas de la demostración. */
+export const CLAVE_DEMO = 'demo1234'
+
 export async function sembrarDemo(base: Base, ahora = new Date(), semilla = 20261111) {
   const [{ hay }] = await base.select({ hay: count() }).from(tenants)
   if (hay > 0) return false
+  // Una sola derivación para todos: con su sal propia por persona, la siembra tardaría segundos de más.
+  const claveDemo = await cifrarClave(CLAVE_DEMO)
 
   const azar = azarCon(semilla)
   const entre = (min: number, max: number) => min + Math.floor(azar() * (max - min + 1))
@@ -167,7 +174,7 @@ export async function sembrarDemo(base: Base, ahora = new Date(), semilla = 2026
     { id: id('adm'), name: 'Matías Soto', email: 'matias.soto@plataforma.test', permissions: ['users.create', 'users.block', 'support.impersonate'] as typeof TODOS_LOS_PERMISOS },
     { id: id('adm'), name: 'Camila Fuentes', email: 'camila.fuentes@plataforma.test', permissions: ['tenants.create', 'tenants.plan', 'tenants.status'] as typeof TODOS_LOS_PERMISOS },
   ]
-  await base.insert(platformAdmins).values(equipo.map((a) => ({ ...a, createdAt: new Date(ahora.getTime() - 800 * DIA) })))
+  await base.insert(platformAdmins).values(equipo.map((a) => ({ ...a, passwordHash: claveDemo, createdAt: new Date(ahora.getTime() - 800 * DIA) })))
   const [valentina, matias, camila] = equipo
 
   const filasTenants: (typeof tenants.$inferInsert)[] = []
@@ -269,6 +276,7 @@ export async function sembrarDemo(base: Base, ahora = new Date(), semilla = 2026
         role: rol,
         status: estado,
         mfaEnabled: !invitado && azar() < p.mfa,
+        passwordHash: invitado ? null : claveDemo,
         invitedAt: invitado ? creadoU : null,
         blockedAt: estado === 'blocked' ? enHorario(entre(3, 40)) : null,
         createdAt: creadoU,

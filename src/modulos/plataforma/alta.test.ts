@@ -30,18 +30,22 @@ describe('el alta de una rectificadora desde la consola', () => {
     const p = await armarPrueba()
     const r = await darDeAlta(p)
     expect(r.estado).toBe(200)
-    const { id, administradorId } = r.cuerpo
+    const { id, administradorId, invitacion } = r.cuerpo
     const [t] = await p.base.select().from(tenants).where(eq(tenants.id, id))
     expect(t).toMatchObject({ name: 'Rectificadora Ñuble', slug: 'nuble', status: 'trial', plan: 'starter', mrr: 0, billingStatus: 'none', nextBillingAt: null, featureFlags: { purchasing: true, supplies: true }, billingEmail: 'pagos@nuble.test' })
     expect(t.trialEndsAt?.toISOString()).toBe(new Date(p.ahora.getTime() + 14 * 86_400_000).toISOString())
     const [creado] = await p.eventos('tenant.created')
     expect(creado).toMatchObject({ tenantId: id, actorId: 'adm_todo', actorType: 'platform_admin', targetId: id })
     expect(creado.metadata).toMatchObject({ antes: null, despues: { subdominio: 'nuble', plan: 'starter', estado: 'trial', mrr: 0, plantilla: 'culatas' }, motivo })
-    const [admin] = await p.eventos('user.created')
+    const [admin] = await p.eventos('user.invited')
     expect(admin).toMatchObject({ tenantId: id, userId: administradorId, actorId: 'adm_todo' })
     expect(admin.metadata).toMatchObject({ rol: 'admin', correo: 'rosa@nuble.test', motivo })
 
-    // Su administrador entra a su sistema: un taller de culatas, sin block ni cigüeñal.
+    // Su administrador nace invitado: con el enlace define su clave y entra a su sistema.
+    expect(invitacion.enlace).toMatch(/^\/invitacion\/[\w-]{40,}$/)
+    expect((await p.pedir(administradorId, 'GET', '/api/servicio/catalogo')).estado).toBe(401)
+    expect((await p.aceptar(invitacion.enlace)).cuerpo).toEqual({ ok: true, destino: '/c/nuble' })
+    // Un taller de culatas, sin block ni cigüeñal.
     const catalogo = await catalogoDe(p, administradorId)
     expect(catalogo.secciones.map((s) => s.nombre)).toEqual(['Recepción y diagnóstico', 'Culatas', 'Servicios de terceros'])
     expect(catalogo.trabajos.map((x) => x.codigo).sort()).toEqual(['C-01', 'C-02', 'C-03', 'C-04', 'C-05', 'C-06', 'D-03', 'D-04', 'T-01'])
@@ -60,6 +64,7 @@ describe('el alta de una rectificadora desde la consola', () => {
   it('activa desde ya: paga el precio de lista o el negociado, con su próximo cobro', async () => {
     const p = await armarPrueba()
     const grande = (await darDeAlta(p, { subdominio: 'nuble-sur', estado: 'active', plan: 'enterprise', mrr: 300_000, plantilla: 'completa' })).cuerpo
+    await p.aceptar(grande.invitacion.enlace)
     const [t] = await p.base.select().from(tenants).where(eq(tenants.id, grande.id))
     expect(t).toMatchObject({ status: 'active', mrr: 300_000, billingStatus: 'paid', trialEndsAt: null, featureFlags: { purchasing: true, supplies: true, machines: true } })
     expect(t.nextBillingAt?.toISOString()).toBe('2026-12-11T15:00:00.000Z')
@@ -67,6 +72,7 @@ describe('el alta de una rectificadora desde la consola', () => {
     expect([completa.secciones.length, completa.trabajos.length]).toEqual([7, 29])
 
     const block = (await darDeAlta(p, { subdominio: 'nuble-norte', estado: 'active', plan: 'pro', plantilla: 'block' })).cuerpo
+    await p.aceptar(block.invitacion.enlace)
     const [b] = await p.base.select().from(tenants).where(eq(tenants.id, block.id))
     expect(b.mrr).toBe(89_000)
     expect((await catalogoDe(p, block.administradorId)).secciones.map((s) => s.nombre)).toEqual(['Recepción y diagnóstico', 'Block', 'Cigüeñal y bielas', 'Armado', 'Control de calidad', 'Servicios de terceros'])
@@ -99,11 +105,14 @@ describe('el alta de una rectificadora desde la consola', () => {
 describe('sumar gente a una rectificadora', () => {
   it('su administrador agrega hasta el límite de su plan, y el técnico nuevo puede ser especialista', async () => {
     const p = await armarPrueba()
-    const { id, administradorId } = (await darDeAlta(p, { plan: 'free', plantilla: 'completa' })).cuerpo
+    const { id, administradorId, invitacion } = (await darDeAlta(p, { plan: 'free', plantilla: 'completa' })).cuerpo
+    await p.aceptar(invitacion.enlace)
     const agregar = (persona: object, quien = administradorId) => p.pedir(quien, 'POST', '/api/organizacion/usuarios', persona)
     expect((await p.pedir(administradorId, 'GET', '/api/organizacion/usuarios/cupo')).cuerpo).toEqual({ usados: 1, limite: 3, plan: 'Free' })
 
-    const tecnico = (await agregar({ nombre: 'Pedro Gallardo', correo: 'pedro@nuble.test', rol: 'technician' })).cuerpo.id
+    const nuevo = (await agregar({ nombre: 'Pedro Gallardo', correo: 'pedro@nuble.test', rol: 'technician' })).cuerpo
+    const tecnico = nuevo.id
+    await p.aceptar(nuevo.enlace)
     // El técnico no agrega a nadie: el panel es del administrador.
     expect((await agregar({ nombre: 'Otro Más', correo: 'otro@nuble.test', rol: 'technician' }, tecnico)).estado).toBe(403)
     // El mismo correo no entra dos veces, aunque cambien las mayúsculas.
@@ -111,6 +120,7 @@ describe('sumar gente a una rectificadora', () => {
     expect(repetido.estado).toBe(409)
     expect(repetido.cuerpo.error).toContain('Pedro Gallardo')
     expect((await agregar({ nombre: 'Luis Carrasco', correo: 'luis@nuble.test', rol: 'planner' })).estado).toBe(200)
+    // Luis no ha aceptado su invitación, pero ya ocupa su lugar.
     const lleno = await agregar({ nombre: 'Ana Vergara', correo: 'ana@nuble.test', rol: 'technician' })
     expect(lleno.estado).toBe(409)
     expect(lleno.cuerpo.error).toContain('límite del plan Free: 3 usuarios')
@@ -118,7 +128,7 @@ describe('sumar gente a una rectificadora', () => {
     // La plataforma amplía el límite y ya cabe.
     await p.pedir('adm_todo', 'POST', `/api/plataforma/tenants/${id}/limites`, { ajustes: { users: 4 }, motivo })
     expect((await agregar({ nombre: 'Ana Vergara', correo: 'ana@nuble.test', rol: 'technician' })).estado).toBe(200)
-    const creados = (await p.eventos('user.created')).filter((e) => e.tenantId === id)
+    const creados = (await p.eventos('user.invited')).filter((e) => e.tenantId === id)
     expect(creados).toHaveLength(4)
     expect(creados.find((e) => (e.metadata as { correo?: string }).correo === 'pedro@nuble.test')).toMatchObject({ actorId: administradorId, actorType: 'user', userId: tecnico })
 
@@ -153,8 +163,9 @@ describe('sumar gente a una rectificadora', () => {
     const r = await p.pedir('adm_todo', 'POST', '/api/plataforma/tenants/tn_a/usuarios', persona)
     expect(r.estado).toBe(200)
     const [u] = await p.base.select().from(users).where(eq(users.id, r.cuerpo.id))
-    expect(u).toMatchObject({ tenantId: 'tn_a', role: 'admin', status: 'active', email: 'marta@a.test' })
-    const [e] = await p.eventos('user.created')
+    expect(u).toMatchObject({ tenantId: 'tn_a', role: 'admin', status: 'invited', email: 'marta@a.test' })
+    expect(r.cuerpo.enlace).toMatch(/^\/invitacion\//)
+    const [e] = await p.eventos('user.invited')
     expect(e).toMatchObject({ tenantId: 'tn_a', actorId: 'adm_todo', actorType: 'platform_admin', userId: u.id })
     expect(e.metadata).toMatchObject({ motivo })
     // A un cliente cancelado ya no se le agrega gente; uno que no existe, no existe.

@@ -49,11 +49,13 @@ export function Cliente() {
   ]
   const accionesUsuario = (u: UsuarioVisible) => {
     const items: MenuProps['items'] = [
-      u.estado !== 'invited' ? { key: 'bloqueo', label: u.estado === 'blocked' ? 'Desbloquear…' : 'Bloquear…', disabled: !puede('users.block') } : null,
+      u.estado !== 'invited'
+        ? { key: 'bloqueo', label: u.estado === 'blocked' ? 'Desbloquear…' : 'Bloquear…', disabled: !puede('users.block') }
+        : { key: 'enlace', label: 'Enlace nuevo…', disabled: !puede('users.create') || t.estado === 'cancelled' },
       { key: 'rol', label: 'Cambiar rol…', disabled: !puede('users.roles') },
-    ].filter(Boolean)
+    ]
     return (
-      <Dropdown trigger={['click']} menu={{ items, onClick: ({ key }) => setDialogo({ tipo: key as 'bloqueo' | 'rol', usuario: u }) }}>
+      <Dropdown trigger={['click']} menu={{ items, onClick: ({ key }) => setDialogo({ tipo: key as 'bloqueo' | 'rol' | 'enlace', usuario: u }) }}>
         <Button size="small" type="text" icon={<DownOutlined />} aria-label={`Acciones para ${u.nombre}`} />
       </Dropdown>
     )

@@ -78,7 +78,8 @@ describe('las máquinas', () => {
   it('el alta de un taller trae las máquinas de su plantilla', async () => {
     const p = await armarPrueba()
     const alta = { nombre: 'Culatas del Maule', subdominio: 'maule', region: 'sa-1', plan: 'pro', estado: 'trial', correoFacturacion: 'pagos@maule.test', plantilla: 'culatas', administrador: { nombre: 'Rosa Muñoz', correo: 'rosa@maule.test' }, motivo: 'Contrato firmado con ventas' }
-    const { administradorId } = (await p.pedir('adm_todo', 'POST', '/api/plataforma/tenants', alta)).cuerpo
+    const { administradorId, invitacion } = (await p.pedir('adm_todo', 'POST', '/api/plataforma/tenants', alta)).cuerpo
+    await p.aceptar(invitacion.enlace)
     const suyas = await lista(p, administradorId)
     expect(suyas.map((m) => m.nombre)).toEqual(['Banco de prueba hidráulica', 'Cepilladora', 'Rectificadora de asientos', 'Rectificadora de válvulas'])
     expect(suyas[0].mantencion).toMatchObject({ ultima: '2026-11-11', vencida: false })

@@ -20,7 +20,10 @@ import { panorama } from '../plataforma/panorama'
 import { DOMINIO } from '../plataforma/rutas'
 import { FUNCIONES, type Funcion, PLANES } from '../tenants/reglas'
 import { tenants } from '../tenants/tablas'
-import { agregarPersona, cupoDeUsuarios } from '../usuarios/alta'
+import { cerrarSesionesDe } from '../acceso/sesion'
+import { invitations } from '../acceso/tablas'
+import { serviceSpecialists, workOrderTasks } from '../taller/tablas'
+import { agregarPersona, cupoDeUsuarios, reenviarInvitacion } from '../usuarios/alta'
 import { personaSchema, ROLES_TENANT, type RolTenant } from '../usuarios/reglas'
 import { users } from '../usuarios/tablas'
 
@@ -88,12 +91,34 @@ export const rutasOrganizacion = new Hono<EntornoTenant>()
   /** Cuántos usuarios ocupan el plan y cuántos permite: lo que el administrador ve antes de agregar a alguien. */
   .get('/usuarios/cupo', async (c) => c.json(await cupoDeUsuarios(c.var.base, c.var.actor.tenantId)))
 
-  /** Agregar a alguien de la organización (un técnico nuevo, el chofer), mientras alcance el plan. */
+  /** Agregar a alguien de la organización (un técnico nuevo, el chofer), mientras alcance el plan. Sale su enlace de invitación. */
   .post('/usuarios', conDatos(personaSchema), async (c) => {
     exigirTenantOperativo(c)
     const d = c.req.valid('json')
-    const id = await c.var.base.transaction((tx) => agregarPersona(tx, origenDe(c), c.var.actor.tenantId, d, c.var.ahora))
-    return c.json({ id })
+    return c.json(await c.var.base.transaction((tx) => agregarPersona(tx, origenDe(c), c.var.actor.tenantId, d, c.var.ahora)))
+  })
+
+  /** Un enlace nuevo para una invitación pendiente: el anterior deja de servir. */
+  .post('/usuarios/:id/invitacion', async (c) => {
+    exigirTenantOperativo(c)
+    const u = await usuarioDelTenant(c, c.req.param('id'))
+    return c.json(await c.var.base.transaction((tx) => reenviarInvitacion(tx, origenDe(c), c.var.actor.tenantId, u, c.var.ahora)))
+  })
+
+  /** Anular una invitación pendiente: la persona no llegó a entrar, así que se borra y libera su lugar en el plan. */
+  .delete('/usuarios/:id/invitacion', async (c) => {
+    exigirTenantOperativo(c)
+    const u = await usuarioDelTenant(c, c.req.param('id'))
+    if (u.status !== 'invited') throw rechazo(409, 'Esa persona ya entró: en vez de anularla, se bloquea.')
+    const tenantId = c.var.actor.tenantId
+    await c.var.base.transaction(async (tx) => {
+      await tx.delete(invitations).where(and(eq(invitations.userId, u.id), eq(invitations.tenantId, tenantId)))
+      await tx.delete(serviceSpecialists).where(and(eq(serviceSpecialists.userId, u.id), eq(serviceSpecialists.tenantId, tenantId)))
+      await tx.update(workOrderTasks).set({ assignedTo: null }).where(and(eq(workOrderTasks.assignedTo, u.id), eq(workOrderTasks.tenantId, tenantId)))
+      await tx.delete(users).where(and(eq(users.id, u.id), eq(users.tenantId, tenantId)))
+      await registrar(tx, origenDe(c), { tenantId, eventType: 'user.deleted', targetId: u.id, targetType: 'user', metadata: { nombre: u.name, correo: u.email, invitacion_anulada: true } })
+    })
+    return c.json({ ok: true })
   })
 
   .post('/usuarios/:id/bloqueo', conDatos(z.object({ bloqueado: z.boolean(), motivo: z.string().trim().max(500).optional() })), async (c) => {
@@ -109,6 +134,7 @@ export const rutasOrganizacion = new Hono<EntornoTenant>()
         .update(users)
         .set({ status: bloqueado ? 'blocked' : 'active', blockedAt: bloqueado ? c.var.ahora : null })
         .where(and(eq(users.id, u.id), eq(users.tenantId, c.var.actor.tenantId)))
+      if (bloqueado) await cerrarSesionesDe(tx, u.id, c.var.ahora)
       await registrar(tx, origenDe(c), {
         tenantId: c.var.actor.tenantId,
         eventType: bloqueado ? 'user.blocked' : 'user.unblocked',

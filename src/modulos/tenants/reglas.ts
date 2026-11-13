@@ -34,7 +34,7 @@ export const ESTADOS_PAGO = {
 export type EstadoPago = keyof typeof ESTADOS_PAGO
 
 export type Limites = {
-  /** Usuarios con cuenta (activos o bloqueados; los invitados no cuentan hasta que entran). */
+  /** Usuarios con cuenta: activos, bloqueados e invitados (una invitación ya ocupa su lugar). */
   users: number
   storage_mb: number
   api_calls_month: number
