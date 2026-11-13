@@ -2,6 +2,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getRouteApi, useNavigate } from '@tanstack/react-router'
 import { Alert, Button, Checkbox, DatePicker, Form, Input, Modal, Select, Table } from 'antd'
+import dayjs from 'dayjs'
 import { api, consulta } from '../../../pantallas/api'
 import { Problema } from '../../../pantallas/componentes'
 import { cifra, fecha } from '../../../pantallas/formato'
@@ -84,6 +85,14 @@ function Recepcion({ cerrar }: { cerrar: () => void }) {
   const ir = useNavigate()
   const consultas = useQueryClient()
   const clientes = useQuery({ queryKey: ['taller', 'clientes'], queryFn: () => api<Cliente[]>('GET', '/servicio/clientes') })
+  // La entrega que se puede comprometer, según lo que llegó y la cola de hoy de cada sección.
+  const piezas = Form.useWatch('piezas', form) ?? []
+  const cilindros = Form.useWatch('cilindros', form)
+  const valvulas = Form.useWatch('valvulasPorCilindro', form)
+  const culatas = Form.useWatch('culatas', form)
+  const conDiagnostico = Form.useWatch('diagnostico', form) ?? true
+  const consultaSugerida = consulta({ piezas, cilindros, valvulasPorCilindro: valvulas, culatas, diagnostico: conDiagnostico ? '1' : '0' })
+  const sugerida = useQuery({ queryKey: ['taller', 'entrega-sugerida', consultaSugerida], queryFn: () => api<{ fecha: string; dias: number }>('GET', `/servicio/entrega-sugerida${consultaSugerida}`), enabled: piezas.length > 0 })
   const recibir = useMutation({
     mutationFn: (v: DatosRecepcion) => api<{ id: string }>('POST', '/servicio/ot', { ...v, entrega: v.entrega?.format('YYYY-MM-DD') ?? null }),
     onSuccess: async (r) => {
@@ -117,7 +126,20 @@ function Recepcion({ cerrar }: { cerrar: () => void }) {
           <Input.TextArea rows={2} />
         </Form.Item>
         <div className="columnas">
-          <Form.Item label="Entrega comprometida" name="entrega">
+          <Form.Item
+            label="Entrega comprometida"
+            name="entrega"
+            extra={
+              sugerida.data ? (
+                <span>
+                  Con la cola de hoy: {fecha(`${sugerida.data.fecha}T12:00:00Z`)}{' '}
+                  <button type="button" className="enlace" onClick={() => form.setFieldValue('entrega', dayjs(sugerida.data!.fecha))}>
+                    Usar
+                  </button>
+                </span>
+              ) : undefined
+            }
+          >
             <DatePicker style={{ width: '100%' }} format="DD-MM-YYYY" />
           </Form.Item>
           <Form.Item label="Prioridad" name="prioridad">

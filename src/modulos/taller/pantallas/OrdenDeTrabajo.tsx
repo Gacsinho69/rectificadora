@@ -29,6 +29,7 @@ export function OrdenDeTrabajo() {
   const [dialogo, setDialogo] = useState<'trabajo' | 'repuesto' | 'editar' | 'entregar' | 'anular' | null>(null)
   const [ficha, setFicha] = useState<string | null>(null)
   const r = useQuery({ queryKey: ['taller', 'ot', id], queryFn: () => api<DetalleOt>('GET', `/servicio/ot/${id}`) })
+  const sugerida = useQuery({ queryKey: ['taller', 'ot', id, 'entrega-sugerida'], queryFn: () => api<{ fecha: string; dias: number } | null>('GET', `/servicio/ot/${id}/entrega-sugerida`) })
   const personas = useQuery({ queryKey: ['taller', 'personas'], queryFn: () => api<Persona[]>('GET', '/servicio/personas'), enabled: gestiona })
   const tarea = useAccionesDeTarea()
   const recibir = useMutation({
@@ -107,7 +108,12 @@ export function OrdenDeTrabajo() {
           { rotulo: 'Avance', valor: <Avance fraccion={ot.avance} ancho={110} /> },
           { rotulo: 'Trabajos', valor: `${ot.tareas.filter((t) => t.estado === 'done').length} de ${ot.tareas.length}`, nota: 'terminados' },
           { rotulo: 'Recibida', valor: fecha(ot.creada) },
-          { rotulo: 'Entrega comprometida', valor: ot.entrega ? fecha(`${ot.entrega}T12:00:00Z`) : '—', tono: ot.plazo === 'atrasada' ? 'rojo' : ot.plazo === 'por_vencer' ? 'naranjo' : undefined },
+          {
+            rotulo: 'Entrega comprometida',
+            valor: ot.entrega ? fecha(`${ot.entrega}T12:00:00Z`) : '—',
+            tono: ot.plazo === 'atrasada' || (sugerida.data && ot.entrega && sugerida.data.fecha > ot.entrega) ? 'rojo' : ot.plazo === 'por_vencer' ? 'naranjo' : undefined,
+            nota: sugerida.data ? `con la cola de hoy: ${fecha(`${sugerida.data.fecha}T12:00:00Z`)}${ot.entrega && sugerida.data.fecha > ot.entrega ? ', después de lo comprometido' : ''}` : undefined,
+          },
           { rotulo: 'Llegó', valor: <span style={{ fontSize: 14 }}>{ot.piezas.map((p) => PIEZAS[p]).join(', ')}</span> },
         ]}
       />

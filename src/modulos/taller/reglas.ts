@@ -326,3 +326,37 @@ export function rendimientoDe(trabajos: { estandar: number; real: number; cantid
   const unidades = trabajos.reduce((s, t) => s + t.cantidad, 0)
   return { trabajos: trabajos.length, estandar, real, proporcion: estandar ? real / estandar : null, realPorUnidad: unidades ? real / unidades : null }
 }
+
+const DIA_MS = 86_400_000
+
+/** La fecha en que se terminan `dias` de trabajo desde `hoy`, contando de lunes a sábado. */
+export function fechaTrasDiasHabiles(hoy: string, dias: number): string {
+  let fecha = Date.parse(`${hoy}T12:00:00Z`)
+  for (let quedan = Math.max(1, Math.ceil(dias)); quedan > 0; ) {
+    fecha += DIA_MS
+    if (new Date(fecha).getUTCDay() !== 0) quedan--
+  }
+  return new Date(fecha).toISOString().slice(0, 10)
+}
+
+/**
+ * Cuántos días de trabajo faltan para terminar. En cada sección de su ruta, un trabajo espera la cola de esa sección y
+ * después hace lo suyo (sus horas, repartidas en las de su gente). Las piezas avanzan a la vez; lo de toda la OT (el
+ * armado, el control) va después de la más lenta y de que lleguen los repuestos. El diagnóstico, si falta, va antes que
+ * todo. Es una estimación: no sabe de urgencias ni de lo que se adelanta.
+ */
+export function diasParaTerminar(trabajos: { seccionId: string; pieza: Pieza; diagnostico: boolean; horas: number }[], colas: Map<string, { dias: number; horasPorDia: number }>, diasRepuestos = 0): number {
+  const tramo = (lista: typeof trabajos) => {
+    const porSeccion = new Map<string, number>()
+    for (const t of lista) porSeccion.set(t.seccionId, (porSeccion.get(t.seccionId) ?? 0) + t.horas)
+    return [...porSeccion].reduce((s, [seccion, horas]) => {
+      const c = colas.get(seccion)
+      return s + (c?.dias ?? 0) + horas / Math.max(c?.horasPorDia ?? 8, 1)
+    }, 0)
+  }
+  const diagnostico = tramo(trabajos.filter((t) => t.diagnostico))
+  const enPiezas = trabajos.filter((t) => !t.diagnostico && t.pieza !== 'motor')
+  const masLenta = Math.max(0, ...[...new Set(enPiezas.map((t) => t.pieza))].map((p) => tramo(enPiezas.filter((t) => t.pieza === p))))
+  const final = tramo(trabajos.filter((t) => !t.diagnostico && t.pieza === 'motor'))
+  return diagnostico + Math.max(masLenta, diasRepuestos) + final
+}

@@ -4,13 +4,14 @@
 import { and, asc, count, desc, eq, gte, ilike, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm'
 import { type Context, Hono, type MiddlewareHandler } from 'hono'
 import { z } from 'zod'
+import type { Base } from '../../base'
 import { conDatos, conFiltros, rechazo } from '../../http'
 import { nuevoId } from '../../ids'
 import { type EntornoTenant, filaDelTenant, filasDelTenant, soloPersonaDelTenant } from '../acceso/guardias'
 import { rutasComercial } from '../comercial/rutas'
 import { quotes, customers } from '../comercial/tablas'
 import { anularRepuestosDeOt } from '../compras/comun'
-import { folioOc } from '../compras/reglas'
+import { folioOc, POR_LLEGAR } from '../compras/reglas'
 import { rutasCompras } from '../compras/rutas'
 import { rutasMaquinas } from '../maquinas/rutas'
 import { purchaseOrders, purchaseOrderSupplies, suppliers, supplies, workOrderParts } from '../compras/tablas'
@@ -22,14 +23,17 @@ import {
   avanceDeOt,
   cantidadSegun,
   CRITERIOS,
+  diasParaTerminar,
   ESTADOS_OT,
   type EstadoOt,
+  fechaTrasDiasHabiles,
   grupoDe,
   horasReales,
   MOTIVOS_DETENCION,
   nombreDeTarea,
   ordenDeGrupo,
   OT_ABIERTAS,
+  type Pieza,
   PIEZAS,
   piezasDeOt,
   plazoDeOt,
@@ -106,6 +110,13 @@ const enCola = (a: TrabajoAbierto, b: TrabajoAbierto, hoy: string) =>
   (a.ot.entrega ?? '9999').localeCompare(b.ot.entrega ?? '9999') ||
   a.ot.numero - b.ot.numero ||
   a.t.step - b.t.step
+
+/** La cola de cada sección en días y las horas por día de su gente; sin lo de una OT, para no contarla dos veces. */
+async function colasDelTaller(base: Base, tenantId: string, sinOt?: string) {
+  const trabajos = (await trabajosAbiertos(base, tenantId)).filter((f) => f.ot.id !== sinOt)
+  const { secciones } = await cargaDelTaller(base, tenantId, trabajos)
+  return new Map(secciones.map((s) => [s.id, { dias: s.dias ?? 0, horasPorDia: Math.max(1, s.gente.length) * 8 }]))
+}
 
 /** Lo que define una actividad de la lista. */
 const actividad = z.object({
@@ -340,6 +351,56 @@ export const rutasTaller = new Hono<EntornoTenant>()
       return numero
     })
     return c.json({ id, numero })
+  })
+
+  /**
+   * La entrega que se puede comprometer al recibir: las actividades típicas de lo que llegó (con su diagnóstico),
+   * contadas para este motor, por la cola de hoy de cada sección. Un motor completo suma dos días por sus repuestos.
+   */
+  .get(
+    '/entrega-sugerida',
+    conFiltros(z.object({ piezas: z.string().min(1).max(200), cilindros: z.coerce.number().int().min(1).max(24).optional(), valvulasPorCilindro: z.coerce.number().int().min(1).max(6).optional(), culatas: z.coerce.number().int().min(1).max(24).optional(), diagnostico: z.enum(['0', '1']).default('1') })),
+    async (c) => {
+      const { base, actor, ahora } = c.var
+      const f = c.req.valid('query')
+      const piezas = f.piezas.split(',').filter((p): p is Pieza => p in PIEZAS)
+      if (!piezas.length) throw rechazo(400, 'Marca qué piezas llegaron.')
+      const motor = motorDe({ cylinders: f.cilindros ?? null, valvesPerCylinder: f.valvulasPorCilindro ?? null, heads: f.culatas ?? null })
+      const completo = piezas.includes('motor')
+      const deDiagnostico = completo || piezas.includes('block') ? ['D-01', 'D-02'] : ['D-03', ...(piezas.includes('culata') ? ['D-04'] : [])]
+      const actividades = await base
+        .select({ codigo: services.code, seccionId: services.sectionId, pieza: services.piece, criterio: services.criterion, horas: services.stdHours, tipico: services.typical, tipo: shopSections.kind })
+        .from(services)
+        .innerJoin(shopSections, eq(shopSections.id, services.sectionId))
+        .where(and(eq(services.tenantId, actor.tenantId), eq(services.active, true), eq(shopSections.active, true)))
+      const trabajos = actividades
+        .filter((a) => (a.tipo === 'diagnosis' ? f.diagnostico === '1' && deDiagnostico.includes(a.codigo) : a.tipico && (completo || piezas.includes(a.pieza))))
+        .map((a) => ({ seccionId: a.seccionId, pieza: a.pieza, diagnostico: a.tipo === 'diagnosis', horas: a.horas * cantidadSegun(a.criterio, motor) }))
+      const dias = diasParaTerminar(trabajos, await colasDelTaller(base, actor.tenantId), completo ? 2 : 0)
+      return c.json({ dias: Math.round(dias * 10) / 10, fecha: fechaTrasDiasHabiles(diaDe(ahora), dias) })
+    },
+  )
+
+  /**
+   * Cuándo se termina de verdad una OT, con lo que le falta, la cola de hoy de cada sección (sin contarla a ella) y sus
+   * repuestos por llegar (tres días si falta pedirlos, dos si ya están pedidos). Vacío si ya no está en el taller.
+   */
+  .get('/ot/:id/entrega-sugerida', async (c) => {
+    const { base, actor, ahora } = c.var
+    const ot = await filaDelTenant(c, workOrders, c.req.param('id'), 'work_order', 'esa orden de trabajo')
+    if (!OT_EN_TALLER.includes(ot.status)) return c.json(null)
+    const filas = await base
+      .select({ t: workOrderTasks, tipo: shopSections.kind })
+      .from(workOrderTasks)
+      .innerJoin(shopSections, eq(shopSections.id, workOrderTasks.sectionId))
+      .where(and(eq(workOrderTasks.workOrderId, ot.id), eq(workOrderTasks.tenantId, actor.tenantId), ne(workOrderTasks.status, 'done')))
+    if (!filas.length) return c.json(null)
+    const porLlegar = await base.select({ estado: workOrderParts.status }).from(workOrderParts).where(and(eq(workOrderParts.workOrderId, ot.id), eq(workOrderParts.tenantId, actor.tenantId), inArray(workOrderParts.status, POR_LLEGAR)))
+    const diasRepuestos = porLlegar.some((r) => r.estado === 'pending') ? 3 : porLlegar.length ? 2 : 0
+    // Lo que está en proceso ya va por la mitad.
+    const trabajos = filas.map(({ t, tipo }) => ({ seccionId: t.sectionId, pieza: t.piece, diagnostico: tipo === 'diagnosis', horas: ((t.status === 'in_progress' ? 0.5 : 1) * t.stdMinutes) / 60 }))
+    const dias = diasParaTerminar(trabajos, await colasDelTaller(base, actor.tenantId, ot.id), diasRepuestos)
+    return c.json({ dias: Math.round(dias * 10) / 10, fecha: fechaTrasDiasHabiles(diaDe(ahora), dias) })
   })
 
   .get('/ot/:id', async (c) => {
