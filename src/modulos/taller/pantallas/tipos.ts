@@ -43,10 +43,10 @@ export type CargaSeccion = {
 export type CargaPersona = { id: string; nombre: string; rol: RolTenant; actividades: number; secciones: string[]; trabajos: number; enProceso: number; ahora: number; espera: number; detenidas: number; nDetenidas: number; sinAsignar: number }
 
 export type Inicio = {
-  cifras: { recibidas: number; esperando: number; enTaller: number; calidad: number; listas: number; atrasadas: number; porVencer: number; entregadasMes: number; detenidos: number; esperanRepuestos: number }
+  cifras: { recibidas: number; esperando: number; enTaller: number; calidad: number; listas: number; atrasadas: number; porVencer: number; entregadasMes: number; detenidos: number; esperanRepuestos: number; esperanMaquina: number }
   urgentes: FilaOt[]
   carga: { seccionId: string; nombre: string; gente: number; enProceso: number; ahora: number; espera: number; detenidos: number; sinAsignar: number; dias: number | null }[]
-  misTareas: { id: string; nombre: string; estado: EstadoTarea; situacion: Situacion; espera: string[]; faltan: string[]; otId: string; ot: number; motor: string; entrega: string | null; seccion: string; pieza: Pieza }[]
+  misTareas: { id: string; nombre: string; estado: EstadoTarea; situacion: Situacion; espera: string[]; faltan: string[]; maquinas: string[]; otId: string; ot: number; motor: string; entrega: string | null; seccion: string; pieza: Pieza }[]
   /** Las órdenes de compra que tiene que ir a buscar quien mira (el chofer de compras). */
   misRetiros: { id: string; numero: number; proveedor: string; direccion: string | null; telefono: string | null; llega: string | null; repuestos: { descripcion: string; cantidad: number; ot: number }[] }[]
   comercial: { enviadasMes: number; cotizadoMes: number; aceptadasMes: number; aceptadoMes: number; pendientes: number; montoPendiente: number; tasaAceptacion: number | null } | null
@@ -71,6 +71,8 @@ export type Tarea = {
   espera: string[]
   /** Los repuestos que necesita y no han llegado. */
   faltan: string[]
+  /** Las máquinas que necesita y están detenidas. */
+  maquinas: string[]
   detencion: Detencion | null
   adelantado: boolean
   horas: number
@@ -93,6 +95,7 @@ export type FichaTarea = {
   situacion: Situacion
   espera: string[]
   faltan: string[]
+  maquinas: string[]
   detencion: Detencion | null
   horas: number
   asignadoId: string | null
@@ -166,6 +169,7 @@ export type TarjetaTaller = {
   situacion: Situacion
   espera: string[]
   faltan: string[]
+  maquinas: string[]
   detencion: Detencion | null
   horas: number
   asignadoId: string | null

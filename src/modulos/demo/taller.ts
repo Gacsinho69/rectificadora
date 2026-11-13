@@ -10,6 +10,8 @@ import type { customers, quotes } from '../comercial/tablas'
 import { digitoVerificador, formatoRut } from '../../rut'
 import { claveDeProveedor, type QuienCompra } from '../compras/reglas'
 import type { purchaseOrders, suppliers, workOrderParts } from '../compras/tablas'
+import { maquinasIniciales } from '../maquinas/reglas'
+import type { machines, machineServices, machineStops } from '../maquinas/tablas'
 import type { TipoEvento } from '../eventos/tipos'
 import { tallerInicial } from '../taller/comun'
 import { cantidadSegun, estadoDeOt, type Motor, type MotivoDetencion, nombreDeTarea, type Pieza } from '../taller/reglas'
@@ -98,6 +100,9 @@ export type Taller = {
   detenciones: (typeof taskHolds.$inferInsert)[]
   cotizaciones: (typeof quotes.$inferInsert)[]
   proveedores: (typeof suppliers.$inferInsert)[]
+  maquinas: (typeof machines.$inferInsert)[]
+  usosMaquinas: (typeof machineServices.$inferInsert)[]
+  paradas: (typeof machineStops.$inferInsert)[]
   ordenes: (typeof purchaseOrders.$inferInsert)[]
   repuestos: (typeof workOrderParts.$inferInsert)[]
   /** Por día (AAAA-MM-DD): OT recibidas, cotizaciones creadas y documentos emitidos (cotizaciones enviadas y entregas). */
@@ -161,6 +166,22 @@ export function sembrarTaller(
     createdAt: t.creado,
   }))
   const vigentes = proveedores.filter((p) => p.active)
+
+  // Las máquinas del taller, también sin gastar azar. La última mantención, repartida: a algunas ya les toca. En los
+  // talleres que siguen trabajando, a veces la bruñidora está en mantención o la lineadora en falla.
+  const sufijo = t.tenantId.slice(3)
+  const semilla = [...t.tenantId].reduce((s, ch) => s + ch.charCodeAt(0), 0)
+  let nMaquina = 0
+  const hoyTexto = t.hoy.toISOString().slice(0, 10)
+  const { maquinas, usos: usosMaquinas } = maquinasIniciales(t.tenantId, secciones, trabajos, () => `maq_${sufijo}${nMaquina++}`, hoyTexto)
+  for (const [i, m] of maquinas.entries()) m.lastMaintenanceAt = new Date(t.hoy.getTime() - ((semilla + i * 37) % (m.maintenanceEveryDays + 25)) * DIA).toISOString().slice(0, 10)
+  const paradas: Taller['paradas'] = []
+  const parar = (nombre: string, reason: 'breakdown' | 'maintenance', note: string, horas: number) => {
+    const m = maquinas.find((x) => x.name === nombre)
+    if (m) paradas.push({ id: `par_${sufijo}${paradas.length}`, tenantId: t.tenantId, machineId: m.id, reason, note, startedAt: new Date(t.ahora.getTime() - horas * HORA), startedBy: jefes[0]?.id ?? null })
+  }
+  if (!t.nunca && !t.silencio && semilla % 3 === 0) parar('Bruñidora', 'maintenance', 'Cambio de piedras y aceite del cabezal', 6)
+  if (!t.nunca && !t.silencio && semilla % 4 === 1) parar('Lineadora de bancada', 'breakdown', 'No avanza el carro; viene el técnico de la marca', 30)
   const proveedorDe = new Map(proveedores.map((p) => [p.name, p.id]))
 
   /** Una actividad cotizada, contada para este motor (por cilindro, válvula, biela, culata o una vez). */
@@ -486,5 +507,5 @@ export function sembrarTaller(
     }
     if (listaAnulacion) evento({ tenantId: t.tenantId, tipo: 'work_order.cancelled', en: listaAnulacion, actorId: recibe.id, targetId: otId, targetType: 'work_order', metadata: { numero, motivo: 'Cotización rechazada' } })
   }
-  return { secciones, trabajos, clientes, ots, tareas, especialistas, detenciones, cotizaciones, proveedores, ordenes, repuestos: repuestosOt, porDia }
+  return { secciones, trabajos, clientes, ots, tareas, especialistas, detenciones, cotizaciones, proveedores, maquinas, usosMaquinas, paradas, ordenes, repuestos: repuestosOt, porDia }
 }

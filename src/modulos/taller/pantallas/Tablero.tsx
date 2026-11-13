@@ -10,7 +10,7 @@ import { Cargando, Hace, Problema } from '../../../pantallas/componentes'
 import { fecha, plural } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
 import { MOTIVOS_DETENCION, PIEZAS } from '../reglas'
-import { dias, folioOt, horas, PlazoTag, SituacionTag, textoEspera, textoFaltan, usePersona, usePortal } from './comun'
+import { dias, folioOt, horas, PlazoTag, SituacionTag, textoEspera, textoFaltan, textoMaquinas, usePersona, usePortal } from './comun'
 import type { TarjetaTaller, Tablero as DatosTablero } from './tipos'
 import { FichaTrabajo } from './FichaTrabajo'
 import { BotonesDeTarea, useAccionesDeTarea } from './Trabajo'
@@ -32,7 +32,7 @@ export function Tablero() {
     <>
       <Encabezado
         titulo="Taller"
-        sub={`${plural(cuantas('in_progress', 'available'), 'trabajo')} para hacer ahora · ${cuantas('parts')} esperan repuestos · ${cuantas('waiting')} esperan su turno · ${plural(cuantas('held'), 'detenido')}`}
+        sub={`${plural(cuantas('in_progress', 'available'), 'trabajo')} para hacer ahora · ${cuantas('parts')} esperan repuestos · ${cuantas('machine') ? `${cuantas('machine')} esperan su máquina · ` : ''} ${cuantas('waiting')} esperan su turno · ${plural(cuantas('held'), 'detenido')}`}
         acciones={<Segmented value={mias ? 'mias' : 'todas'} onChange={(v) => ir({ search: { mias: v === 'mias' ? '1' : undefined }, replace: true })} options={[{ value: 'todas', label: 'Todo el taller' }, { value: 'mias', label: 'Solo mis trabajos' }]} />}
       />
       {mias && !todas.length && <p className="tenue">No tienes trabajos asignados. Te llegan solos si eres especialista de una actividad, o te los asigna el jefe de taller.</p>}
@@ -41,6 +41,7 @@ export function Tablero() {
           const ahora = s.tareas.filter((t) => t.situacion === 'in_progress' || t.situacion === 'available')
           const esperan = s.tareas.filter((t) => t.situacion === 'waiting')
           const sinRepuestos = s.tareas.filter((t) => t.situacion === 'parts')
+          const sinMaquina = s.tareas.filter((t) => t.situacion === 'machine')
           const detenidas = s.tareas.filter((t) => t.situacion === 'held')
           return (
             <section key={s.id} className="tablero-columna">
@@ -62,6 +63,14 @@ export function Tablero() {
                   <div className="tablero-grupo">
                     <h3>Detenidos ({detenidas.length})</h3>
                     {detenidas.map((t) => (
+                      <Tarjeta key={t.id} t={t} abrir={setFicha} />
+                    ))}
+                  </div>
+                )}
+                {sinMaquina.length > 0 && (
+                  <div className="tablero-grupo">
+                    <h3>Esperan su máquina ({sinMaquina.length})</h3>
+                    {sinMaquina.map((t) => (
                       <Tarjeta key={t.id} t={t} abrir={setFicha} />
                     ))}
                   </div>
@@ -98,7 +107,7 @@ function Tarjeta({ t, abrir }: { t: TarjetaTaller; abrir: (id: string) => void }
   const portal = usePortal()
   const { persona, gestiona, trabaja, suspendida } = usePersona()
   const accion = useAccionesDeTarea()
-  const clase = t.situacion === 'held' ? ' detenida' : t.situacion === 'parts' ? ' sin-repuestos' : t.situacion === 'waiting' ? ' espera' : t.situacion === 'in_progress' ? ' en-proceso' : t.ot.plazo === 'atrasada' ? ' atrasada' : ''
+  const clase = t.situacion === 'held' || t.situacion === 'machine' ? ' detenida' : t.situacion === 'parts' ? ' sin-repuestos' : t.situacion === 'waiting' ? ' espera' : t.situacion === 'in_progress' ? ' en-proceso' : t.ot.plazo === 'atrasada' ? ' atrasada' : ''
   return (
     <article className={`tarjeta${clase}`}>
       <div className="tarjeta-cabeza">
@@ -122,6 +131,7 @@ function Tarjeta({ t, abrir }: { t: TarjetaTaller; abrir: (id: string) => void }
         {t.horas ? ` · ${horas(t.horas)}` : ''}
         {t.ot.entrega ? ` · entrega ${fecha(`${t.ot.entrega}T12:00:00Z`)}` : ''}
       </small>
+      {t.maquinas.length > 0 && <small className="tarjeta-aviso naranjo">{textoMaquinas(t.maquinas)}</small>}
       {t.faltan.length > 0 && <small className="tarjeta-aviso dorado">{textoFaltan(t.faltan)}</small>}
       {t.situacion === 'waiting' && <small className="tarjeta-aviso">{textoEspera(t.espera)}</small>}
       {t.situacion === 'held' && t.detencion && (
@@ -132,7 +142,7 @@ function Tarjeta({ t, abrir }: { t: TarjetaTaller; abrir: (id: string) => void }
       )}
       <div className="tarjeta-pie">
         <span className="evento-nombre">
-          <SituacionTag situacion={t.situacion} detencion={t.detencion} espera={t.espera} faltan={t.faltan} />
+          <SituacionTag situacion={t.situacion} detencion={t.detencion} espera={t.espera} faltan={t.faltan} maquinas={t.maquinas} />
           {t.situacion === 'in_progress' && t.inicio && (
             <span className="tenue">
               desde <Hace iso={t.inicio} />

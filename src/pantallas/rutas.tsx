@@ -1,6 +1,6 @@
 // El mapa de la app: cada pantalla con su dirección. Los filtros de cada lista viajan en la dirección, así una vista
 // filtrada se comparte con un enlace.
-import { AlertOutlined, ApiOutlined, AuditOutlined, CreditCardOutlined, DashboardOutlined, FileTextOutlined, HomeOutlined, LineChartOutlined, LockOutlined, PieChartOutlined, SettingOutlined, ShopOutlined, ShoppingCartOutlined, TagsOutlined, TeamOutlined, ToolOutlined, UnorderedListOutlined } from '@ant-design/icons'
+import { AlertOutlined, ApiOutlined, AuditOutlined, ControlOutlined, CreditCardOutlined, DashboardOutlined, FileTextOutlined, HomeOutlined, LineChartOutlined, LockOutlined, PieChartOutlined, SettingOutlined, ShopOutlined, ShoppingCartOutlined, TagsOutlined, TeamOutlined, ToolOutlined, UnorderedListOutlined } from '@ant-design/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createRootRoute, createRoute, createRouter, lazyRouteComponent, Link, Navigate, Outlet, useNavigate, useParams, useRouterState } from '@tanstack/react-router'
 import { Button } from 'antd'
@@ -31,6 +31,7 @@ const Actividades = lazyRouteComponent(() => import('../modulos/taller/pantallas
 const CargaTaller = lazyRouteComponent(() => import('../modulos/taller/pantallas/Carga'), 'Carga')
 const Compras = lazyRouteComponent(() => import('../modulos/compras/pantallas/Compras'), 'Compras')
 const Proveedores = lazyRouteComponent(() => import('../modulos/compras/pantallas/Proveedores'), 'Proveedores')
+const Maquinas = lazyRouteComponent(() => import('../modulos/maquinas/pantallas/Maquinas'), 'Maquinas')
 
 const texto = (v: unknown) => (typeof v === 'string' && v ? v : undefined)
 const numero = (v: unknown) => (Number.isInteger(Number(v)) && Number(v) > 0 ? Number(v) : undefined)
@@ -128,6 +129,7 @@ function MarcoTaller() {
     { a: '/c/$portal/ot', texto: 'Órdenes de trabajo', icono: <UnorderedListOutlined />, activo: en(`${base}/ot`) },
     { a: '/c/$portal/taller', texto: 'Taller', icono: <ToolOutlined />, activo: en(`${base}/taller`) },
     { a: '/c/$portal/carga', texto: 'Carga', icono: <DashboardOutlined />, activo: en(`${base}/carga`) },
+    { a: '/c/$portal/maquinas', texto: 'Máquinas', icono: <ControlOutlined />, activo: en(`${base}/maquinas`) },
     ...(persona.rol !== 'technician' ? [{ a: '/c/$portal/cotizaciones', texto: 'Cotizaciones', icono: <FileTextOutlined />, activo: en(`${base}/cotizaciones`) }] : []),
     { a: '/c/$portal/compras', texto: 'Compras', icono: <ShoppingCartOutlined />, activo: en(`${base}/compras`) },
     ...(persona.rol !== 'technician' ? [{ a: '/c/$portal/proveedores', texto: 'Proveedores', icono: <ShopOutlined />, activo: en(`${base}/proveedores`) }] : []),
@@ -308,6 +310,7 @@ const actividades = createRoute({ getParentRoute: () => taller, path: 'actividad
 const carga = createRoute({ getParentRoute: () => taller, path: 'carga', component: CargaTaller })
 const compras = createRoute({ getParentRoute: () => taller, path: 'compras', component: Compras })
 const proveedores = createRoute({ getParentRoute: () => taller, path: 'proveedores', component: Proveedores })
+const maquinas = createRoute({ getParentRoute: () => taller, path: 'maquinas', component: Maquinas })
 /** La dirección de antes de la lista de precios lleva a las actividades. */
 const precios = createRoute({ getParentRoute: () => taller, path: 'precios', component: () => <Navigate to="/c/$portal/actividades" params={(p) => ({ portal: p.portal ?? '' })} replace /> })
 
@@ -317,7 +320,7 @@ export const router = createRouter({
     entrar,
     plataforma.addChildren([resumen, clientes, cliente, alertas, actividad, auditoria]),
     organizacion.addChildren([panel]),
-    taller.addChildren([tallerInicio, tallerOts, tallerOt, tablero, carga, compras, proveedores, tallerCotizaciones, tallerCotizacion, tallerClientes, actividades, precios]),
+    taller.addChildren([tallerInicio, tallerOts, tallerOt, tablero, carga, maquinas, compras, proveedores, tallerCotizaciones, tallerCotizacion, tallerClientes, actividades, precios]),
   ]),
   defaultPreload: 'intent',
 })

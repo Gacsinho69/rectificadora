@@ -9,7 +9,7 @@ import { api } from '../../../pantallas/api'
 import { Bloque, Cargando, Hace, Problema } from '../../../pantallas/componentes'
 import { fecha, fechaHora } from '../../../pantallas/formato'
 import { PIEZAS } from '../reglas'
-import { EstadoRepuestoTag, folioOt, horas, PlazoTag, SituacionTag, textoEspera, textoFaltan, textoMotor, usePersona, usePortal } from './comun'
+import { EstadoRepuestoTag, folioOt, horas, PlazoTag, SituacionTag, textoEspera, textoFaltan, textoMaquinas, textoMotor, usePersona, usePortal } from './comun'
 import type { FichaTarea } from './tipos'
 import { BotonesDeTarea, useAccionesDeTarea } from './Trabajo'
 
@@ -35,11 +35,12 @@ function Contenido({ t }: { t: FichaTarea }) {
   return (
     <div className="ficha-trabajo">
       <div className="evento-nombre">
-        <SituacionTag situacion={t.situacion} detencion={t.detencion} espera={t.espera} faltan={t.faltan} />
+        <SituacionTag situacion={t.situacion} detencion={t.detencion} espera={t.espera} faltan={t.faltan} maquinas={t.maquinas} />
         <PlazoTag plazo={t.ot.plazo} />
         {t.ot.prioridad === 'urgent' && <span className="estado rojo">Urgente</span>}
       </div>
       {t.situacion === 'waiting' && <p className="tenue">{textoEspera(t.espera)}</p>}
+      {t.maquinas.length > 0 && <Alert type="warning" showIcon title={textoMaquinas(t.maquinas)} description="Se puede empezar cuando vuelva a operar." />}
       {t.faltan.length > 0 && <Alert type="warning" showIcon title={textoFaltan(t.faltan)} description="No se termina hasta que llegue." />}
       {t.situacion === 'held' && t.detencion && <Alert type="warning" showIcon title={`Detenido: ${t.detencion.nota ?? ''}`} description={<>Desde <Hace iso={t.detencion.desde} />{t.detencion.por ? `, por ${t.detencion.por}` : ''}.</>} />}
 

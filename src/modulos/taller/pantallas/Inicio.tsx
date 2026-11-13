@@ -40,6 +40,7 @@ export function Inicio() {
           { rotulo: 'Listas para entregar', valor: cifra(d.cifras.listas), tono: d.cifras.listas ? 'verde' : undefined, enlace: aOts('ready') },
           { rotulo: 'Atrasadas', valor: cifra(d.cifras.atrasadas), nota: `${d.cifras.porVencer} por vencer`, tono: d.cifras.atrasadas ? 'rojo' : undefined },
           { rotulo: 'Esperan repuestos', valor: cifra(d.cifras.esperanRepuestos), nota: 'trabajos sin sus repuestos', tono: d.cifras.esperanRepuestos ? 'dorado' : undefined, enlace: () => ir({ to: '/c/$portal/compras', params: { portal } }) },
+          d.cifras.esperanMaquina > 0 && { rotulo: 'Esperan su máquina', valor: cifra(d.cifras.esperanMaquina), nota: 'su máquina está detenida', tono: 'naranjo', enlace: () => ir({ to: '/c/$portal/maquinas', params: { portal } }) },
           { rotulo: 'Trabajos detenidos', valor: cifra(d.cifras.detenidos), nota: 'cliente, terceros…', tono: d.cifras.detenidos ? 'naranjo' : undefined, enlace: () => ir({ to: '/c/$portal/taller', params: { portal } }) },
           { rotulo: 'Entregadas este mes', valor: cifra(d.cifras.entregadasMes), enlace: aOts('delivered') },
         ]}

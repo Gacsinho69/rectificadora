@@ -12,7 +12,7 @@ import { Encabezado } from '../../../pantallas/Marco'
 import { SelectorDeProveedor } from '../../compras/pantallas/Proveedores'
 import { QUIEN_COMPRA, type QuienCompra } from '../../compras/reglas'
 import { cantidadSegun, MOTIVOS_DETENCION, nombreDeGrupo, PIEZAS, PIEZAS_SUELTAS, type Pieza, PRIORIDADES_OT } from '../reglas'
-import { Avance, CamposDelMotor, comoSeCuenta, enumerar, EstadoCotTag, EstadoOtTag, EstadoRepuestoTag, folioCot, folioOt, horas, motorDeDatos, PlazoTag, SituacionTag, textoEspera, textoFaltan, textoMotor, usePersona, usePortal } from './comun'
+import { Avance, CamposDelMotor, comoSeCuenta, enumerar, EstadoCotTag, EstadoOtTag, EstadoRepuestoTag, folioCot, folioOt, horas, motorDeDatos, PlazoTag, SituacionTag, textoEspera, textoFaltan, textoMaquinas, textoMotor, usePersona, usePortal } from './comun'
 import type { Catalogo, DetalleOt, Persona, PiezaDeOt, RepuestoDeOt, Tarea } from './tipos'
 import { FichaTrabajo } from './FichaTrabajo'
 import { BotonesDeTarea, useAccionesDeTarea } from './Trabajo'
@@ -139,8 +139,9 @@ export function OrdenDeTrabajo() {
               render: (_, t) => (
                 <div className="fila-nombre">
                   <span>
-                    <SituacionTag situacion={t.situacion} detencion={t.detencion} espera={t.espera} faltan={t.faltan} />
+                    <SituacionTag situacion={t.situacion} detencion={t.detencion} espera={t.espera} faltan={t.faltan} maquinas={t.maquinas} />
                   </span>
+                  {t.maquinas.length > 0 && <small>{textoMaquinas(t.maquinas)}</small>}
                   {t.situacion === 'parts' && <small>{textoFaltan(t.faltan)}</small>}
                   {t.situacion === 'waiting' && <small>{textoEspera(t.espera)}</small>}
                   {t.situacion === 'held' && t.detencion?.nota && <small>{t.detencion.nota}</small>}

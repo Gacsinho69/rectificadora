@@ -8,8 +8,11 @@ import { conDatos, ipDe, rechazo } from '../../http'
 import { nuevoId } from '../../ids'
 import { type EntornoPlataforma, exigirPermiso } from '../acceso/guardias'
 import { origenDe, registrar } from '../eventos/registrar'
+import { maquinasIniciales } from '../maquinas/reglas'
+import { machines, machineServices } from '../maquinas/tablas'
 import { impersonations } from '../soporte/tablas'
 import { tallerInicial } from '../taller/comun'
+import { diaDe } from './panorama'
 import { services, shopSections } from '../taller/tablas'
 import { altaTenantSchema, CAMBIOS_DE_ESTADO, ESTADOS_TENANT, type EstadoTenant, FUNCIONES, FUNCIONES_DEL_PLAN, type Funcion, LIMITES, type Limites, PLANES, type Plan } from '../tenants/reglas'
 import { tenants } from '../tenants/tablas'
@@ -63,6 +66,7 @@ export const accionesPlataforma = new Hono<EntornoPlataforma>()
     proximoCobro.setUTCMonth(proximoCobro.getUTCMonth() + 1)
     const pruebaHasta = prueba ? new Date(ahora.getTime() + d.diasPrueba * 86_400_000) : null
     const { secciones, trabajos } = tallerInicial(id, nuevoId, () => 1, d.plantilla)
+    const { maquinas, usos } = maquinasIniciales(id, secciones, trabajos, nuevoId, diaDe(ahora))
     const despues = { nombre: d.nombre, subdominio: d.subdominio, region: d.region, plan: d.plan, estado: d.estado, mrr, plantilla: d.plantilla, prueba_hasta: pruebaHasta?.toISOString() ?? null }
     const administradorId = await base.transaction(async (tx) => {
       await tx.insert(tenants).values({
@@ -83,6 +87,10 @@ export const accionesPlataforma = new Hono<EntornoPlataforma>()
       })
       await tx.insert(shopSections).values(secciones)
       await tx.insert(services).values(trabajos)
+      if (maquinas.length) {
+        await tx.insert(machines).values(maquinas)
+        await tx.insert(machineServices).values(usos)
+      }
       await registrar(tx, origenDe(c), { tenantId: id, eventType: 'tenant.created', targetId: id, targetType: 'tenant', metadata: { antes: null, despues, motivo: d.motivo } })
       return agregarPersona(tx, origenDe(c), id, { ...d.administrador, rol: 'admin' }, ahora, { motivo: d.motivo })
     })

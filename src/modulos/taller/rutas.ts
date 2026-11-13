@@ -12,6 +12,7 @@ import { quotes, customers } from '../comercial/tablas'
 import { anularRepuestosDeOt } from '../compras/comun'
 import { folioOc } from '../compras/reglas'
 import { rutasCompras } from '../compras/rutas'
+import { rutasMaquinas } from '../maquinas/rutas'
 import { purchaseOrders, suppliers, workOrderParts } from '../compras/tablas'
 import { origenDe, registrar } from '../eventos/registrar'
 import { diaDe } from '../plataforma/panorama'
@@ -35,7 +36,7 @@ import {
   type Situacion,
   unidadDe,
 } from './reglas'
-import { cargaDelTaller, conSituacion, detencionAbierta, detencionVisible, faltantesPorTrabajo, OT_EN_TALLER, repartirOt, type TrabajoAbierto, trabajosAbiertos, unirDetencion } from './reparto'
+import { bloqueosDe, cargaDelTaller, conSituacion, detencionAbierta, detencionVisible, OT_EN_TALLER, repartirOt, type TrabajoAbierto, trabajosAbiertos, unirDetencion } from './reparto'
 import { services, serviceSpecialists, shopSections, taskHolds, workOrders, workOrderTasks } from './tablas'
 
 type C = Context<EntornoTenant>
@@ -95,7 +96,7 @@ async function avancesDe(c: { var: EntornoTenant['Variables'] }, ids: string[]) 
 }
 
 /** El orden de una cola: lo que está en proceso, lo que se puede hacer (atrasado, urgente, lo que vence antes), lo que espera y lo detenido. */
-const RANGO: Record<Situacion, number> = { in_progress: 0, available: 1, parts: 2, waiting: 3, held: 4, done: 5 }
+const RANGO: Record<Situacion, number> = { in_progress: 0, available: 1, machine: 2, parts: 2, waiting: 3, held: 4, done: 5 }
 const enCola = (a: TrabajoAbierto, b: TrabajoAbierto, hoy: string) =>
   RANGO[a.situacion] - RANGO[b.situacion] ||
   Number(plazoDeOt(b.ot.entrega, b.ot.estado, hoy) === 'atrasada') - Number(plazoDeOt(a.ot.entrega, a.ot.estado, hoy) === 'atrasada') ||
@@ -140,12 +141,13 @@ async function enSuRuta(c: C, t: typeof workOrderTasks.$inferSelect) {
     .from(workOrderTasks)
     .leftJoin(taskHolds, unirDetencion)
     .where(and(eq(workOrderTasks.workOrderId, t.workOrderId), eq(workOrderTasks.tenantId, c.var.actor.tenantId), ne(workOrderTasks.status, 'done')))
-  return conSituacion(filas, await faltantesPorTrabajo(c.var.base, c.var.actor.tenantId, [t.workOrderId])).find((f) => f.t.id === t.id)!
+  return conSituacion(filas, await bloqueosDe(c.var.base, c.var.actor.tenantId, [t.workOrderId])).find((f) => f.t.id === t.id)!
 }
 
 /** Lo detenido, lo que espera repuestos y lo que espera su turno no se inicia ni se termina; el mensaje dice qué falta. */
 function exigirQueSePuedaHacer(f: Awaited<ReturnType<typeof enSuRuta>>) {
   if (f.situacion === 'held') throw rechazo(409, `Ese trabajo está detenido (${MOTIVOS_DETENCION[f.detencion!.motivo!].toLowerCase()}). Reanúdalo primero.`)
+  if (f.situacion === 'machine') throw rechazo(409, `La máquina está detenida: ${enumerar(f.maquinas)}. Se puede empezar cuando vuelva a operar.`)
   if (f.situacion === 'parts') throw rechazo(409, `Ese trabajo espera repuestos: ${enumerar(f.faltan)}. Cuando lleguen se puede empezar; el jefe de taller puede adelantarlo.`)
   if (f.situacion === 'waiting') throw rechazo(409, `Ese trabajo espera su turno: primero ${enumerar(f.espera)}. El jefe de taller puede adelantarlo.`)
 }
@@ -217,10 +219,11 @@ export const rutasTaller = new Hono<EntornoTenant>()
         entregadasMes: ots.filter((o) => o.entregada).length,
         detenidos: trabajos.filter((f) => f.situacion === 'held').length,
         esperanRepuestos: trabajos.filter((f) => f.situacion === 'parts').length,
+        esperanMaquina: trabajos.filter((f) => f.situacion === 'machine').length,
       },
       urgentes: urgentes.map((o) => ({ ...o, creada: o.creada.toISOString(), entregada: undefined, ...avances.get(o.id) })),
       carga: secciones.map((s) => ({ seccionId: s.id, nombre: s.nombre, gente: s.gente.length, enProceso: s.enProceso, ahora: s.ahora, espera: s.espera, detenidos: s.nDetenidas, sinAsignar: s.sinAsignar, dias: s.dias })),
-      misTareas: misTareas.map((f) => ({ id: f.t.id, nombre: f.t.name, estado: f.t.status, situacion: f.situacion, espera: f.espera, faltan: f.faltan, otId: f.ot.id, ot: f.ot.numero, motor: f.ot.motor, entrega: f.ot.entrega, seccion: f.seccion, pieza: f.t.piece })),
+      misTareas: misTareas.map((f) => ({ id: f.t.id, nombre: f.t.name, estado: f.t.status, situacion: f.situacion, espera: f.espera, faltan: f.faltan, maquinas: f.maquinas, otId: f.ot.id, ot: f.ot.numero, motor: f.ot.motor, entrega: f.ot.entrega, seccion: f.seccion, pieza: f.t.piece })),
       misRetiros: retiros.map((r) => ({ ...r, repuestos: porTraer.filter((x) => x.oc === r.id).map(({ descripcion, cantidad, ot }) => ({ descripcion, cantidad, ot })) })),
       comercial,
     })
@@ -326,7 +329,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
       .leftJoin(taskHolds, unirDetencion)
       .where(and(eq(workOrderTasks.workOrderId, ot.id), eq(workOrderTasks.tenantId, actor.tenantId)))
     // Por pieza (diagnóstico, cada pieza, armado y control) y, dentro, en el orden de su ruta.
-    const tareas = conSituacion(filas, await faltantesPorTrabajo(base, actor.tenantId, [ot.id]))
+    const tareas = conSituacion(filas, await bloqueosDe(base, actor.tenantId, [ot.id]))
       .map((f) => ({ ...f, diagnostico: f.tipoSeccion === 'diagnosis', pieza: f.t.piece }))
       .sort((a, b) => ordenDeGrupo(grupoDe(a)) - ordenDeGrupo(grupoDe(b)) || a.t.step - b.t.step || a.t.position - b.t.position)
     const detenciones = await base.select().from(taskHolds).where(and(eq(taskHolds.workOrderId, ot.id), eq(taskHolds.tenantId, actor.tenantId)))
@@ -390,6 +393,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
       situacion: f.situacion,
       espera: f.espera,
       faltan: f.faltan,
+      maquinas: f.maquinas,
       detencion: detencionVisible(f.detencion, nombres),
       adelantado: Boolean(f.t.advancedAt),
       horas: f.t.stdMinutes / 60,
@@ -591,7 +595,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
       .innerJoin(shopSections, eq(shopSections.id, workOrderTasks.sectionId))
       .leftJoin(taskHolds, unirDetencion)
       .where(and(eq(workOrderTasks.workOrderId, t.workOrderId), eq(workOrderTasks.tenantId, actor.tenantId)))
-    const todas = conSituacion(filas, await faltantesPorTrabajo(base, actor.tenantId, [t.workOrderId]))
+    const todas = conSituacion(filas, await bloqueosDe(base, actor.tenantId, [t.workOrderId]))
     const f = todas.find((x) => x.t.id === t.id)!
     const nombres = await nombresDe(c)
     const quien = (id: string | null) => (id ? (nombres.get(id) ?? null) : null)
@@ -612,6 +616,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
       situacion: f.situacion,
       espera: f.espera,
       faltan: f.faltan,
+      maquinas: f.maquinas,
       detencion: detencionVisible(f.detencion, nombres),
       horas: t.stdMinutes / 60,
       asignadoId: t.assignedTo,
@@ -764,6 +769,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
         situacion: f.situacion,
         espera: f.espera,
         faltan: f.faltan,
+        maquinas: f.maquinas,
         detencion: detencionVisible(f.detencion, nombres),
         horas: f.t.stdMinutes / 60,
         asignadoId: f.t.assignedTo,
@@ -896,6 +902,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
 
   .route('/', rutasComercial)
   .route('/', rutasCompras)
+  .route('/', rutasMaquinas)
 
 async function sinAsignarEn(c: C, seccionId: string) {
   const [{ n }] = await c.var.base

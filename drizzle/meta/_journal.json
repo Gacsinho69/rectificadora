@@ -43,6 +43,13 @@
       "when": 1794599751904,
       "tag": "0005_ficha_del_trabajo",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794600111931,
+      "tag": "0006_maquinas",
+      "breakpoints": true
     }
   ]
 }

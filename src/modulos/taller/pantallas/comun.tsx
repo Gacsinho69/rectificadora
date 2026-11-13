@@ -13,7 +13,7 @@ import type { Detencion } from './tipos'
 const TONO_OT: Record<EstadoOt, Tono> = { received: 'gris', diagnosis: 'azul', waiting_approval: 'dorado', in_progress: 'azul', quality: 'naranjo', ready: 'verde', delivered: 'gris', cancelled: 'gris' }
 const TONO_TAREA: Record<EstadoTarea, Tono> = { pending: 'gris', in_progress: 'azul', done: 'verde' }
 const TONO_COT: Record<EstadoCotizacion, Tono> = { draft: 'gris', sent: 'dorado', accepted: 'verde', rejected: 'rojo', cancelled: 'gris' }
-const TONO_SITUACION: Record<Situacion, Tono> = { in_progress: 'azul', available: 'gris', parts: 'dorado', waiting: 'gris', held: 'naranjo', done: 'verde' }
+const TONO_SITUACION: Record<Situacion, Tono> = { in_progress: 'azul', available: 'gris', parts: 'dorado', machine: 'naranjo', waiting: 'gris', held: 'naranjo', done: 'verde' }
 const TONO_REPUESTO: Record<EstadoRepuesto, Tono> = { pending: 'dorado', ordered: 'azul', received: 'verde', cancelled: 'gris' }
 const TONO_OC: Record<EstadoOc, Tono> = { open: 'azul', received: 'verde', cancelled: 'gris' }
 
@@ -28,9 +28,9 @@ export const EstadoOcTag = ({ estado }: { estado: EstadoOc }) => <Estado tono={T
 export const enumerar = (l: string[]) => (l.length <= 1 ? l.join('') : `${l.slice(0, -1).join(', ')} y ${l.at(-1)}`)
 
 /** Dónde está un trabajo en su ruta. Detenido dice por qué; lo que espera dice qué espera al pasar el mouse. */
-export function SituacionTag({ situacion, detencion, espera, faltan }: { situacion: Situacion; detencion?: Detencion | null; espera?: string[]; faltan?: string[] }) {
+export function SituacionTag({ situacion, detencion, espera, faltan, maquinas }: { situacion: Situacion; detencion?: Detencion | null; espera?: string[]; faltan?: string[]; maquinas?: string[] }) {
   if (situacion === 'held' && detencion) return <Estado tono="naranjo" titulo={detencion.nota ?? undefined}>{MOTIVOS_DETENCION[detencion.motivo]}</Estado>
-  const titulo = situacion === 'parts' && faltan?.length ? `Faltan: ${enumerar(faltan)}` : situacion === 'waiting' && espera?.length ? `Espera: ${enumerar(espera)}` : undefined
+  const titulo = situacion === 'machine' && maquinas?.length ? `Máquina detenida: ${enumerar(maquinas)}` : situacion === 'parts' && faltan?.length ? `Faltan: ${enumerar(faltan)}` : situacion === 'waiting' && espera?.length ? `Espera: ${enumerar(espera)}` : undefined
   return (
     <Estado tono={TONO_SITUACION[situacion]} titulo={titulo}>
       {SITUACIONES[situacion]}
@@ -40,6 +40,9 @@ export function SituacionTag({ situacion, detencion, espera, faltan }: { situaci
 
 /** Los repuestos que le faltan a un trabajo, en una línea: «Faltan: Kit de pistones». */
 export const textoFaltan = (faltan: string[]) => `Faltan: ${faltan.length > 2 ? `${faltan.slice(0, 2).join(', ')} y ${faltan.length - 2} más` : enumerar(faltan)}`
+
+/** Las máquinas detenidas que necesita un trabajo, en una línea: «Máquina detenida: Lineadora de bancada (en mantención)». */
+export const textoMaquinas = (maquinas: string[]) => `Máquina detenida: ${enumerar(maquinas)}`
 
 /** Qué espera un trabajo, en una línea: «Espera: Cepillado de culata». */
 export const textoEspera = (espera: string[]) => (espera.length > 2 ? `Espera: ${espera.slice(0, 2).join(', ')} y ${espera.length - 2} más` : `Espera: ${enumerar(espera)}`)

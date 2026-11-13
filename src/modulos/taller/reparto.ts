@@ -6,6 +6,8 @@ import type { Base } from '../../base'
 import { customers } from '../comercial/tablas'
 import { POR_LLEGAR } from '../compras/reglas'
 import { workOrderParts } from '../compras/tablas'
+import { MOTIVOS_PARADA } from '../maquinas/reglas'
+import { machines, machineServices, machineStops } from '../maquinas/tablas'
 import { users } from '../usuarios/tablas'
 import { anteriores, diasDeCola, type EstadoOt, type MotivoDetencion, responsableDe, type Situacion, situacionDe, type TrabajoEnRuta } from './reglas'
 import { services, serviceSpecialists, shopSections, taskHolds, workOrders, workOrderTasks } from './tablas'
@@ -32,10 +34,37 @@ export async function faltantesPorTrabajo(base: Base, tenantId: string, otIds: s
 }
 
 /**
- * Cada trabajo con su situación en la ruta, los trabajos que espera y los repuestos que le faltan. `filas` trae todos
- * los trabajos de cada OT que importan: los terminados no hacen esperar a nadie, así que pueden faltar.
+ * Las máquinas detenidas, por actividad: «Lineadora de bancada (en mantención)». Lo que necesita una de ellas no se
+ * inicia hasta que vuelva a operar.
  */
-export function conSituacion<F extends Fila>(filas: F[], faltan = new Map<string, string[]>()) {
+export async function maquinasDetenidas(base: Base, tenantId: string) {
+  const filas = await base
+    .select({ servicio: machineServices.serviceId, nombre: machines.name, motivo: machineStops.reason })
+    .from(machineStops)
+    .innerJoin(machines, eq(machines.id, machineStops.machineId))
+    .innerJoin(machineServices, eq(machineServices.machineId, machines.id))
+    .where(and(eq(machineStops.tenantId, tenantId), isNull(machineStops.endedAt), eq(machines.active, true)))
+  const paradas = new Map<string, string[]>()
+  for (const f of filas) paradas.set(f.servicio, [...(paradas.get(f.servicio) ?? []), `${f.nombre} (${MOTIVOS_PARADA[f.motivo].toLowerCase()})`])
+  return paradas
+}
+
+/** Lo que impide hacer un trabajo aunque tenga su turno: los repuestos que no llegan (por trabajo) y las máquinas detenidas (por actividad). */
+export type Bloqueos = { faltan: Map<string, string[]>; paradas: Map<string, string[]> }
+
+export async function bloqueosDe(base: Base, tenantId: string, otIds: string[]): Promise<Bloqueos> {
+  const [faltan, paradas] = await Promise.all([faltantesPorTrabajo(base, tenantId, otIds), maquinasDetenidas(base, tenantId)])
+  return { faltan, paradas }
+}
+
+/**
+ * Cada trabajo con su situación en la ruta, los trabajos que espera, los repuestos que le faltan y las máquinas
+ * detenidas que necesita. `filas` trae todos los trabajos de cada OT que importan: los terminados no hacen esperar a
+ * nadie, así que pueden faltar.
+ */
+export function conSituacion<F extends Fila>(filas: F[], b: Bloqueos = { faltan: new Map(), paradas: new Map() }) {
+  const { faltan, paradas } = b
+  const maquinasDe = (f: F) => (f.t.serviceId ? (paradas.get(f.t.serviceId) ?? []) : [])
   type EnRuta = TrabajoEnRuta & { nombre: string; posicion: number }
   const enRuta = (f: F): EnRuta => ({
     id: f.t.id,
@@ -47,6 +76,7 @@ export function conSituacion<F extends Fila>(filas: F[], faltan = new Map<string
     detenido: Boolean(f.detencion?.id),
     adelantado: Boolean(f.t.advancedAt),
     faltanRepuestos: faltan.get(f.t.id)?.length ?? 0,
+    sinMaquina: maquinasDe(f).length,
   })
   const porOt = new Map<string, EnRuta[]>()
   for (const f of filas) {
@@ -61,7 +91,7 @@ export function conSituacion<F extends Fila>(filas: F[], faltan = new Map<string
     const yo = enRuta(f)
     const situacion: Situacion = situacionDe(yo, deLaOt)
     const espera = situacion === 'waiting' || situacion === 'parts' ? anteriores(yo, deLaOt).map((u) => u.nombre) : []
-    return { ...f, situacion, espera, faltan: faltan.get(f.t.id) ?? [] }
+    return { ...f, situacion, espera, faltan: faltan.get(f.t.id) ?? [], maquinas: maquinasDe(f) }
   })
 }
 
@@ -86,7 +116,7 @@ export async function trabajosAbiertos(base: Base, tenantId: string) {
     .innerJoin(shopSections, eq(shopSections.id, workOrderTasks.sectionId))
     .leftJoin(taskHolds, unirDetencion)
     .where(and(eq(workOrderTasks.tenantId, tenantId), ne(workOrderTasks.status, 'done'), inArray(workOrders.status, OT_EN_TALLER)))
-  return conSituacion(filas, await faltantesPorTrabajo(base, tenantId, filas.map((f) => f.ot.id)))
+  return conSituacion(filas, await bloqueosDe(base, tenantId, filas.map((f) => f.ot.id)))
 }
 export type TrabajoAbierto = Awaited<ReturnType<typeof trabajosAbiertos>>[number]
 
@@ -99,7 +129,7 @@ function sumar(s: Suma, f: TrabajoAbierto) {
   if (f.situacion === 'held') {
     s.detenidas += minutos
     s.nDetenidas++
-  } else if (f.situacion === 'waiting' || f.situacion === 'parts') s.espera += minutos
+  } else if (f.situacion === 'waiting' || f.situacion === 'parts' || f.situacion === 'machine') s.espera += minutos
   else {
     s.ahora += minutos
     if (f.situacion === 'in_progress') s.enProceso++

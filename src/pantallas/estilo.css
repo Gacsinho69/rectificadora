@@ -274,6 +274,7 @@ details.tablero-grupo { display: block; }
 .pedir-repuesto { margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--borde); }
 .pedir-repuesto .botones-tarea { justify-content: flex-end; }
 .tarjeta-trabajo.abre { cursor: pointer; }
+.ant-table-wrapper .ant-table-tbody > tr.fila-inactiva > td { color: var(--tinta-3); }
 .tarjeta-trabajo.abre:hover { color: var(--marino); text-decoration: underline; }
 
 /* Un formulario largo partido en partes: el nombre de cada parte sobre una raya fina. */
