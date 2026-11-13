@@ -78,6 +78,10 @@ export const workOrderParts = pgTable(
     /** La cotización de la que vino; vacío si se agregó en la OT. */
     quoteId: text(),
     description: text().notNull(),
+    /** Lo que el comprador necesita para pedir lo correcto: la marca, el código del fabricante y la medida (STD, 0,25…). */
+    brand: text(),
+    partNumber: text(),
+    size: text(),
     quantity: real().notNull().default(1),
     /** En el orden de la cotización; los que se agregan después, al final. */
     position: integer().notNull().default(0),

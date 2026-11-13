@@ -263,6 +263,19 @@ details.tablero-grupo { display: block; }
 .retiro-cabeza { display: flex; justify-content: space-between; gap: 8px; width: 100%; }
 .retiro-donde { color: var(--tinta-3); }
 
+/* La ficha de un trabajo: todo lo que el técnico necesita, en un cajón lateral. */
+.ficha-trabajo { display: flex; flex-direction: column; gap: 12px; }
+.ficha-trabajo .bloque { margin: 0; }
+.ficha-trabajo .ficha { margin: 0; }
+.ficha-acciones { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+.ficha-acciones .ant-input { width: 100%; }
+.lista-hecho { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; }
+.indicaciones { margin: 0; padding: 8px 10px; border-left: 3px solid var(--marino); background: var(--fondo); white-space: pre-wrap; }
+.pedir-repuesto { margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--borde); }
+.pedir-repuesto .botones-tarea { justify-content: flex-end; }
+.tarjeta-trabajo.abre { cursor: pointer; }
+.tarjeta-trabajo.abre:hover { color: var(--marino); text-decoration: underline; }
+
 /* Un formulario largo partido en partes: el nombre de cada parte sobre una raya fina. */
 .form-seccion { margin: 6px 0 10px; padding-top: 12px; border-top: 1px solid var(--borde); font-weight: 600; }
 /* Opciones de una en una, cada una con su explicación debajo (las plantillas del taller). */

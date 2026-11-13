@@ -14,6 +14,7 @@ import { QUIEN_COMPRA, type QuienCompra } from '../../compras/reglas'
 import { cantidadSegun, MOTIVOS_DETENCION, nombreDeGrupo, PIEZAS, PIEZAS_SUELTAS, type Pieza, PRIORIDADES_OT } from '../reglas'
 import { Avance, CamposDelMotor, comoSeCuenta, enumerar, EstadoCotTag, EstadoOtTag, EstadoRepuestoTag, folioCot, folioOt, horas, motorDeDatos, PlazoTag, SituacionTag, textoEspera, textoFaltan, textoMotor, usePersona, usePortal } from './comun'
 import type { Catalogo, DetalleOt, Persona, PiezaDeOt, RepuestoDeOt, Tarea } from './tipos'
+import { FichaTrabajo } from './FichaTrabajo'
 import { BotonesDeTarea, useAccionesDeTarea } from './Trabajo'
 
 const ruta = getRouteApi('/c/$portal/ot/$id')
@@ -26,6 +27,7 @@ export function OrdenDeTrabajo() {
   const consultas = useQueryClient()
   const { message } = App.useApp()
   const [dialogo, setDialogo] = useState<'trabajo' | 'repuesto' | 'editar' | 'entregar' | 'anular' | null>(null)
+  const [ficha, setFicha] = useState<string | null>(null)
   const r = useQuery({ queryKey: ['taller', 'ot', id], queryFn: () => api<DetalleOt>('GET', `/servicio/ot/${id}`) })
   const personas = useQuery({ queryKey: ['taller', 'personas'], queryFn: () => api<Persona[]>('GET', '/servicio/personas'), enabled: gestiona })
   const tarea = useAccionesDeTarea()
@@ -118,11 +120,15 @@ export function OrdenDeTrabajo() {
               key: 'n',
               render: (_, t) => (
                 <div className="fila-nombre">
-                  <span>{t.nombre}</span>
+                  <button type="button" className="enlace" onClick={() => setFicha(t.id)} title="Abrir la ficha del trabajo">
+                    {t.nombre}
+                  </button>
                   <small>
                     {t.seccion}
                     {t.adelantado ? ' · adelantado' : ''}
                   </small>
+                  {t.indicaciones && <small>Indicación: {t.indicaciones}</small>}
+                  {t.resultado && <small>Anotó: {t.resultado}</small>}
                 </div>
               ),
             },
@@ -264,6 +270,7 @@ export function OrdenDeTrabajo() {
       {dialogo === 'editar' && <Editar ot={ot} cerrar={() => setDialogo(null)} />}
       {dialogo === 'entregar' && <Entregar otId={ot.id} contacto={ot.cliente.contacto} cerrar={() => setDialogo(null)} />}
       {dialogo === 'anular' && <Anular otId={ot.id} cerrar={() => setDialogo(null)} />}
+      {ficha && <FichaTrabajo id={ficha} cerrar={() => setFicha(null)} />}
     </>
   )
 }

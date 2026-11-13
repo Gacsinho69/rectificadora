@@ -4,6 +4,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi, Link, useNavigate } from '@tanstack/react-router'
 import { Segmented } from 'antd'
+import { useState } from 'react'
 import { api } from '../../../pantallas/api'
 import { Cargando, Hace, Problema } from '../../../pantallas/componentes'
 import { fecha, plural } from '../../../pantallas/formato'
@@ -11,6 +12,7 @@ import { Encabezado } from '../../../pantallas/Marco'
 import { MOTIVOS_DETENCION, PIEZAS } from '../reglas'
 import { dias, folioOt, horas, PlazoTag, SituacionTag, textoEspera, textoFaltan, usePersona, usePortal } from './comun'
 import type { TarjetaTaller, Tablero as DatosTablero } from './tipos'
+import { FichaTrabajo } from './FichaTrabajo'
 import { BotonesDeTarea, useAccionesDeTarea } from './Trabajo'
 
 const ruta = getRouteApi('/c/$portal/taller')
@@ -18,6 +20,7 @@ const ruta = getRouteApi('/c/$portal/taller')
 export function Tablero() {
   const { mias } = ruta.useSearch()
   const ir = useNavigate({ from: '/c/$portal/taller' })
+  const [ficha, setFicha] = useState<string | null>(null)
   const r = useQuery({ queryKey: ['taller', 'tablero', mias], queryFn: () => api<DatosTablero>('GET', `/servicio/taller${mias ? '?mias=1' : ''}`), refetchInterval: 60_000 })
   if (r.isPending) return <Cargando />
   if (r.isError) return <Problema error={r.error} />
@@ -53,13 +56,13 @@ export function Tablero() {
               <div className="tablero-tarjetas">
                 {ahora.length === 0 && <p className="tenue">Nada para hacer ahora.</p>}
                 {ahora.map((t) => (
-                  <Tarjeta key={t.id} t={t} />
+                  <Tarjeta key={t.id} t={t} abrir={setFicha} />
                 ))}
                 {detenidas.length > 0 && (
                   <div className="tablero-grupo">
                     <h3>Detenidos ({detenidas.length})</h3>
                     {detenidas.map((t) => (
-                      <Tarjeta key={t.id} t={t} />
+                      <Tarjeta key={t.id} t={t} abrir={setFicha} />
                     ))}
                   </div>
                 )}
@@ -67,7 +70,7 @@ export function Tablero() {
                   <div className="tablero-grupo">
                     <h3>Esperan repuestos ({sinRepuestos.length})</h3>
                     {sinRepuestos.map((t) => (
-                      <Tarjeta key={t.id} t={t} />
+                      <Tarjeta key={t.id} t={t} abrir={setFicha} />
                     ))}
                   </div>
                 )}
@@ -76,7 +79,7 @@ export function Tablero() {
                     <summary>Esperan su turno ({esperan.length})</summary>
                     <div className="tablero-grupo-lista">
                       {esperan.map((t) => (
-                        <Tarjeta key={t.id} t={t} />
+                        <Tarjeta key={t.id} t={t} abrir={setFicha} />
                       ))}
                     </div>
                   </details>
@@ -86,11 +89,12 @@ export function Tablero() {
           )
         })}
       </div>
+      {ficha && <FichaTrabajo id={ficha} cerrar={() => setFicha(null)} />}
     </>
   )
 }
 
-function Tarjeta({ t }: { t: TarjetaTaller }) {
+function Tarjeta({ t, abrir }: { t: TarjetaTaller; abrir: (id: string) => void }) {
   const portal = usePortal()
   const { persona, gestiona, trabaja, suspendida } = usePersona()
   const accion = useAccionesDeTarea()
@@ -106,7 +110,9 @@ function Tarjeta({ t }: { t: TarjetaTaller }) {
           {t.ot.prioridad === 'urgent' && <span className="estado rojo">Urgente</span>}
         </span>
       </div>
-      <b className="tarjeta-trabajo">{t.nombre}</b>
+      <b className="tarjeta-trabajo abre" role="button" tabIndex={0} title="Abrir la ficha del trabajo" onClick={() => abrir(t.id)} onKeyDown={(e) => e.key === 'Enter' && abrir(t.id)}>
+        {t.nombre}
+      </b>
       <small>
         {t.pieza !== 'motor' && `${PIEZAS[t.pieza]} · `}
         {t.ot.motor} · {t.cliente}
@@ -116,7 +122,7 @@ function Tarjeta({ t }: { t: TarjetaTaller }) {
         {t.horas ? ` · ${horas(t.horas)}` : ''}
         {t.ot.entrega ? ` · entrega ${fecha(`${t.ot.entrega}T12:00:00Z`)}` : ''}
       </small>
-      {t.situacion === 'parts' && <small className="tarjeta-aviso dorado">{textoFaltan(t.faltan)}</small>}
+      {t.faltan.length > 0 && <small className="tarjeta-aviso dorado">{textoFaltan(t.faltan)}</small>}
       {t.situacion === 'waiting' && <small className="tarjeta-aviso">{textoEspera(t.espera)}</small>}
       {t.situacion === 'held' && t.detencion && (
         <small className="tarjeta-aviso naranjo">

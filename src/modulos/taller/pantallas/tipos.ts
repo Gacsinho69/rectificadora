@@ -78,6 +78,32 @@ export type Tarea = {
   asignado: string | null
   inicio: string | null
   termino: string | null
+  indicaciones: string | null
+  resultado: string | null
+}
+
+/** La ficha de un trabajo, como la ve quien lo hace: sin montos. */
+export type FichaTarea = {
+  id: string
+  nombre: string
+  cantidad: number
+  pieza: Pieza
+  seccion: string
+  estado: EstadoTarea
+  situacion: Situacion
+  espera: string[]
+  faltan: string[]
+  detencion: Detencion | null
+  horas: number
+  asignadoId: string | null
+  asignado: string | null
+  inicio: string | null
+  termino: string | null
+  indicaciones: string | null
+  resultado: string | null
+  ot: { id: string; numero: number; estado: EstadoOt; cliente: string; motor: string; numeroMotor: string | null; equipo: string | null; cilindros: number | null; valvulasPorCilindro: number | null; culatas: number | null; falla: string | null; entrega: string | null; prioridad: PrioridadOt; plazo: Plazo }
+  anteriores: { id: string; nombre: string; resultado: string | null; quien: string | null; termino: string | null }[]
+  repuestos: { id: string; descripcion: string; cantidad: number; medida: string | null; marca: string | null; codigo: string | null; compra: QuienCompra; estado: EstadoRepuesto; recibido: string | null }[]
 }
 
 /** Cómo va una pieza de la OT (o su diagnóstico, o el armado y control). */
@@ -88,6 +114,9 @@ export type RepuestoDeOt = {
   id: string
   descripcion: string
   cantidad: number
+  medida: string | null
+  marca: string | null
+  codigo: string | null
   compra: QuienCompra
   proveedor: string | null
   costo: number | null

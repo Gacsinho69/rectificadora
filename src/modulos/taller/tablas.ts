@@ -124,6 +124,10 @@ export const workOrderTasks = pgTable(
     /** Adelantado por el jefe de taller: se puede empezar aunque falte lo anterior de su ruta. */
     advancedAt: timestamp({ withTimezone: true }),
     advancedBy: text(),
+    /** Lo que el jefe de taller le indica a quien lo hace: «rectificar a 0,50», «ojo con el muñón 3». */
+    instructions: text(),
+    /** Lo que anotó quien lo terminó: la medida final, lo que encontró. Lo leen los que siguen en la pieza. */
+    result: text(),
   },
   (t) => [index().on(t.workOrderId), index().on(t.tenantId, t.sectionId, t.status), index().on(t.tenantId, t.assignedTo)],
 )

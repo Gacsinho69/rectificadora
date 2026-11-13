@@ -26,15 +26,17 @@ export function useAccionesDeTarea() {
 }
 
 type Props = {
-  t: { id: string; estado: EstadoTarea; situacion: Situacion; asignadoId: string | null }
+  t: { id: string; estado: EstadoTarea; situacion: Situacion; asignadoId: string | null; faltan?: string[] }
   yo?: string
   gestiona: boolean
   trabaja: boolean
   accion: ReturnType<typeof useAccionesDeTarea>
+  /** Lo que anotó quien lo hizo, para guardarlo al terminar (desde la ficha). */
+  resultado?: string
 }
 
 /** Los botones que corresponden a la situación del trabajo y a quién mira. */
-export function BotonesDeTarea({ t, yo, gestiona, trabaja, accion }: Props) {
+export function BotonesDeTarea({ t, yo, gestiona, trabaja, accion, resultado }: Props) {
   const [deteniendo, setDeteniendo] = useState(false)
   if (!trabaja || t.situacion === 'done') return null
   const suya = !t.asignadoId || t.asignadoId === yo || gestiona
@@ -60,7 +62,19 @@ export function BotonesDeTarea({ t, yo, gestiona, trabaja, accion }: Props) {
       {t.situacion === 'in_progress' && (
         <>
           {detener}
-          <Button size="small" type="primary" loading={cargando('terminar')} onClick={hacer('terminar')}>Terminar</Button>
+          <Button
+            size="small"
+            type="primary"
+            loading={cargando('terminar')}
+            disabled={Boolean(t.faltan?.length)}
+            title={t.faltan?.length ? `Falta que llegue: ${t.faltan.join(', ')}` : undefined}
+            onClick={(e) => {
+              e.stopPropagation()
+              accion.mutate({ id: t.id, accion: 'terminar', datos: { resultado: resultado || undefined } })
+            }}
+          >
+            Terminar
+          </Button>
         </>
       )}
       {t.situacion === 'waiting' && gestiona && <Button size="small" loading={cargando('adelantar')} onClick={hacer('adelantar')} title="Dejar empezarlo antes de que termine lo anterior de su pieza">Adelantar</Button>}

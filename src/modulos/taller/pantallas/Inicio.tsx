@@ -3,18 +3,21 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { Button, Table } from 'antd'
+import { useState } from 'react'
 import { api } from '../../../pantallas/api'
 import { Bloque, Cargando, Cifras, Problema } from '../../../pantallas/componentes'
 import { cifra, fecha, plata, porcentaje } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
 import { folioOc } from '../../compras/reglas'
 import { AvanceOt, dias, DondeRetirar, EstadoOtTag, folioOt, horas, PlazoTag, SituacionTag, usePersona, usePortal } from './comun'
+import { FichaTrabajo } from './FichaTrabajo'
 import type { Inicio as DatosInicio } from './tipos'
 
 export function Inicio() {
   const portal = usePortal()
   const { persona, gestiona } = usePersona()
   const ir = useNavigate()
+  const [ficha, setFicha] = useState<string | null>(null)
   const r = useQuery({ queryKey: ['taller', 'inicio'], queryFn: () => api<DatosInicio>('GET', '/servicio/inicio') })
   if (r.isPending) return <Cargando />
   if (r.isError) return <Problema error={r.error} />
@@ -82,9 +85,11 @@ export function Inicio() {
             rowKey="id"
             pagination={false}
             dataSource={d.misTareas}
+            rowClassName={() => 'fila-abre'}
+            onRow={(t) => ({ onClick: () => setFicha(t.id) })}
             columns={[
               { title: 'Trabajo', dataIndex: 'nombre', render: (v: string, t) => <div className="fila-nombre"><b>{v}</b><small>{t.seccion}</small></div> },
-              { title: 'OT', key: 'ot', render: (_, t) => <Link to="/c/$portal/ot/$id" params={{ portal, id: t.otId }}>{folioOt(t.ot)}</Link> },
+              { title: 'OT', key: 'ot', render: (_, t) => <Link to="/c/$portal/ot/$id" params={{ portal, id: t.otId }} onClick={(e) => e.stopPropagation()}>{folioOt(t.ot)}</Link> },
               { title: 'Motor', dataIndex: 'motor' },
               { title: 'Situación', key: 's', render: (_, t) => <SituacionTag situacion={t.situacion} espera={t.espera} faltan={t.faltan} /> },
               { title: 'Entrega', dataIndex: 'entrega', render: (v: string | null) => (v ? fecha(`${v}T12:00:00Z`) : '—') },
@@ -140,6 +145,7 @@ export function Inicio() {
           />
         </Bloque>
       </div>
+      {ficha && <FichaTrabajo id={ficha} cerrar={() => setFicha(null)} />}
     </>
   )
 }
