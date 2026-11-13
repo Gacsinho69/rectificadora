@@ -70,7 +70,8 @@ export function Inicio() {
                 <ul>
                   {o.repuestos.map((x, i) => (
                     <li key={i}>
-                      {x.cantidad} × {x.descripcion} <span className="tenue">({folioOt(x.ot)})</span>
+                      {x.cantidad} × {x.descripcion}
+                      {x.medida ? ` · ${x.medida}` : ''} <span className="tenue">({folioOt(x.ot)})</span>
                     </li>
                   ))}
                 </ul>

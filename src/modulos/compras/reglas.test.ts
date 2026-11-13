@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { faltasParaEnviar, totales } from '../comercial/reglas'
 import { situacionDe, type TrabajoEnRuta } from '../taller/reglas'
-import { claveDeProveedor, estadoDeOc, estadoDeRepuesto, proveedorSchema, trabajoQueLoNecesita } from './reglas'
+import { claveDeProveedor, estadoDeOc, estadoDeRepuesto, porProveedor, proveedorSchema, referenciaDe, trabajoQueLoNecesita } from './reglas'
 
 const en = (id: string, extra: Partial<TrabajoEnRuta> = {}): TrabajoEnRuta => ({ id, pieza: 'block', paso: 140, estado: 'pending', detenido: false, adelantado: false, ...extra })
 
@@ -45,6 +45,18 @@ describe('los repuestos en el taller', () => {
     expect(estadoDeOc([{ estado: 'ordered' }], true)).toBe('cancelled')
     expect(estadoDeRepuesto({ compra: 'customer', estado: 'pending' })).toBe('Lo trae el cliente')
     expect(estadoDeRepuesto({ compra: 'shop', estado: 'pending' })).toBe('Por pedir')
+  })
+
+  it('lo por pedir va por proveedor, y dentro, lo que la OT necesita antes', () => {
+    const r = (id: string, proveedor: string | null, entrega: string | null, extra: { plazo?: string | null; prioridad?: string; costo?: number } = {}) => ({ id, proveedorId: proveedor ? `prv_${proveedor}` : null, proveedor, costo: extra.costo ?? 1000, cantidad: 2, ot: { entrega, prioridad: extra.prioridad ?? 'normal', plazo: extra.plazo ?? null } })
+    const grupos = porProveedor([r('a', 'Sur', '2026-11-20'), r('b', null, '2026-11-12'), r('c', 'Sur', '2026-11-30', { prioridad: 'urgent' }), r('d', 'Casa', '2026-11-25'), r('e', 'Sur', '2026-11-05', { plazo: 'atrasada' })])
+    expect(grupos.map((g) => [g.proveedor, g.repuestos.map((x) => x.id), g.costo])).toEqual([
+      ['Casa', ['d'], 2000],
+      ['Sur', ['e', 'c', 'a'], 6000],
+      [null, ['b'], 2000],
+    ])
+    expect(referenciaDe({ medida: '0,50', marca: 'Mahle', codigo: null })).toBe('0,50 · Mahle')
+    expect(referenciaDe({})).toBe('')
   })
 
   it('el mismo proveedor, aunque se escriba con otras mayúsculas, tildes, espacios o puntos', () => {

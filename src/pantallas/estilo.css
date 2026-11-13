@@ -284,3 +284,7 @@ details.tablero-grupo { display: block; }
 .lista-opciones small { display: block; margin-top: 2px; }
 .retiro ul, .lista-simple { margin: 0; padding-left: 18px; }
 .lista-simple { margin-bottom: 12px; }
+
+/* Lo por pedir, de a un proveedor: su nombre, cuánto es y el botón para pedirle todo. */
+.grupo-compra + .grupo-compra { border-top: 1px solid var(--borde); }
+.grupo-compra-cabeza { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 14px 6px; }

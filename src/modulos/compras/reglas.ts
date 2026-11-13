@@ -69,6 +69,27 @@ export function estadoDeOc(repuestos: { estado: EstadoRepuesto }[], anulada: boo
 
 export const folioOc = (n: number) => `OC-${String(n).padStart(4, '0')}`
 
+/** Lo que identifica un repuesto para pedir el correcto: «0,50 · Mahle · 228-0001». Vacío si no se dijo nada. */
+export const referenciaDe = (r: { medida?: string | null; marca?: string | null; codigo?: string | null }) => [r.medida, r.marca, r.codigo].filter(Boolean).join(' · ')
+
+/**
+ * Lo que hay que pedir, por proveedor (el que se cotizó) y, dentro, lo que la OT necesita antes: lo atrasado, lo urgente
+ * y lo que se entrega antes. Lo sin proveedor va al final.
+ */
+export function porProveedor<R extends { id: string; proveedorId: string | null; proveedor: string | null; costo: number | null; cantidad: number; ot: { entrega: string | null; prioridad: string; plazo: string | null } }>(repuestos: R[]) {
+  const grupos = new Map<string, { clave: string; proveedor: string | null; repuestos: R[]; costo: number }>()
+  for (const r of repuestos) {
+    const clave = r.proveedorId ?? r.proveedor ?? ''
+    const g = grupos.get(clave) ?? { clave, proveedor: r.proveedor, repuestos: [], costo: 0 }
+    g.repuestos.push(r)
+    g.costo += Math.round((r.costo ?? 0) * r.cantidad)
+    grupos.set(clave, g)
+  }
+  const urgencia = (r: R) => (r.ot.plazo === 'atrasada' ? 0 : r.ot.prioridad === 'urgent' ? 1 : 2)
+  for (const g of grupos.values()) g.repuestos.sort((a, b) => urgencia(a) - urgencia(b) || (a.ot.entrega ?? '9999').localeCompare(b.ot.entrega ?? '9999'))
+  return [...grupos.values()].sort((a, b) => Number(!a.proveedor) - Number(!b.proveedor) || (a.proveedor ?? '').localeCompare(b.proveedor ?? '', 'es'))
+}
+
 /**
  * El trabajo que espera un repuesto: el de la actividad que dice la cotización; si no dice, el armado (lo primero de
  * toda la OT después de las piezas); si no hay armado, lo último que queda por hacer.

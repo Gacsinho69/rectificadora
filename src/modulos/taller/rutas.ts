@@ -184,7 +184,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
       .orderBy(asc(purchaseOrders.number))
     const porTraer = retiros.length
       ? await base
-          .select({ oc: workOrderParts.purchaseOrderId, descripcion: workOrderParts.description, cantidad: workOrderParts.quantity, ot: workOrders.number })
+          .select({ oc: workOrderParts.purchaseOrderId, descripcion: workOrderParts.description, medida: workOrderParts.size, cantidad: workOrderParts.quantity, ot: workOrders.number })
           .from(workOrderParts)
           .innerJoin(workOrders, eq(workOrders.id, workOrderParts.workOrderId))
           .where(and(eq(workOrderParts.tenantId, actor.tenantId), inArray(workOrderParts.purchaseOrderId, retiros.map((r) => r.id)), eq(workOrderParts.status, 'ordered')))
@@ -224,7 +224,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
       urgentes: urgentes.map((o) => ({ ...o, creada: o.creada.toISOString(), entregada: undefined, ...avances.get(o.id) })),
       carga: secciones.map((s) => ({ seccionId: s.id, nombre: s.nombre, gente: s.gente.length, enProceso: s.enProceso, ahora: s.ahora, espera: s.espera, detenidos: s.nDetenidas, sinAsignar: s.sinAsignar, dias: s.dias })),
       misTareas: misTareas.map((f) => ({ id: f.t.id, nombre: f.t.name, estado: f.t.status, situacion: f.situacion, espera: f.espera, faltan: f.faltan, maquinas: f.maquinas, otId: f.ot.id, ot: f.ot.numero, motor: f.ot.motor, entrega: f.ot.entrega, seccion: f.seccion, pieza: f.t.piece })),
-      misRetiros: retiros.map((r) => ({ ...r, repuestos: porTraer.filter((x) => x.oc === r.id).map(({ descripcion, cantidad, ot }) => ({ descripcion, cantidad, ot })) })),
+      misRetiros: retiros.map((r) => ({ ...r, repuestos: porTraer.filter((x) => x.oc === r.id).map(({ descripcion, medida, cantidad, ot }) => ({ descripcion, medida, cantidad, ot })) })),
       comercial,
     })
   })

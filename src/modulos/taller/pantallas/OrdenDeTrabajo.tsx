@@ -10,7 +10,7 @@ import { Bloque, Cargando, Cifras, Problema } from '../../../pantallas/component
 import { fecha, fechaHora, plata } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
 import { SelectorDeProveedor } from '../../compras/pantallas/Proveedores'
-import { QUIEN_COMPRA, type QuienCompra } from '../../compras/reglas'
+import { QUIEN_COMPRA, type QuienCompra, referenciaDe } from '../../compras/reglas'
 import { cantidadSegun, MOTIVOS_DETENCION, nombreDeGrupo, PIEZAS, PIEZAS_SUELTAS, type Pieza, PRIORIDADES_OT } from '../reglas'
 import { Avance, CamposDelMotor, comoSeCuenta, enumerar, EstadoCotTag, EstadoOtTag, EstadoRepuestoTag, folioCot, folioOt, horas, motorDeDatos, PlazoTag, SituacionTag, textoEspera, textoFaltan, textoMaquinas, textoMotor, usePersona, usePortal } from './comun'
 import type { Catalogo, DetalleOt, Persona, PiezaDeOt, RepuestoDeOt, Tarea } from './tipos'
@@ -189,7 +189,7 @@ export function OrdenDeTrabajo() {
             scroll={{ x: 760 }}
             locale={{ emptyText: 'Sin repuestos. Los cotizados aparecen aquí al aceptar la cotización.' }}
             columns={[
-              { title: 'Repuesto', key: 'n', render: (_, r) => <div className="fila-nombre"><span>{r.descripcion}</span>{r.necesita && <small>Lo espera: {r.necesita}</small>}</div> },
+              { title: 'Repuesto', key: 'n', render: (_, r) => <div className="fila-nombre"><span>{r.descripcion}</span>{referenciaDe(r) && <small>{referenciaDe(r)}</small>}{r.necesita && <small>Lo espera: {r.necesita}</small>}</div> },
               { title: 'Cantidad', dataIndex: 'cantidad', align: 'right', width: 90 },
               { title: 'Lo compra', key: 'c', width: 190, render: (_, r) => <div className="fila-nombre"><span>{QUIEN_COMPRA[r.compra]}</span>{r.proveedor && <small>{r.proveedor}</small>}</div> },
               { title: 'Estado', key: 'e', width: 170, render: (_, r) => <div className="fila-nombre"><span><EstadoRepuestoTag compra={r.compra} estado={r.estado} /></span>{r.oc && <small>{r.oc}</small>}</div> },
@@ -358,7 +358,7 @@ function AgregarTrabajo({ ot, cerrar }: { ot: DetalleOt; cerrar: () => void }) {
   )
 }
 
-type DatosRepuesto = { descripcion: string; cantidad: number; compra: QuienCompra; proveedorId?: string | null; costo?: number | null; necesitaTareaId?: string | null }
+type DatosRepuesto = { descripcion: string; cantidad: number; compra: QuienCompra; proveedorId?: string | null; costo?: number | null; necesitaTareaId?: string | null; medida?: string; marca?: string; codigo?: string }
 
 /** Un repuesto que aparece con la OT abierta (una pieza que se quebró al armar): lo espera el trabajo que se elija, o el armado. */
 function AgregarRepuesto({ ot, veMontos, cerrar }: { ot: DetalleOt; veMontos: boolean; cerrar: () => void }) {
@@ -376,6 +376,17 @@ function AgregarRepuesto({ ot, veMontos, cerrar }: { ot: DetalleOt; veMontos: bo
           </Form.Item>
           <Form.Item label="Cantidad" name="cantidad" rules={[{ required: true, message: 'Escribe la cantidad.' }]}>
             <InputNumber min={1} max={10_000} style={{ width: '100%' }} />
+          </Form.Item>
+        </div>
+        <div className="columnas-3">
+          <Form.Item label="Medida" name="medida">
+            <Input placeholder="STD, 0,25…" />
+          </Form.Item>
+          <Form.Item label="Marca" name="marca">
+            <Input placeholder="Mahle" />
+          </Form.Item>
+          <Form.Item label="N° de parte" name="codigo">
+            <Input placeholder="228-0001" />
           </Form.Item>
         </div>
         <Form.Item label="Quién lo compra" name="compra">

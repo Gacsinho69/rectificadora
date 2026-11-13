@@ -6,7 +6,7 @@ import { usageDaily } from '../uso/tablas'
 
 type Prueba = Awaited<ReturnType<typeof armarPrueba>>
 type Tarea = { id: string; nombre: string; situacion: string; faltan: string[] }
-type Repuesto = { id: string; descripcion: string; compra: string; estado: string; necesita: string | null; oc: string | null; proveedor: string | null; costo: number | null }
+type Repuesto = { id: string; descripcion: string; compra: string; estado: string; necesita: string | null; oc: string | null; proveedor: string | null; costo: number | null; medida?: string | null; marca?: string | null; codigo?: string | null }
 
 const recepcion = { clienteId: 'cl_a', motor: 'Mercedes-Benz OM 457', piezas: ['motor'], cilindros: 6, valvulasPorCilindro: 4, culatas: 1 }
 
@@ -29,7 +29,7 @@ async function motorConRepuestos(p: Prueba) {
   const lineas = [
     await trabajo(p.base, 'B-01'),
     await trabajo(p.base, 'A-01'),
-    repuesto('Kit de pistones', { precio: 420_000, compra: 'shop', proveedorId: sur, costo: 300_000, necesita: 'B-01' }),
+    repuesto('Kit de pistones', { precio: 420_000, compra: 'shop', proveedorId: sur, costo: 300_000, necesita: 'B-01', medida: '0,50', marca: 'Mahle', numeroParte: '228-0001' }),
     repuesto('Juego de empaquetaduras', { precio: 150_000, compra: 'shop', proveedorId: sur, costo: 100_000 }),
     repuesto('Bomba de aceite', { precio: null, compra: 'customer' }),
   ]
@@ -69,7 +69,8 @@ describe('los repuestos y las compras', () => {
     const compras = (await p.pedir('us_a_jefe', 'GET', '/api/servicio/compras')).cuerpo
     expect(compras.porPedir.map((x: Repuesto) => x.descripcion)).toEqual(['Kit de pistones', 'Juego de empaquetaduras'])
     expect(compras.clientes.map((x: Repuesto) => x.descripcion)).toEqual(['Bomba de aceite'])
-    expect(compras.porPedir[0]).toMatchObject({ costo: 300_000, proveedorId: sur, proveedor: 'Repuestos Diesel Sur' })
+    expect(compras.porPedir[0]).toMatchObject({ costo: 300_000, proveedorId: sur, proveedor: 'Repuestos Diesel Sur', medida: '0,50', marca: 'Mahle', codigo: '228-0001', ot: { numero: 1, prioridad: 'normal' } })
+    expect(deNombre((await otDe(p, otId)).repuestos, 'Kit')).toMatchObject({ medida: '0,50', marca: 'Mahle', codigo: '228-0001' })
     expect((await p.pedir('us_a_member', 'GET', '/api/servicio/compras')).cuerpo.porPedir[0]).toMatchObject({ costo: null, proveedorId: null, proveedor: null })
 
     // La orden de compra, a un proveedor de la lista y con el chofer que va a buscarlo.
@@ -90,7 +91,7 @@ describe('los repuestos y las compras', () => {
     // El chofer ve su retiro en el inicio, con dónde retirar y a quién llamar, y recibe lo que trajo: primero los pistones.
     const inicio = (await p.pedir('us_a_member', 'GET', '/api/servicio/inicio')).cuerpo
     expect(inicio.misRetiros).toEqual([
-      { id: oc.id, numero: 1, proveedor: 'Repuestos Diesel Sur', direccion: 'Av. Colón 3456, Talcahuano', telefono: '+56 41 229 4410', llega: '2026-11-14', repuestos: [{ descripcion: 'Kit de pistones', cantidad: 1, ot: 1 }, { descripcion: 'Juego de empaquetaduras', cantidad: 1, ot: 1 }] },
+      { id: oc.id, numero: 1, proveedor: 'Repuestos Diesel Sur', direccion: 'Av. Colón 3456, Talcahuano', telefono: '+56 41 229 4410', llega: '2026-11-14', repuestos: [{ descripcion: 'Kit de pistones', medida: '0,50', cantidad: 1, ot: 1 }, { descripcion: 'Juego de empaquetaduras', medida: null, cantidad: 1, ot: 1 }] },
     ])
     expect((await p.pedir('us_a_member', 'GET', '/api/servicio/compras')).cuerpo.ordenes[0]).toMatchObject({ proveedor: 'Repuestos Diesel Sur', direccion: 'Av. Colón 3456, Talcahuano', telefono: '+56 41 229 4410' })
     expect((await p.pedir('us_a_lector', 'POST', `/api/servicio/compras/ordenes/${oc.id}/recibir`, {})).estado).toBe(403)

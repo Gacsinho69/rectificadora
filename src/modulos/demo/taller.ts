@@ -72,10 +72,10 @@ const FALLAS = [
   'Baja presión de aceite', 'Agua en el aceite', 'Fundió metales de bancada', 'Ruido en la distribución', 'Mantención mayor por horas de uso',
 ]
 /** Los repuestos que se cotizan, con el trabajo que los espera si no es el armado (los cilindros se rectifican a la medida del pistón). */
-const REPUESTOS = [
-  { descripcion: 'Kit de pistones y anillos', precio: 420_000, necesita: 'B-01' }, { descripcion: 'Juego de metales de bancada y biela', precio: 180_000 },
-  { descripcion: 'Juego de empaquetaduras completo', precio: 150_000 }, { descripcion: 'Bomba de aceite', precio: 210_000 },
-  { descripcion: 'Juego de válvulas de admisión y escape', precio: 160_000, necesita: 'C-06' }, { descripcion: 'Camisas de cilindro (juego)', precio: 380_000, necesita: 'B-03' },
+const REPUESTOS: { descripcion: string; precio: number; necesita?: string; medida?: string; marca: string }[] = [
+  { descripcion: 'Kit de pistones y anillos', precio: 420_000, necesita: 'B-01', medida: '0,50', marca: 'Mahle' }, { descripcion: 'Juego de metales de bancada y biela', precio: 180_000, medida: '0,25', marca: 'King' },
+  { descripcion: 'Juego de empaquetaduras completo', precio: 150_000, marca: 'Victor Reinz' }, { descripcion: 'Bomba de aceite', precio: 210_000, marca: 'Melling' },
+  { descripcion: 'Juego de válvulas de admisión y escape', precio: 160_000, necesita: 'C-06', medida: 'STD', marca: 'TRW' }, { descripcion: 'Camisas de cilindro (juego)', precio: 380_000, necesita: 'B-03', medida: 'STD', marca: 'Mahle' },
 ]
 /** Los proveedores de cada taller de demostración: con quién se habla, dónde retira el chofer y qué vende. El último ya no se usa. */
 const PROVEEDORES = [
@@ -208,6 +208,8 @@ export function sembrarTaller(
       proveedor: proveedor?.name ?? null,
       costo: cliente ? null : Math.round((precio * (0.6 + azar() * 0.15)) / 1000) * 1000,
       necesita: r.necesita && cotizadas.some((x) => x.codigo === r.necesita) ? r.necesita : null,
+      medida: r.medida ?? null,
+      marca: cliente ? null : r.marca,
     }
   }
   /** Lo que se cotiza según lo que llegó y lo que encontró el diagnóstico, pieza por pieza. */
@@ -443,6 +445,8 @@ export function sembrarTaller(
           workOrderId: otId,
           quoteId: qId,
           description: r.l.descripcion,
+          size: r.l.medida ?? null,
+          brand: r.l.marca ?? null,
           quantity: r.l.cantidad,
           position: posicion,
           source: r.compra,

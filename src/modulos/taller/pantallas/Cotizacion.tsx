@@ -196,6 +196,9 @@ function Editor({ id, numero, inicial }: { id: string | null; numero: number | n
                   <Input size="small" value={l.descripcion} onChange={(e) => cambiar(l.i, { descripcion: e.target.value })} placeholder="Qué es" />
                   {l.tipo === 'repuesto' && (
                     <div className="linea-repuesto">
+                      <Input size="small" style={{ width: 110 }} value={l.medida ?? ''} placeholder="Medida" title="STD, 0,25, 0,50…" onChange={(e) => cambiar(l.i, { medida: e.target.value || null })} />
+                      {!loTraeElCliente(l) && <Input size="small" style={{ width: 120 }} value={l.marca ?? ''} placeholder="Marca" onChange={(e) => cambiar(l.i, { marca: e.target.value || null })} />}
+                      {!loTraeElCliente(l) && <Input size="small" style={{ width: 130 }} value={l.numeroParte ?? ''} placeholder="N° de parte" onChange={(e) => cambiar(l.i, { numeroParte: e.target.value || null })} />}
                       {!loTraeElCliente(l) && (
                         <SelectorDeProveedor
                           size="small"
@@ -382,7 +385,7 @@ function Documento({ q }: { q: DetalleCotizacion }) {
           scroll={{ x: 680 }}
           columns={[
             { title: 'Código', dataIndex: 'codigo', width: 80, render: (v: string | null) => v ?? '—' },
-            { title: 'Descripción', key: 'd', render: (_, l) => <div className="fila-nombre"><span>{l.descripcion}</span>{l.tipo === 'trabajo' && l.pieza && <small>{PIEZAS[l.pieza]}</small>}{loTraeElCliente(l) && <small>Lo trae el cliente</small>}</div> },
+            { title: 'Descripción', key: 'd', render: (_, l) => <div className="fila-nombre"><span>{l.descripcion}</span>{l.tipo === 'trabajo' && l.pieza && <small>{PIEZAS[l.pieza]}</small>}{l.tipo === 'repuesto' && (l.medida || l.marca) && <small>{[l.medida, l.marca].filter(Boolean).join(' · ')}</small>}{loTraeElCliente(l) && <small>Lo trae el cliente</small>}</div> },
             { title: 'Tipo', dataIndex: 'tipo', render: (v: Linea['tipo']) => TIPOS_LINEA[v] },
             { title: 'Cantidad', key: 'c', align: 'right', render: (_, l) => <div className="fila-nombre"><span>{l.cantidad}</span>{comoSeCuenta(l.criterio) && <small>{comoSeCuenta(l.criterio)}</small>}</div> },
             { title: 'Valor por unidad', key: 'p', align: 'right', render: (_, l) => (loTraeElCliente(l) ? <span className="tenue">No se cobra</span> : l.precio ? plata(l.precio) : '—') },

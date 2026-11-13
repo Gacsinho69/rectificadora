@@ -48,7 +48,7 @@ export type Inicio = {
   carga: { seccionId: string; nombre: string; gente: number; enProceso: number; ahora: number; espera: number; detenidos: number; sinAsignar: number; dias: number | null }[]
   misTareas: { id: string; nombre: string; estado: EstadoTarea; situacion: Situacion; espera: string[]; faltan: string[]; maquinas: string[]; otId: string; ot: number; motor: string; entrega: string | null; seccion: string; pieza: Pieza }[]
   /** Las órdenes de compra que tiene que ir a buscar quien mira (el chofer de compras). */
-  misRetiros: { id: string; numero: number; proveedor: string; direccion: string | null; telefono: string | null; llega: string | null; repuestos: { descripcion: string; cantidad: number; ot: number }[] }[]
+  misRetiros: { id: string; numero: number; proveedor: string; direccion: string | null; telefono: string | null; llega: string | null; repuestos: { descripcion: string; medida: string | null; cantidad: number; ot: number }[] }[]
   comercial: { enviadasMes: number; cotizadoMes: number; aceptadasMes: number; aceptadoMes: number; pendientes: number; montoPendiente: number; tasaAceptacion: number | null } | null
 }
 
@@ -235,12 +235,15 @@ export type RepuestoEnCompras = {
   id: string
   descripcion: string
   cantidad: number
+  medida: string | null
+  marca: string | null
+  codigo: string | null
   compra: QuienCompra
   proveedorId: string | null
   proveedor: string | null
   costo: number | null
   estado: EstadoRepuesto
-  ot: { id: string; numero: number; motor: string }
+  ot: { id: string; numero: number; motor: string; entrega: string | null; prioridad: PrioridadOt; plazo: Plazo }
   cliente: string
   necesita: string | null
   ocId: string | null

@@ -13,6 +13,8 @@ import { customers } from '../comercial/tablas'
 import { origenDe, registrar } from '../eventos/registrar'
 import { exigirGestion, gestiona, siguienteNumero, sumarUso, veMontos } from '../taller/comun'
 import { OT_EN_TALLER } from '../taller/reparto'
+import { plazoDeOt } from '../taller/reglas'
+import { diaDe } from '../plataforma/panorama'
 import { services, shopSections, workOrders, workOrderTasks } from '../taller/tablas'
 import { users } from '../usuarios/tablas'
 import { recalcularOc } from './comun'
@@ -38,6 +40,9 @@ const nuevoRepuesto = z.object({
   proveedorId: z.string().nullable().optional(),
   costo: z.number().int().min(0).max(1_000_000_000).nullable().optional(),
   necesitaTareaId: z.string().nullable().optional(),
+  medida: z.string().trim().max(40).optional(),
+  marca: z.string().trim().max(60).optional(),
+  codigo: z.string().trim().max(60).optional(),
 })
 
 async function nombresDe(c: C) {
@@ -155,7 +160,7 @@ export const rutasCompras = new Hono<EntornoTenant>()
     const ordenes = await base.select().from(purchaseOrders).where(eq(purchaseOrders.tenantId, actor.tenantId)).orderBy(desc(purchaseOrders.number))
     const visibles = [...ordenes.filter((o) => o.status === 'open'), ...ordenes.filter((o) => o.status !== 'open').slice(0, 20)]
     const filas = await base
-      .select({ r: workOrderParts, ot: { id: workOrders.id, numero: workOrders.number, motor: workOrders.engine }, cliente: customers.name, necesita: workOrderTasks.name })
+      .select({ r: workOrderParts, ot: { id: workOrders.id, numero: workOrders.number, motor: workOrders.engine, entrega: workOrders.dueDate, prioridad: workOrders.priority, estado: workOrders.status }, cliente: customers.name, necesita: workOrderTasks.name })
       .from(workOrderParts)
       .innerJoin(workOrders, eq(workOrders.id, workOrderParts.workOrderId))
       .innerJoin(customers, eq(customers.id, workOrders.customerId))
@@ -172,12 +177,15 @@ export const rutasCompras = new Hono<EntornoTenant>()
       id: r.id,
       descripcion: r.description,
       cantidad: r.quantity,
+      medida: r.size,
+      marca: r.brand,
+      codigo: r.partNumber,
       compra: r.source,
       proveedorId: montos ? r.supplierId : null,
       proveedor: montos ? r.supplier : null,
       costo: montos ? r.unitCost : null,
       estado: r.status,
-      ot,
+      ot: { id: ot.id, numero: ot.numero, motor: ot.motor, entrega: ot.entrega, prioridad: ot.prioridad, plazo: plazoDeOt(ot.entrega, ot.estado, diaDe(c.var.ahora)) },
       cliente,
       necesita,
       ocId: r.purchaseOrderId,
@@ -320,6 +328,6 @@ export const rutasCompras = new Hono<EntornoTenant>()
     }
     const id = nuevoId('rep')
     const [{ ultimo }] = await c.var.base.select({ ultimo: sql<number>`coalesce(max(${workOrderParts.position}), -1)`.mapWith(Number) }).from(workOrderParts).where(eq(workOrderParts.workOrderId, ot.id))
-    await c.var.base.insert(workOrderParts).values({ id, tenantId: actor.tenantId, workOrderId: ot.id, description: d.descripcion, quantity: d.cantidad, position: ultimo + 1, source: d.compra, supplierId: proveedor?.id ?? null, supplier: proveedor?.name ?? null, unitCost: d.costo ?? null, neededByTaskId: necesita, status: 'pending', createdBy: actor.id, createdAt: ahora })
+    await c.var.base.insert(workOrderParts).values({ id, tenantId: actor.tenantId, workOrderId: ot.id, description: d.descripcion, size: d.medida || null, brand: d.marca || null, partNumber: d.codigo || null, quantity: d.cantidad, position: ultimo + 1, source: d.compra, supplierId: proveedor?.id ?? null, supplier: proveedor?.name ?? null, unitCost: d.costo ?? null, neededByTaskId: necesita, status: 'pending', createdBy: actor.id, createdAt: ahora })
     return c.json({ id })
   })

@@ -41,6 +41,10 @@ export type Linea = {
   costo?: number | null
   /** Repuestos: el código de la actividad cotizada que no puede empezar sin él. Vacío: el armado. */
   necesita?: string | null
+  /** Repuestos: la medida (STD, 0,25, 0,50…), la marca y el número de parte, para pedir el correcto. */
+  medida?: string | null
+  marca?: string | null
+  numeroParte?: string | null
 }
 
 export const lineaSchema = z.object({
@@ -59,6 +63,9 @@ export const lineaSchema = z.object({
   proveedor: z.string().trim().max(120).nullable().optional(),
   costo: z.number().int().min(0).max(1_000_000_000).nullable().optional(),
   necesita: z.string().max(40).nullable().optional(),
+  medida: z.string().trim().max(40).nullable().optional(),
+  marca: z.string().trim().max(60).nullable().optional(),
+  numeroParte: z.string().trim().max(60).nullable().optional(),
 })
 
 export const cotizacionSchema = z.object({

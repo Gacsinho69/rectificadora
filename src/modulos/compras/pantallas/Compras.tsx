@@ -10,9 +10,9 @@ import { api } from '../../../pantallas/api'
 import { Bloque, Cargando, Cifras, Hace, Problema } from '../../../pantallas/componentes'
 import { cifra, fecha, plata, plural } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
-import { DondeRetirar, EstadoOcTag, EstadoRepuestoTag, folioOt, usePersona, usePortal } from '../../taller/pantallas/comun'
+import { DondeRetirar, EstadoOcTag, EstadoRepuestoTag, folioOt, PlazoTag, usePersona, usePortal } from '../../taller/pantallas/comun'
 import type { Compras as DatosCompras, OrdenDeCompra, Persona, RepuestoEnCompras } from '../../taller/pantallas/tipos'
-import { folioOc } from '../reglas'
+import { folioOc, porProveedor, referenciaDe } from '../reglas'
 import { SelectorDeProveedor } from './Proveedores'
 
 export function Compras() {
@@ -85,7 +85,8 @@ export function Compras() {
                     .filter((x) => x.estado === 'ordered')
                     .map((x) => (
                       <li key={x.id}>
-                        {x.cantidad} × {x.descripcion} <span className="tenue">({folioOt(x.ot.numero)})</span>
+                        {x.cantidad} × {x.descripcion}
+                        {referenciaDe(x) ? ` · ${referenciaDe(x)}` : ''} <span className="tenue">({folioOt(x.ot.numero)})</span>
                       </li>
                     ))}
                 </ul>
@@ -108,22 +109,37 @@ export function Compras() {
           ) : null
         }
       >
-        <Table<RepuestoEnCompras>
-          size="small"
-          rowKey="id"
-          pagination={false}
-          dataSource={porPedir}
-          scroll={{ x: 760 }}
-          locale={{ emptyText: 'Nada por pedir: lo que la rectificadora compra aparece aquí al aceptarse la cotización.' }}
-          rowSelection={puede ? { selectedRowKeys: elegidos, onChange: (k) => setElegidos(k as string[]) } : undefined}
-          columns={[
-            { title: 'Repuesto', key: 'n', render: (_, x) => <div className="fila-nombre"><b>{x.descripcion}</b>{deOt(x)}</div> },
-            { title: 'Cantidad', dataIndex: 'cantidad', align: 'right', width: 90 },
-            ...(veMontos ? [{ title: 'Proveedor', dataIndex: 'proveedor', width: 190, render: (v: string | null) => v ?? <span className="tenue">Sin proveedor</span> }] : []),
-            ...(veMontos ? [{ title: 'Costo', key: 'c', align: 'right' as const, width: 120, render: (_: unknown, x: RepuestoEnCompras) => (x.costo ? plata(Math.round(x.costo * x.cantidad)) : <span className="tenue">—</span>) }] : []),
-            { title: 'Desde', dataIndex: 'creado', width: 110, render: (v: string) => <Hace iso={v} /> },
-          ]}
-        />
+        {!porPedir.length && <p className="tenue">Nada por pedir: lo que la rectificadora compra aparece aquí al aceptarse la cotización, o cuando un técnico pide un repuesto.</p>}
+        {/* Por proveedor (lo que se cotizó con cada uno), y dentro, lo que la OT necesita antes. */}
+        {porProveedor(porPedir).map((g) => (
+          <div key={g.clave} className="grupo-compra">
+            <div className="grupo-compra-cabeza">
+              <span>
+                <b>{veMontos ? (g.proveedor ?? 'Sin proveedor') : 'Repuestos'}</b> <span className="tenue">· {plural(g.repuestos.length, 'repuesto')}{veMontos && g.costo ? ` · ${plata(g.costo)}` : ''}</span>
+              </span>
+              {puede && (
+                <Button size="small" onClick={() => { setElegidos(g.repuestos.map((x) => x.id)); setPidiendo(true) }}>
+                  {veMontos && g.proveedor ? `Pedir todo a ${g.proveedor}` : 'Pedir todo esto'}
+                </Button>
+              )}
+            </div>
+            <Table<RepuestoEnCompras>
+              size="small"
+              rowKey="id"
+              pagination={false}
+              dataSource={g.repuestos}
+              scroll={{ x: 760 }}
+              rowSelection={puede ? { selectedRowKeys: elegidos, onChange: (k) => setElegidos([...elegidos.filter((e) => !g.repuestos.some((x) => x.id === e)), ...(k as string[])]) } : undefined}
+              columns={[
+                { title: 'Repuesto', key: 'n', render: (_, x) => <div className="fila-nombre"><b>{x.descripcion}</b>{referenciaDe(x) && <small>{referenciaDe(x)}</small>}{deOt(x)}</div> },
+                { title: 'Cantidad', dataIndex: 'cantidad', align: 'right', width: 90 },
+                { title: 'La OT se entrega', key: 'e', width: 160, render: (_, x) => <span className="evento-nombre">{x.ot.entrega ? fecha(`${x.ot.entrega}T12:00:00Z`) : '—'} <PlazoTag plazo={x.ot.plazo} />{x.ot.prioridad === 'urgent' && <span className="estado rojo">Urgente</span>}</span> },
+                ...(veMontos ? [{ title: 'Costo', key: 'c', align: 'right' as const, width: 120, render: (_: unknown, x: RepuestoEnCompras) => (x.costo ? plata(Math.round(x.costo * x.cantidad)) : <span className="tenue">—</span>) }] : []),
+                { title: 'Desde', dataIndex: 'creado', width: 110, render: (v: string) => <Hace iso={v} /> },
+              ]}
+            />
+          </div>
+        ))}
       </Bloque>
       <Bloque titulo="Órdenes de compra" extra={<span className="tenue">Por retirar y las últimas cerradas. Abre una para recibir por partes.</span>}>
         <Table<OrdenDeCompra>
@@ -142,7 +158,7 @@ export function Compras() {
                 pagination={false}
                 dataSource={o.repuestos}
                 columns={[
-                  { title: 'Repuesto', key: 'n', render: (_, x) => <div className="fila-nombre"><span>{x.descripcion}</span>{deOt(x)}</div> },
+                  { title: 'Repuesto', key: 'n', render: (_, x) => <div className="fila-nombre"><span>{x.descripcion}</span>{referenciaDe(x) && <small>{referenciaDe(x)}</small>}{deOt(x)}</div> },
                   { title: 'Cantidad', dataIndex: 'cantidad', align: 'right', width: 90 },
                   { title: 'Estado', key: 'e', width: 130, render: (_, x) => <EstadoRepuestoTag compra={x.compra} estado={x.estado} /> },
                   { title: 'Llegó', dataIndex: 'recibido', width: 120, render: (v: string | null) => (v ? fecha(v) : <span className="tenue">—</span>) },
@@ -283,7 +299,8 @@ function NuevaOrden({ repuestos, personas, cerrar }: { repuestos: RepuestoEnComp
       <ul className="lista-simple">
         {repuestos.map((x) => (
           <li key={x.id}>
-            {x.cantidad} × {x.descripcion} <span className="tenue">({folioOt(x.ot.numero)})</span>
+            {x.cantidad} × {x.descripcion}
+            {referenciaDe(x) ? ` · ${referenciaDe(x)}` : ''} <span className="tenue">({folioOt(x.ot.numero)})</span>
           </li>
         ))}
       </ul>
