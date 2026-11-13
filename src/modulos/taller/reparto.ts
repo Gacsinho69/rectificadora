@@ -8,6 +8,7 @@ import { POR_LLEGAR } from '../compras/reglas'
 import { workOrderParts } from '../compras/tablas'
 import { MOTIVOS_PARADA } from '../maquinas/reglas'
 import { machines, machineServices, machineStops } from '../maquinas/tablas'
+import { tenants } from '../tenants/tablas'
 import { users } from '../usuarios/tablas'
 import { anteriores, diasDeCola, type EstadoOt, type MotivoDetencion, responsableDe, type Situacion, situacionDe, type TrabajoEnRuta } from './reglas'
 import { services, serviceSpecialists, shopSections, taskHolds, workOrders, workOrderTasks } from './tablas'
@@ -43,7 +44,9 @@ export async function maquinasDetenidas(base: Base, tenantId: string) {
     .from(machineStops)
     .innerJoin(machines, eq(machines.id, machineStops.machineId))
     .innerJoin(machineServices, eq(machineServices.machineId, machines.id))
-    .where(and(eq(machineStops.tenantId, tenantId), isNull(machineStops.endedAt), eq(machines.active, true)))
+    .innerJoin(tenants, eq(tenants.id, machineStops.tenantId))
+    // Sin el módulo de máquinas encendido, una parada no frena trabajos.
+    .where(and(eq(machineStops.tenantId, tenantId), isNull(machineStops.endedAt), eq(machines.active, true), sql`(${tenants.featureFlags}->>'machines')::boolean is true`))
   const paradas = new Map<string, string[]>()
   for (const f of filas) paradas.set(f.servicio, [...(paradas.get(f.servicio) ?? []), `${f.nombre} (${MOTIVOS_PARADA[f.motivo].toLowerCase()})`])
   return paradas

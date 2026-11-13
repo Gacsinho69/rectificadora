@@ -11,7 +11,7 @@ import { formatoRut } from '../../rut'
 import { type EntornoTenant, exigirQuePuedaEditar, filaDelTenant, filasDelTenant } from '../acceso/guardias'
 import { customers } from '../comercial/tablas'
 import { origenDe, registrar } from '../eventos/registrar'
-import { exigirGestion, gestiona, siguienteNumero, sumarUso, veMontos } from '../taller/comun'
+import { conFuncion, exigirFuncion, exigirGestion, gestiona, siguienteNumero, sumarUso, veMontos } from '../taller/comun'
 import { OT_EN_TALLER } from '../taller/reparto'
 import { plazoDeOt } from '../taller/reglas'
 import { diaDe } from '../plataforma/panorama'
@@ -98,6 +98,12 @@ async function exigirNombreLibre(c: C, nombre: string, salvo?: string) {
 }
 
 export const rutasCompras = new Hono<EntornoTenant>()
+  .use('/proveedores', conFuncion('purchasing'))
+  .use('/proveedores/*', conFuncion('purchasing'))
+  .use('/compras', conFuncion('purchasing'))
+  .use('/compras/*', conFuncion('purchasing'))
+  .use('/insumos', conFuncion('supplies'))
+  .use('/insumos/*', conFuncion('supplies'))
   /** Los proveedores de la rectificadora, con sus órdenes de compra: las que están por retirar, cuántas van y la última. */
   .get('/proveedores', async (c) => {
     exigirVerProveedores(c)
@@ -207,8 +213,8 @@ export const rutasCompras = new Hono<EntornoTenant>()
     return c.json({
       porPedir: filas.filter(({ r }) => r.source === 'shop' && r.status === 'pending').map(repuesto),
       clientes: filas.filter(({ r }) => r.source === 'customer' && r.status === 'pending').map(repuesto),
-      // Los insumos que quedan en su mínimo o menos, contando lo que ya viene en camino.
-      insumosBajos: listaInsumos
+      // Los insumos que quedan en su mínimo o menos, contando lo que ya viene en camino (si tiene bodega).
+      insumosBajos: (actor.funciones.includes('supplies') ? listaInsumos : [])
         .filter(({ s }) => bajoMinimo(s.stock + enCamino(s.id), s.minStock))
         .map(({ s, proveedor }) => ({ id: s.id, nombre: s.name, unidad: s.unit, marca: s.brand, codigo: s.partNumber, stock: s.stock, minimo: s.minStock, porLlegar: enCamino(s.id), sugerido: cantidadSugerida(s.stock, s.minStock, enCamino(s.id)), proveedorId: montos ? s.supplierId : null, proveedor: montos ? proveedor : null, costo: montos ? s.unitCost : null })),
       ordenes: visibles.map((o) => {
@@ -243,6 +249,7 @@ export const rutasCompras = new Hono<EntornoTenant>()
     const { actor, ahora } = c.var
     const d = c.req.valid('json')
     if (!d.repuestos.length && !d.insumos.length) throw rechazo(400, 'Elige qué pedir.')
+    if (d.insumos.length) exigirFuncion(c, 'supplies')
     const repuestos = await filasDelTenant(c, workOrderParts, d.repuestos, 'part', 'ese repuesto')
     if (repuestos.some((r) => r.source !== 'shop' || r.status !== 'pending')) throw rechazo(409, 'Solo se piden los repuestos que compra la rectificadora y que están por pedir.')
     const insumos = await filasDelTenant(c, supplies, d.insumos.map((i) => i.insumoId), 'supply', 'ese insumo')

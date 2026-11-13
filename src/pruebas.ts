@@ -22,7 +22,7 @@ export async function armarPrueba(ahora = AHORA) {
     { id: 'adm_todo', name: 'Ana Todo', email: 'ana@plataforma.test', permissions: TODOS_LOS_PERMISOS },
     { id: 'adm_sin', name: 'Beto Sin', email: 'beto@plataforma.test', permissions: [] },
   ])
-  const cliente = (id: string, name: string) => ({ id, name, slug: id, region: 'sa-1' as const, status: 'active' as const, plan: 'pro' as const, billingEmail: `pagos@${id}.test`, billingStatus: 'paid' as const, mrr: 89_000, createdAt: antes })
+  const cliente = (id: string, name: string) => ({ id, name, slug: id, region: 'sa-1' as const, status: 'active' as const, plan: 'pro' as const, billingEmail: `pagos@${id}.test`, billingStatus: 'paid' as const, mrr: 89_000, featureFlags: { purchasing: true, supplies: true, machines: true }, createdAt: antes })
   await base.insert(tenants).values([cliente('tn_a', 'Cliente A'), cliente('tn_b', 'Cliente B')])
   const persona = (id: string, tenantId: string, role: 'admin' | 'technician') => ({ id, tenantId, name: id, email: `${id}@${tenantId}.test`, role, status: 'active' as const, createdAt: antes })
   await base.insert(users).values([persona('us_a_admin', 'tn_a', 'admin'), persona('us_a_member', 'tn_a', 'technician'), persona('us_b_admin', 'tn_b', 'admin'), persona('us_b_member', 'tn_b', 'technician')])

@@ -6,7 +6,7 @@ import type { Context } from 'hono'
 import { getCookie } from 'hono/cookie'
 import type { Base } from '../../base'
 import { impersonations } from '../soporte/tablas'
-import type { EstadoTenant } from '../tenants/reglas'
+import { type EstadoTenant, type Funcion, funcionesDe } from '../tenants/reglas'
 import { tenants } from '../tenants/tablas'
 import type { RolTenant } from '../usuarios/reglas'
 import { platformAdmins, users } from '../usuarios/tablas'
@@ -25,6 +25,8 @@ export type PersonaDelTenant = {
   tenantSlug: string
   estadoTenant: EstadoTenant
   rol: RolTenant
+  /** Los módulos que tiene encendidos su organización (compras, bodega, máquinas). */
+  funciones: Funcion[]
   /** Presente cuando quien actúa es alguien del equipo entrando como esta persona. */
   impersonacion?: { id: string; adminId: string; adminNombre: string; motivo: string; vence: string }
 }
@@ -42,12 +44,12 @@ export async function adminPorId(base: Base, id: string): Promise<AdminPlataform
 /** Una persona activa de un cliente que no esté cancelado. Bloqueados e invitados no entran. */
 export async function personaPorId(base: Base, id: string): Promise<PersonaDelTenant | null> {
   const [p] = await base
-    .select({ u: users, t: { name: tenants.name, slug: tenants.slug, status: tenants.status } })
+    .select({ u: users, t: { name: tenants.name, slug: tenants.slug, status: tenants.status, banderas: tenants.featureFlags } })
     .from(users)
     .innerJoin(tenants, eq(tenants.id, users.tenantId))
     .where(and(eq(users.id, id), eq(users.status, 'active')))
   if (!p || p.t.status === 'cancelled') return null
-  return { tipo: 'tenant', id: p.u.id, nombre: p.u.name, correo: p.u.email, tenantId: p.u.tenantId, tenantNombre: p.t.name, tenantSlug: p.t.slug, estadoTenant: p.t.status, rol: p.u.role }
+  return { tipo: 'tenant', id: p.u.id, nombre: p.u.name, correo: p.u.email, tenantId: p.u.tenantId, tenantNombre: p.t.name, tenantSlug: p.t.slug, estadoTenant: p.t.status, rol: p.u.role, funciones: funcionesDe(p.t.banderas) }
 }
 
 /**

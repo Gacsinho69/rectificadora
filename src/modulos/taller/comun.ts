@@ -1,14 +1,14 @@
 // Lo que comparten las rutas del sistema de cada rectificadora: quién puede qué, los folios por cliente, el uso que
 // alimenta la consola de la plataforma y el estado calculado de una OT.
 import { and, eq, getTableName, gte, max, sql } from 'drizzle-orm'
-import type { Context } from 'hono'
+import type { Context, MiddlewareHandler } from 'hono'
 import type { Base } from '../../base'
 import { rechazo } from '../../http'
 import type { EntornoTenant } from '../acceso/guardias'
 import { quotes } from '../comercial/tablas'
 import type { purchaseOrders } from '../compras/tablas'
 import { diaDe } from '../plataforma/panorama'
-import { limitesDe, type UsoClave } from '../tenants/reglas'
+import { FUNCIONES, type Funcion, limitesDe, type UsoClave } from '../tenants/reglas'
 import { tenants } from '../tenants/tablas'
 import { usageDaily } from '../uso/tablas'
 import type { RolTenant } from '../usuarios/reglas'
@@ -26,6 +26,19 @@ export function exigirGestion(c: Context<EntornoTenant>) {
     throw rechazo(403, 'Tu organización está suspendida: puedes revisar, pero no hacer cambios.')
   if (!gestiona(c.var.actor.rol)) throw rechazo(403, 'Esto lo hace el jefe de taller o el administrador.')
 }
+
+/** Un módulo que su organización no tiene encendido no se atiende. */
+export function exigirFuncion(c: Context<EntornoTenant>, f: Funcion) {
+  if (!c.var.actor.funciones.includes(f)) throw rechazo(403, `Tu organización no tiene «${FUNCIONES[f]}». Se enciende con el plan; pídelo a la plataforma.`)
+}
+
+/** El mismo resguardo, para todas las rutas de un módulo. */
+export const conFuncion =
+  (f: Funcion): MiddlewareHandler<EntornoTenant> =>
+  async (c, next) => {
+    exigirFuncion(c, f)
+    await next()
+  }
 
 export function exigirMontos(c: Context<EntornoTenant>) {
   if (!veMontos(c.var.actor.rol)) throw rechazo(403, 'Tu rol no ve cotizaciones ni montos.')

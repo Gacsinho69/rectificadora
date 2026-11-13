@@ -203,8 +203,11 @@ export async function sembrarDemo(base: Base, ahora = new Date(), semilla = 2026
     const creado = new Date(hoy.getTime() - p.edad * DIA + 13 * 3_600_000)
     const extras = new Set(p.extras ?? [])
     const funciones: Partial<Record<Funcion, boolean>> = Object.fromEntries(FUNCIONES_DEL_PLAN[p.plan].map((f) => [f, true]))
-    if (extras.has('api')) funciones.public_api = true
-    if (p.nombre === 'Rectificadora Valparaíso') funciones.planner_beta = true
+    // Lo que la demostración simula de uso (portal, inventario, API) sigue saliendo del plan como antes de que las
+    // funciones fueran módulos: así la siembra da los mismos datos.
+    const usaPortal = p.plan !== 'free'
+    const usaInventario = p.plan === 'pro' || p.plan === 'enterprise'
+    const usaApi = p.plan === 'enterprise' || extras.has('api')
     const mrr = p.estado === 'trial' || p.plan === 'free' ? 0 : p.plan === 'enterprise' ? PLANES.enterprise.precio + entre(0, 6) * 25_000 : PLANES[p.plan].precio
     const pais = p.pais ?? 'Chile'
     // Las IPs de la oficina y de los celulares de cada taller. Rangos inventados, coherentes por cliente.
@@ -395,10 +398,10 @@ export async function sembrarDemo(base: Base, ahora = new Date(), semilla = 2026
       const cotizaciones = delDia.cotizaciones
       const progreso = 1 - d / Math.max(vida, 1)
       const features: Partial<Record<UsoClave, number>> = { work_orders: ots, quotes: cotizaciones }
-      if (activo && funciones.client_portal) features.client_portal = Math.round(entre(0, 25) * factor)
-      if (activo && funciones.inventory) features.inventory = Math.round(entre(0, 40) * factor)
+      if (activo && usaPortal) features.client_portal = Math.round(entre(0, 25) * factor)
+      if (activo && usaInventario) features.inventory = Math.round(entre(0, 40) * factor)
       if (activo && azar() < 0.3) features.reports = entre(1, 6)
-      if (activo && funciones.public_api) features.api = Math.round(api * 0.4)
+      if (activo && usaApi) features.api = Math.round(api * 0.4)
       filasUso.push({
         tenantId,
         day: new Date(hoy.getTime() - d * DIA).toISOString().slice(0, 10),
@@ -433,7 +436,7 @@ export async function sembrarDemo(base: Base, ahora = new Date(), semilla = 2026
     }
     if (p.plan !== 'free' && azar() < 0.4)
       filasIntegraciones.push({ id: id('int'), tenantId, kind: 'accounting', name: 'Sistema contable', target: 'Proveedor contable (API)', status: 'active', lastSuccessAt: haceHoras(entre(2, 30)), createdAt: new Date(creado.getTime() + 15 * DIA) })
-    if (funciones.public_api) {
+    if (usaApi) {
       for (let k = 0; k < entre(1, 3); k++) {
         const claveId = id('key')
         const creada = enHorario(entre(10, Math.min(300, p.edad)))

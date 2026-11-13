@@ -8,6 +8,7 @@ import type { PersonaDelTenant } from '../../acceso/identidad'
 import { ESTADOS_COTIZACION, type EstadoCotizacion } from '../../comercial/reglas'
 import { ESTADOS_OC, type EstadoOc, type EstadoRepuesto, estadoDeRepuesto, type QuienCompra } from '../../compras/reglas'
 import { CILINDROS, type Criterio, CRITERIOS, ESTADOS_OT, ESTADOS_TAREA, type EstadoOt, type EstadoTarea, MOTIVOS_DETENCION, type Motor, MOTOR_POR_OMISION, SITUACIONES, type Situacion } from '../reglas'
+import type { Funcion } from '../../tenants/reglas'
 import type { Detencion } from './tipos'
 
 const TONO_OT: Record<EstadoOt, Tono> = { received: 'gris', diagnosis: 'azul', waiting_approval: 'dorado', in_progress: 'azul', quality: 'naranjo', ready: 'verde', delivered: 'gris', cancelled: 'gris' }
@@ -146,5 +147,7 @@ export function usePersona() {
     trabaja: Boolean(rol && rol !== 'viewer'),
     esAdmin: rol === 'admin',
     suspendida: persona?.estadoTenant === 'suspended',
+    /** Si su organización tiene encendido ese módulo (compras, bodega, máquinas). */
+    tiene: (f: Funcion) => Boolean(persona?.funciones?.includes(f)),
   }
 }

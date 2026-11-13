@@ -8,7 +8,7 @@ import { conDatos, rechazo } from '../../http'
 import { nuevoId } from '../../ids'
 import { type EntornoTenant, exigirQuePuedaEditar, filaDelTenant, filasDelTenant } from '../acceso/guardias'
 import { diaDe } from '../plataforma/panorama'
-import { exigirGestion } from '../taller/comun'
+import { conFuncion, exigirGestion } from '../taller/comun'
 import { OT_EN_TALLER } from '../taller/reparto'
 import { services, shopSections, workOrders, workOrderTasks } from '../taller/tablas'
 import { users } from '../usuarios/tablas'
@@ -37,6 +37,8 @@ async function revisar(c: C, d: z.infer<typeof maquinaSchema>) {
 const maquinaDe = (c: C) => filaDelTenant(c, machines, c.req.param('id') ?? '', 'machine', 'esa máquina')
 
 export const rutasMaquinas = new Hono<EntornoTenant>()
+  .use('/maquinas', conFuncion('machines'))
+  .use('/maquinas/*', conFuncion('machines'))
   /** Las máquinas con su estado, sus actividades, los trabajos que las esperan y su mantención. */
   .get('/maquinas', async (c) => {
     const { base, actor, ahora } = c.var

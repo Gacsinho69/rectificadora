@@ -63,23 +63,27 @@ export type Plan = keyof typeof PLANES
 /** Los límites que rigen: los del plan, con lo que se haya ajustado a mano para ese cliente. */
 export const limitesDe = (plan: Plan, ajustes: Partial<Limites>): Limites => ({ ...PLANES[plan].limites, ...ajustes })
 
+/**
+ * Los módulos que se encienden por cliente. Apagado, su menú no aparece y el servidor no lo atiende: sin compras no hay
+ * órdenes de compra ni proveedores (los repuestos se reciben en la OT); sin máquinas, una parada no frena trabajos.
+ */
 export const FUNCIONES = {
-  client_portal: 'Portal de clientes',
-  ai_quotes: 'Cotizador con IA',
-  inventory: 'Inventario de repuestos',
-  public_api: 'API pública',
-  e_invoicing: 'Facturación electrónica',
-  planner_beta: 'Planificador (beta)',
+  purchasing: 'Compras y proveedores',
+  supplies: 'Bodega de insumos',
+  machines: 'Máquinas y mantención',
 } as const
 export type Funcion = keyof typeof FUNCIONES
 
 /** Las funciones que trae cada plan al crear el cliente; después se encienden o apagan una por una. */
 export const FUNCIONES_DEL_PLAN: Record<Plan, Funcion[]> = {
-  free: [],
-  starter: ['client_portal'],
-  pro: ['client_portal', 'ai_quotes', 'inventory', 'e_invoicing'],
-  enterprise: ['client_portal', 'ai_quotes', 'inventory', 'public_api', 'e_invoicing'],
+  free: ['purchasing'],
+  starter: ['purchasing', 'supplies'],
+  pro: ['purchasing', 'supplies', 'machines'],
+  enterprise: ['purchasing', 'supplies', 'machines'],
 }
+
+/** Las funciones encendidas de un cliente, de sus banderas guardadas. */
+export const funcionesDe = (banderas: Partial<Record<string, boolean>>) => (Object.keys(FUNCIONES) as Funcion[]).filter((f) => banderas[f])
 
 /** Lo que se mide del uso del producto día a día: indica si el cliente realmente lo ocupa. */
 export const USOS_CLAVE = {

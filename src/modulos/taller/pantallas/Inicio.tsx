@@ -15,7 +15,7 @@ import type { Inicio as DatosInicio } from './tipos'
 
 export function Inicio() {
   const portal = usePortal()
-  const { persona, gestiona } = usePersona()
+  const { persona, gestiona, tiene } = usePersona()
   const ir = useNavigate()
   const [ficha, setFicha] = useState<string | null>(null)
   const r = useQuery({ queryKey: ['taller', 'inicio'], queryFn: () => api<DatosInicio>('GET', '/servicio/inicio') })
@@ -39,7 +39,7 @@ export function Inicio() {
           { rotulo: 'Control de calidad', valor: cifra(d.cifras.calidad), enlace: aOts('quality') },
           { rotulo: 'Listas para entregar', valor: cifra(d.cifras.listas), tono: d.cifras.listas ? 'verde' : undefined, enlace: aOts('ready') },
           { rotulo: 'Atrasadas', valor: cifra(d.cifras.atrasadas), nota: `${d.cifras.porVencer} por vencer`, tono: d.cifras.atrasadas ? 'rojo' : undefined },
-          { rotulo: 'Esperan repuestos', valor: cifra(d.cifras.esperanRepuestos), nota: 'trabajos sin sus repuestos', tono: d.cifras.esperanRepuestos ? 'dorado' : undefined, enlace: () => ir({ to: '/c/$portal/compras', params: { portal } }) },
+          { rotulo: 'Esperan repuestos', valor: cifra(d.cifras.esperanRepuestos), nota: 'trabajos sin sus repuestos', tono: d.cifras.esperanRepuestos ? 'dorado' : undefined, enlace: () => (tiene('purchasing') ? ir({ to: '/c/$portal/compras', params: { portal } }) : ir({ to: '/c/$portal/taller', params: { portal } })) },
           d.cifras.esperanMaquina > 0 && { rotulo: 'Esperan su máquina', valor: cifra(d.cifras.esperanMaquina), nota: 'su máquina está detenida', tono: 'naranjo', enlace: () => ir({ to: '/c/$portal/maquinas', params: { portal } }) },
           { rotulo: 'Trabajos detenidos', valor: cifra(d.cifras.detenidos), nota: 'cliente, terceros…', tono: d.cifras.detenidos ? 'naranjo' : undefined, enlace: () => ir({ to: '/c/$portal/taller', params: { portal } }) },
           { rotulo: 'Entregadas este mes', valor: cifra(d.cifras.entregadasMes), enlace: aOts('delivered') },

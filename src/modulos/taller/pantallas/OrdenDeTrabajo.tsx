@@ -365,6 +365,7 @@ function AgregarRepuesto({ ot, veMontos, cerrar }: { ot: DetalleOt; veMontos: bo
   const [form] = Form.useForm<DatosRepuesto>()
   const compra = Form.useWatch('compra', form) ?? 'shop'
   const accion = useAccionOt(ot.id, 'repuestos', 'Repuesto agregado: queda por pedir (o por llegar, si lo trae el cliente).', cerrar)
+  const conCompras = usePersona().tiene('purchasing')
   const porHacer = ot.tareas.filter((t) => t.estado !== 'done')
   return (
     <Modal open title="Agregar un repuesto a la OT" okText="Agregar" cancelText="Cancelar" onCancel={cerrar} confirmLoading={accion.isPending} onOk={() => form.validateFields().then((v) => accion.mutate({ ...v, proveedorId: v.proveedorId ?? null, necesitaTareaId: v.necesitaTareaId ?? null }))} destroyOnHidden width={580}>
@@ -394,9 +395,11 @@ function AgregarRepuesto({ ot, veMontos, cerrar }: { ot: DetalleOt; veMontos: bo
         </Form.Item>
         {compra === 'shop' && (
           <div className="columnas">
-            <Form.Item label="Proveedor" name="proveedorId">
-              <SelectorDeProveedor placeholder="Elegir después" />
-            </Form.Item>
+            {conCompras && (
+              <Form.Item label="Proveedor" name="proveedorId">
+                <SelectorDeProveedor placeholder="Elegir después" />
+              </Form.Item>
+            )}
             {veMontos && (
               <Form.Item label="Costo por unidad (sin IVA)" name="costo">
                 <InputNumber min={0} step={1000} style={{ width: '100%' }} />

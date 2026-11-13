@@ -32,7 +32,7 @@ describe('el alta de una rectificadora desde la consola', () => {
     expect(r.estado).toBe(200)
     const { id, administradorId } = r.cuerpo
     const [t] = await p.base.select().from(tenants).where(eq(tenants.id, id))
-    expect(t).toMatchObject({ name: 'Rectificadora Ñuble', slug: 'nuble', status: 'trial', plan: 'starter', mrr: 0, billingStatus: 'none', nextBillingAt: null, featureFlags: { client_portal: true }, billingEmail: 'pagos@nuble.test' })
+    expect(t).toMatchObject({ name: 'Rectificadora Ñuble', slug: 'nuble', status: 'trial', plan: 'starter', mrr: 0, billingStatus: 'none', nextBillingAt: null, featureFlags: { purchasing: true, supplies: true }, billingEmail: 'pagos@nuble.test' })
     expect(t.trialEndsAt?.toISOString()).toBe(new Date(p.ahora.getTime() + 14 * 86_400_000).toISOString())
     const [creado] = await p.eventos('tenant.created')
     expect(creado).toMatchObject({ tenantId: id, actorId: 'adm_todo', actorType: 'platform_admin', targetId: id })
@@ -61,7 +61,7 @@ describe('el alta de una rectificadora desde la consola', () => {
     const p = await armarPrueba()
     const grande = (await darDeAlta(p, { subdominio: 'nuble-sur', estado: 'active', plan: 'enterprise', mrr: 300_000, plantilla: 'completa' })).cuerpo
     const [t] = await p.base.select().from(tenants).where(eq(tenants.id, grande.id))
-    expect(t).toMatchObject({ status: 'active', mrr: 300_000, billingStatus: 'paid', trialEndsAt: null, featureFlags: { public_api: true, inventory: true } })
+    expect(t).toMatchObject({ status: 'active', mrr: 300_000, billingStatus: 'paid', trialEndsAt: null, featureFlags: { purchasing: true, supplies: true, machines: true } })
     expect(t.nextBillingAt?.toISOString()).toBe('2026-12-11T15:00:00.000Z')
     const completa = await catalogoDe(p, grande.administradorId)
     expect([completa.secciones.length, completa.trabajos.length]).toEqual([7, 29])

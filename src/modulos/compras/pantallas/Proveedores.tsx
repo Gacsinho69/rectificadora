@@ -17,8 +17,8 @@ import { claveDeProveedor } from '../reglas'
 
 /** La lista de proveedores. La comparten esta página y los selectores; el técnico no la pide. */
 export function useProveedores() {
-  const { veMontos } = usePersona()
-  return useQuery({ queryKey: ['taller', 'proveedores'], queryFn: () => api<Proveedor[]>('GET', '/servicio/proveedores'), enabled: veMontos })
+  const { veMontos, tiene } = usePersona()
+  return useQuery({ queryKey: ['taller', 'proveedores'], queryFn: () => api<Proveedor[]>('GET', '/servicio/proveedores'), enabled: veMontos && tiene('purchasing') })
 }
 
 export function Proveedores() {

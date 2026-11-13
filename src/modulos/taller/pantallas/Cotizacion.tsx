@@ -42,7 +42,8 @@ export function Cotizacion() {
 
 function Editor({ id, numero, inicial }: { id: string | null; numero: number | null; inicial: Borrador }) {
   const portal = usePortal()
-  const { gestiona } = usePersona()
+  const { gestiona, tiene } = usePersona()
+  const conCompras = tiene('purchasing')
   const ir = useNavigate()
   const consultas = useQueryClient()
   const { message } = App.useApp()
@@ -199,7 +200,7 @@ function Editor({ id, numero, inicial }: { id: string | null; numero: number | n
                       <Input size="small" style={{ width: 110 }} value={l.medida ?? ''} placeholder="Medida" title="STD, 0,25, 0,50…" onChange={(e) => cambiar(l.i, { medida: e.target.value || null })} />
                       {!loTraeElCliente(l) && <Input size="small" style={{ width: 120 }} value={l.marca ?? ''} placeholder="Marca" onChange={(e) => cambiar(l.i, { marca: e.target.value || null })} />}
                       {!loTraeElCliente(l) && <Input size="small" style={{ width: 130 }} value={l.numeroParte ?? ''} placeholder="N° de parte" onChange={(e) => cambiar(l.i, { numeroParte: e.target.value || null })} />}
-                      {!loTraeElCliente(l) && (
+                      {!loTraeElCliente(l) && conCompras && (
                         <SelectorDeProveedor
                           size="small"
                           style={{ width: 210 }}
