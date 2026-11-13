@@ -10,9 +10,10 @@ import { api } from '../../../pantallas/api'
 import { Bloque, Cargando, Cifras, Hace, Problema } from '../../../pantallas/componentes'
 import { cifra, fecha, plata, plural } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
-import { EstadoOcTag, EstadoRepuestoTag, folioOt, usePersona, usePortal } from '../../taller/pantallas/comun'
+import { DondeRetirar, EstadoOcTag, EstadoRepuestoTag, folioOt, usePersona, usePortal } from '../../taller/pantallas/comun'
 import type { Compras as DatosCompras, OrdenDeCompra, Persona, RepuestoEnCompras } from '../../taller/pantallas/tipos'
 import { folioOc } from '../reglas'
+import { SelectorDeProveedor } from './Proveedores'
 
 export function Compras() {
   const portal = usePortal()
@@ -78,6 +79,7 @@ export function Compras() {
                   </b>
                   {o.llega && <span className="tenue">llega {fecha(`${o.llega}T12:00:00Z`)}</span>}
                 </div>
+                <DondeRetirar direccion={o.direccion} telefono={o.telefono} />
                 <ul>
                   {o.repuestos
                     .filter((x) => x.estado === 'ordered')
@@ -117,7 +119,7 @@ export function Compras() {
           columns={[
             { title: 'Repuesto', key: 'n', render: (_, x) => <div className="fila-nombre"><b>{x.descripcion}</b>{deOt(x)}</div> },
             { title: 'Cantidad', dataIndex: 'cantidad', align: 'right', width: 90 },
-            { title: 'Proveedor', dataIndex: 'proveedor', width: 190, render: (v: string | null) => v ?? <span className="tenue">Sin proveedor</span> },
+            ...(veMontos ? [{ title: 'Proveedor', dataIndex: 'proveedor', width: 190, render: (v: string | null) => v ?? <span className="tenue">Sin proveedor</span> }] : []),
             ...(veMontos ? [{ title: 'Costo', key: 'c', align: 'right' as const, width: 120, render: (_: unknown, x: RepuestoEnCompras) => (x.costo ? plata(Math.round(x.costo * x.cantidad)) : <span className="tenue">—</span>) }] : []),
             { title: 'Desde', dataIndex: 'creado', width: 110, render: (v: string) => <Hace iso={v} /> },
           ]}
@@ -256,16 +258,18 @@ export function Compras() {
   )
 }
 
-type DatosOrden = { proveedor: string; choferId?: string; llega?: dayjs.Dayjs | null; nota?: string }
+type DatosOrden = { proveedorId: string; choferId?: string; llega?: dayjs.Dayjs | null; nota?: string }
 
-/** Emitir la orden de compra con lo elegido: a qué proveedor, quién va a buscarlo y cuándo llega. */
+/** Emitir la orden de compra con lo elegido: a qué proveedor de la lista, quién va a buscarlo y cuándo llega. */
 function NuevaOrden({ repuestos, personas, cerrar }: { repuestos: RepuestoEnCompras[]; personas: Persona[]; cerrar: (listo: boolean) => void }) {
   const [form] = Form.useForm<DatosOrden>()
   const consultas = useQueryClient()
   const { message } = App.useApp()
-  const proveedores = [...new Set(repuestos.map((x) => x.proveedor).filter((p): p is string => Boolean(p)))]
+  // Si todo lo elegido se cotizó con el mismo proveedor, la orden parte con él.
+  const proveedores = [...new Set(repuestos.map((x) => x.proveedorId ?? x.proveedor).filter((p): p is string => Boolean(p)))]
+  const cotizado = proveedores.length === 1 ? (repuestos.find((x) => x.proveedorId)?.proveedorId ?? undefined) : undefined
   const emitir = useMutation({
-    mutationFn: (v: DatosOrden) => api<{ numero: number }>('POST', '/servicio/compras/ordenes', { repuestos: repuestos.map((x) => x.id), proveedor: v.proveedor, choferId: v.choferId ?? null, llega: v.llega ? v.llega.format('YYYY-MM-DD') : null, nota: v.nota }),
+    mutationFn: (v: DatosOrden) => api<{ numero: number }>('POST', '/servicio/compras/ordenes', { repuestos: repuestos.map((x) => x.id), proveedorId: v.proveedorId, choferId: v.choferId ?? null, llega: v.llega ? v.llega.format('YYYY-MM-DD') : null, nota: v.nota }),
     onSuccess: async (r) => {
       message.success(`${folioOc(r.numero)} emitida: queda por retirar.`)
       cerrar(true)
@@ -283,9 +287,9 @@ function NuevaOrden({ repuestos, personas, cerrar }: { repuestos: RepuestoEnComp
           </li>
         ))}
       </ul>
-      <Form form={form} layout="vertical" requiredMark={false} initialValues={{ proveedor: proveedores[0] ?? '' }}>
-        <Form.Item label="Proveedor" name="proveedor" rules={[{ required: true, message: 'Escribe el proveedor.' }, { min: 2 }]}>
-          <Input />
+      <Form form={form} layout="vertical" requiredMark={false} initialValues={{ proveedorId: cotizado }}>
+        <Form.Item label="Proveedor" name="proveedorId" rules={[{ required: true, message: 'Elige el proveedor.' }]}>
+          <SelectorDeProveedor allowClear={false} />
         </Form.Item>
         <div className="columnas">
           <Form.Item label="Chofer que lo va a buscar" name="choferId">

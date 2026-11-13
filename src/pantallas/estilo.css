@@ -261,5 +261,6 @@ details.tablero-grupo { display: block; }
 .retiros { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
 .retiro { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--borde); border-left: 3px solid var(--marino); border-radius: 3px; background: #fff; }
 .retiro-cabeza { display: flex; justify-content: space-between; gap: 8px; width: 100%; }
+.retiro-donde { color: var(--tinta-3); }
 .retiro ul, .lista-simple { margin: 0; padding-left: 18px; }
 .lista-simple { margin-bottom: 12px; }

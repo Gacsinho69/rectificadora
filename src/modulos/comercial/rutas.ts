@@ -7,8 +7,8 @@ import type { Base } from '../../base'
 import { conDatos, conFiltros, rechazo } from '../../http'
 import { nuevoId } from '../../ids'
 import { type EntornoTenant, filaDelTenant, filasDelTenant } from '../acceso/guardias'
-import { trabajoQueLoNecesita } from '../compras/reglas'
-import { workOrderParts } from '../compras/tablas'
+import { claveDeProveedor, trabajoQueLoNecesita } from '../compras/reglas'
+import { suppliers, workOrderParts } from '../compras/tablas'
 import { origenDe, registrar } from '../eventos/registrar'
 import { exigirCupoDeOt, exigirGestion, exigirMontos, recalcularOt, siguienteNumero, sumarUso } from '../taller/comun'
 import { repartirOt } from '../taller/reparto'
@@ -29,7 +29,11 @@ async function revisar(c: C, d: DatosCotizacion) {
     const propias = await c.var.base.select({ id: shopSections.id }).from(shopSections).where(and(eq(shopSections.tenantId, c.var.actor.tenantId), inArray(shopSections.id, secciones)))
     if (propias.length !== secciones.length) throw rechazo(400, 'Una línea apunta a una sección que no existe.')
   }
-  return { ...totales(d.lineas, d.descuento) }
+  // El proveedor de cada repuesto sale de la lista de la rectificadora; su nombre se guarda como está en la lista.
+  const proveedores = await filasDelTenant(c, suppliers, d.lineas.map((l) => l.proveedorId).filter((p): p is string => Boolean(p)), 'supplier', 'ese proveedor')
+  const nombre = new Map(proveedores.map((p) => [p.id, p.name]))
+  const lineas = d.lineas.map((l) => (l.proveedorId ? { ...l, proveedor: nombre.get(l.proveedorId) ?? null } : l))
+  return { ...totales(d.lineas, d.descuento), lineas }
 }
 
 const motorGuardado = (d: DatosCotizacion) => ({ cylinders: d.cilindros ?? null, valvesPerCylinder: d.valvulasPorCilindro ?? null, heads: d.culatas ?? null })
@@ -106,6 +110,10 @@ async function pasarAlTaller(tx: Base, c: C, q: typeof quotes.$inferSelect) {
       .where(eq(workOrderTasks.workOrderId, otId))
     const enLaOt = tareas.map((t) => ({ ...t, diagnostico: t.tipo === 'diagnosis' }))
     const [{ ultimo }] = await tx.select({ ultimo: sql<number>`coalesce(max(${workOrderParts.position}), -1)`.mapWith(Number) }).from(workOrderParts).where(eq(workOrderParts.workOrderId, otId))
+    // El proveedor cotizado: el de la lista; una cotización anterior a la lista lo trae solo por su nombre, y vale si
+    // está en la lista con el mismo nombre (sin contar mayúsculas, tildes ni espacios).
+    const lista = await tx.select({ id: suppliers.id, nombre: suppliers.name, clave: suppliers.nameKey }).from(suppliers).where(eq(suppliers.tenantId, actor.tenantId))
+    const proveedorDe = (l: (typeof repuestos)[number]) => (l.compra === 'customer' ? undefined : (lista.find((p) => p.id === l.proveedorId) ?? (l.proveedor ? lista.find((p) => p.clave === claveDeProveedor(l.proveedor!)) : undefined)))
     await tx.insert(workOrderParts).values(
       repuestos.map((l, i) => ({
         id: nuevoId('rep'),
@@ -116,7 +124,8 @@ async function pasarAlTaller(tx: Base, c: C, q: typeof quotes.$inferSelect) {
         quantity: l.cantidad,
         position: ultimo + 1 + i,
         source: l.compra ?? ('shop' as const),
-        supplier: l.proveedor || null,
+        supplierId: proveedorDe(l)?.id ?? null,
+        supplier: proveedorDe(l)?.nombre ?? (l.compra === 'customer' ? null : l.proveedor || null),
         unitCost: l.costo ?? null,
         neededByTaskId: trabajoQueLoNecesita(enLaOt, l.necesita)?.id ?? null,
         status: 'pending' as const,
@@ -134,6 +143,8 @@ export const rutasComercial = new Hono<EntornoTenant>()
     const { base, actor } = c.var
     const { q } = c.req.valid('query')
     const patron = q ? `%${q.replace(/[%_\\]/g, '\\$&')}%` : null
+    // En las subconsultas el cliente va con el nombre de su tabla: Drizzle escribe las columnas de una consulta a una
+    // sola tabla sin él, y «id» a secas sería el de la OT.
     const lista = await base
       .select({
         id: customers.id,
@@ -142,9 +153,9 @@ export const rutasComercial = new Hono<EntornoTenant>()
         contacto: customers.contact,
         telefono: customers.phone,
         correo: customers.email,
-        abiertas: sql<number>`(select count(*) from work_orders w where w.customer_id = ${customers.id} and w.tenant_id = ${actor.tenantId} and w.status in ('received','diagnosis','waiting_approval','in_progress','quality','ready'))`.mapWith(Number),
-        total: sql<number>`(select count(*) from work_orders w where w.customer_id = ${customers.id} and w.tenant_id = ${actor.tenantId})`.mapWith(Number),
-        ultima: sql<string | null>`(select max(w.created_at) from work_orders w where w.customer_id = ${customers.id} and w.tenant_id = ${actor.tenantId})`,
+        abiertas: sql<number>`(select count(*) from work_orders w where w.customer_id = "customers"."id" and w.tenant_id = ${actor.tenantId} and w.status in ('received','diagnosis','waiting_approval','in_progress','quality','ready'))`.mapWith(Number),
+        total: sql<number>`(select count(*) from work_orders w where w.customer_id = "customers"."id" and w.tenant_id = ${actor.tenantId})`.mapWith(Number),
+        ultima: sql<string | null>`(select max(w.created_at) from work_orders w where w.customer_id = "customers"."id" and w.tenant_id = ${actor.tenantId})`,
       })
       .from(customers)
       .where(and(eq(customers.tenantId, actor.tenantId), patron ? or(ilike(customers.name, patron), ilike(customers.taxId, patron), ilike(customers.contact, patron)) : undefined))
@@ -227,7 +238,7 @@ export const rutasComercial = new Hono<EntornoTenant>()
     const id = nuevoId('cot')
     const numero = await c.var.base.transaction(async (tx) => {
       const numero = await siguienteNumero(tx, quotes, actor.tenantId)
-      await tx.insert(quotes).values({ id, tenantId: actor.tenantId, number: numero, customerId: d.clienteId, workOrderId: d.otId ?? null, engine: d.motor, ...motorGuardado(d), lines: d.lineas, discountPct: d.descuento, net: t.neto, tax: t.iva, total: t.total, notes: d.notas || null, status: 'draft', createdBy: actor.id, createdAt: ahora })
+      await tx.insert(quotes).values({ id, tenantId: actor.tenantId, number: numero, customerId: d.clienteId, workOrderId: d.otId ?? null, engine: d.motor, ...motorGuardado(d), lines: t.lineas, discountPct: d.descuento, net: t.neto, tax: t.iva, total: t.total, notes: d.notas || null, status: 'draft', createdBy: actor.id, createdAt: ahora })
       await sumarUso(tx, actor.tenantId, ahora, { quotes: 1, features: { quotes: 1 } })
       return numero
     })
@@ -242,7 +253,7 @@ export const rutasComercial = new Hono<EntornoTenant>()
     const t = await revisar(c, d)
     await c.var.base
       .update(quotes)
-      .set({ customerId: d.clienteId, workOrderId: d.otId ?? null, engine: d.motor, ...motorGuardado(d), lines: d.lineas, discountPct: d.descuento, net: t.neto, tax: t.iva, total: t.total, notes: d.notas || null })
+      .set({ customerId: d.clienteId, workOrderId: d.otId ?? null, engine: d.motor, ...motorGuardado(d), lines: t.lineas, discountPct: d.descuento, net: t.neto, tax: t.iva, total: t.total, notes: d.notas || null })
       .where(and(eq(quotes.id, q.id), eq(quotes.tenantId, c.var.actor.tenantId)))
     return c.json({ ok: true })
   })

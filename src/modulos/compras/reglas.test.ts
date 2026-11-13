@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { faltasParaEnviar, totales } from '../comercial/reglas'
 import { situacionDe, type TrabajoEnRuta } from '../taller/reglas'
-import { estadoDeOc, estadoDeRepuesto, trabajoQueLoNecesita } from './reglas'
+import { claveDeProveedor, estadoDeOc, estadoDeRepuesto, proveedorSchema, trabajoQueLoNecesita } from './reglas'
 
 const en = (id: string, extra: Partial<TrabajoEnRuta> = {}): TrabajoEnRuta => ({ id, pieza: 'block', paso: 140, estado: 'pending', detenido: false, adelantado: false, ...extra })
 
@@ -45,5 +45,15 @@ describe('los repuestos en el taller', () => {
     expect(estadoDeOc([{ estado: 'ordered' }], true)).toBe('cancelled')
     expect(estadoDeRepuesto({ compra: 'customer', estado: 'pending' })).toBe('Lo trae el cliente')
     expect(estadoDeRepuesto({ compra: 'shop', estado: 'pending' })).toBe('Por pedir')
+  })
+
+  it('el mismo proveedor, aunque se escriba con otras mayúsculas, tildes, espacios o puntos', () => {
+    expect(claveDeProveedor(' Repuestos  Diésel Sur S.A. ')).toBe('repuestosdieselsursa')
+    expect(claveDeProveedor('REPUESTOS DIESEL SUR SA')).toBe(claveDeProveedor('repuestos diésel sur s.a.'))
+    expect(claveDeProveedor('Ñuble Motores')).toBe('nublemotores')
+    expect(claveDeProveedor('Repuestos Diesel Norte')).not.toBe(claveDeProveedor('Repuestos Diesel Sur'))
+    expect(proveedorSchema.safeParse({ nombre: 'Repuestos Diesel Sur', rut: '76.412.893-1', correo: '' }).success).toBe(true)
+    expect(proveedorSchema.safeParse({ nombre: 'Repuestos Diesel Sur', rut: '76.412.893-5' }).success).toBe(false)
+    expect(proveedorSchema.safeParse({ nombre: '--' }).success).toBe(false)
   })
 })

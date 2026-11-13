@@ -25,6 +25,10 @@ describe('el sistema de la rectificadora', () => {
     const [uso] = await base.select().from(usageDaily).where(eq(usageDaily.tenantId, 'tn_a'))
     expect(uso.workOrders).toBe(2)
     expect(uso.apiCalls).toBeGreaterThanOrEqual(3)
+    // La lista de clientes cuenta las OT de cada uno.
+    const [cliente] = (await pedir('us_a_jefe', 'GET', '/api/servicio/clientes')).cuerpo
+    expect(cliente).toMatchObject({ id: 'cl_a', abiertas: 2, total: 2 })
+    expect(cliente.ultima).not.toBeNull()
   })
 
   it('el recorrido completo: diagnóstico, cotización, aprobación, secciones, calidad y entrega', async () => {

@@ -1,7 +1,36 @@
-import { date, index, integer, pgTable, real, text, timestamp, unique } from 'drizzle-orm/pg-core'
+import { boolean, date, index, integer, pgTable, real, text, timestamp, unique } from 'drizzle-orm/pg-core'
 import { workOrders, workOrderTasks } from '../taller/tablas'
 import { tenants } from '../tenants/tablas'
 import type { EstadoOc, EstadoRepuesto, QuienCompra } from './reglas'
+
+/**
+ * Los proveedores de cada rectificadora: a quién le compra los repuestos. No se borran (sus órdenes quedan): se
+ * desactivan y dejan de ofrecerse.
+ */
+export const suppliers = pgTable(
+  'suppliers',
+  {
+    id: text().primaryKey(),
+    tenantId: text()
+      .notNull()
+      .references(() => tenants.id),
+    name: text().notNull(),
+    /** El nombre sin mayúsculas, tildes ni espacios (`claveDeProveedor`): no se repite dentro de la rectificadora. */
+    nameKey: text().notNull(),
+    taxId: text(),
+    contact: text(),
+    phone: text(),
+    email: text(),
+    /** Dónde se retira: el chofer la ve en su retiro. */
+    address: text(),
+    /** Qué vende, cómo se le paga, horario de bodega. */
+    notes: text(),
+    active: boolean().notNull().default(true),
+    createdBy: text(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.tenantId, t.nameKey)],
+)
 
 /** Las órdenes de compra al proveedor (OC-0001, correlativa por rectificadora), con el chofer que compra y retira. */
 export const purchaseOrders = pgTable(
@@ -12,6 +41,9 @@ export const purchaseOrders = pgTable(
       .notNull()
       .references(() => tenants.id),
     number: integer().notNull(),
+    /** El proveedor de la lista. Vacío solo en órdenes anteriores a la lista cuyo nombre no se pudo reconocer. */
+    supplierId: text().references(() => suppliers.id),
+    /** Su nombre, guardado junto a la orden para leerla sin buscar; al corregir el nombre en la lista se corrige aquí. */
     supplier: text().notNull(),
     /** Quién va a comprar y retirar: el chofer de compras (cualquier persona del taller que pueda tomar trabajos). */
     driverId: text(),
@@ -50,6 +82,8 @@ export const workOrderParts = pgTable(
     /** En el orden de la cotización; los que se agregan después, al final. */
     position: integer().notNull().default(0),
     source: text().$type<QuienCompra>().notNull(),
+    /** A quién se piensa comprar (el de la cotización) o a quién se pidió (el de su orden de compra), con su nombre. */
+    supplierId: text().references(() => suppliers.id),
     supplier: text(),
     /** Costo por unidad, sin IVA. Interno: el cliente ve el precio de la cotización. */
     unitCost: integer(),

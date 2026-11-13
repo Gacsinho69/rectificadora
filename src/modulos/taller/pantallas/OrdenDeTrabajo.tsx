@@ -9,6 +9,7 @@ import { api } from '../../../pantallas/api'
 import { Bloque, Cargando, Cifras, Problema } from '../../../pantallas/componentes'
 import { fecha, fechaHora, plata } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
+import { SelectorDeProveedor } from '../../compras/pantallas/Proveedores'
 import { QUIEN_COMPRA, type QuienCompra } from '../../compras/reglas'
 import { cantidadSegun, MOTIVOS_DETENCION, nombreDeGrupo, PIEZAS, PIEZAS_SUELTAS, type Pieza, PRIORIDADES_OT } from '../reglas'
 import { Avance, CamposDelMotor, comoSeCuenta, enumerar, EstadoCotTag, EstadoOtTag, EstadoRepuestoTag, folioCot, folioOt, horas, motorDeDatos, PlazoTag, SituacionTag, textoEspera, textoFaltan, textoMotor, usePersona, usePortal } from './comun'
@@ -349,7 +350,7 @@ function AgregarTrabajo({ ot, cerrar }: { ot: DetalleOt; cerrar: () => void }) {
   )
 }
 
-type DatosRepuesto = { descripcion: string; cantidad: number; compra: QuienCompra; proveedor?: string; costo?: number | null; necesitaTareaId?: string | null }
+type DatosRepuesto = { descripcion: string; cantidad: number; compra: QuienCompra; proveedorId?: string | null; costo?: number | null; necesitaTareaId?: string | null }
 
 /** Un repuesto que aparece con la OT abierta (una pieza que se quebró al armar): lo espera el trabajo que se elija, o el armado. */
 function AgregarRepuesto({ ot, veMontos, cerrar }: { ot: DetalleOt; veMontos: boolean; cerrar: () => void }) {
@@ -358,7 +359,7 @@ function AgregarRepuesto({ ot, veMontos, cerrar }: { ot: DetalleOt; veMontos: bo
   const accion = useAccionOt(ot.id, 'repuestos', 'Repuesto agregado: queda por pedir (o por llegar, si lo trae el cliente).', cerrar)
   const porHacer = ot.tareas.filter((t) => t.estado !== 'done')
   return (
-    <Modal open title="Agregar un repuesto a la OT" okText="Agregar" cancelText="Cancelar" onCancel={cerrar} confirmLoading={accion.isPending} onOk={() => form.validateFields().then((v) => accion.mutate({ ...v, necesitaTareaId: v.necesitaTareaId ?? null }))} destroyOnHidden width={580}>
+    <Modal open title="Agregar un repuesto a la OT" okText="Agregar" cancelText="Cancelar" onCancel={cerrar} confirmLoading={accion.isPending} onOk={() => form.validateFields().then((v) => accion.mutate({ ...v, proveedorId: v.proveedorId ?? null, necesitaTareaId: v.necesitaTareaId ?? null }))} destroyOnHidden width={580}>
       {accion.isError && <Alert type="error" showIcon title={(accion.error as Error).message} style={{ marginBottom: 12 }} />}
       <Form form={form} layout="vertical" requiredMark={false} initialValues={{ cantidad: 1, compra: 'shop' }}>
         <div className="columnas">
@@ -374,8 +375,8 @@ function AgregarRepuesto({ ot, veMontos, cerrar }: { ot: DetalleOt; veMontos: bo
         </Form.Item>
         {compra === 'shop' && (
           <div className="columnas">
-            <Form.Item label="Proveedor" name="proveedor">
-              <Input placeholder="Repuestos Diesel Sur" />
+            <Form.Item label="Proveedor" name="proveedorId">
+              <SelectorDeProveedor placeholder="Elegir después" />
             </Form.Item>
             {veMontos && (
               <Form.Item label="Costo por unidad (sin IVA)" name="costo">

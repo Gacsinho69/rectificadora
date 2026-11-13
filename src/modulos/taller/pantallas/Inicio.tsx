@@ -8,7 +8,7 @@ import { Bloque, Cargando, Cifras, Problema } from '../../../pantallas/component
 import { cifra, fecha, plata, porcentaje } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
 import { folioOc } from '../../compras/reglas'
-import { AvanceOt, dias, EstadoOtTag, folioOt, horas, PlazoTag, SituacionTag, usePersona, usePortal } from './comun'
+import { AvanceOt, dias, DondeRetirar, EstadoOtTag, folioOt, horas, PlazoTag, SituacionTag, usePersona, usePortal } from './comun'
 import type { Inicio as DatosInicio } from './tipos'
 
 export function Inicio() {
@@ -62,6 +62,7 @@ export function Inicio() {
                   </b>
                   {o.llega && <span className="tenue">llega {fecha(`${o.llega}T12:00:00Z`)}</span>}
                 </div>
+                <DondeRetirar direccion={o.direccion} telefono={o.telefono} />
                 <ul>
                   {o.repuestos.map((x, i) => (
                     <li key={i}>

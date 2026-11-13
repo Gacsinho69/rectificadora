@@ -48,7 +48,7 @@ export type Inicio = {
   carga: { seccionId: string; nombre: string; gente: number; enProceso: number; ahora: number; espera: number; detenidos: number; sinAsignar: number; dias: number | null }[]
   misTareas: { id: string; nombre: string; estado: EstadoTarea; situacion: Situacion; espera: string[]; faltan: string[]; otId: string; ot: number; motor: string; entrega: string | null; seccion: string; pieza: Pieza }[]
   /** Las órdenes de compra que tiene que ir a buscar quien mira (el chofer de compras). */
-  misRetiros: { id: string; numero: number; proveedor: string; llega: string | null; repuestos: { descripcion: string; cantidad: number; ot: number }[] }[]
+  misRetiros: { id: string; numero: number; proveedor: string; direccion: string | null; telefono: string | null; llega: string | null; repuestos: { descripcion: string; cantidad: number; ot: number }[] }[]
   comercial: { enviadasMes: number; cotizadoMes: number; aceptadasMes: number; aceptadoMes: number; pendientes: number; montoPendiente: number; tasaAceptacion: number | null } | null
 }
 
@@ -203,6 +203,7 @@ export type RepuestoEnCompras = {
   descripcion: string
   cantidad: number
   compra: QuienCompra
+  proveedorId: string | null
   proveedor: string | null
   costo: number | null
   estado: EstadoRepuesto
@@ -217,7 +218,11 @@ export type RepuestoEnCompras = {
 export type OrdenDeCompra = {
   id: string
   numero: number
+  proveedorId: string | null
   proveedor: string
+  /** Dónde se retira y a quién llamar: lo que el chofer necesita del proveedor. */
+  direccion: string | null
+  telefono: string | null
   chofer: { id: string; nombre: string } | null
   estado: EstadoOc
   llega: string | null
@@ -231,3 +236,19 @@ export type OrdenDeCompra = {
 }
 
 export type Compras = { porPedir: RepuestoEnCompras[]; clientes: RepuestoEnCompras[]; ordenes: OrdenDeCompra[] }
+
+/** Un proveedor de la lista, con sus órdenes de compra: las que están por retirar, cuántas van y la última. */
+export type Proveedor = {
+  id: string
+  nombre: string
+  rut: string | null
+  contacto: string | null
+  telefono: string | null
+  correo: string | null
+  direccion: string | null
+  nota: string | null
+  activo: boolean
+  porRetirar: number
+  ordenes: number
+  ultima: string | null
+}

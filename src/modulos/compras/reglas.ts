@@ -5,6 +5,43 @@
 //   retira, y se recibe en el taller (por partes, si no llegó todo);
 // - el cliente: lo trae él; se recibe cuando llega.
 // Mientras no llega, el trabajo que lo necesita (el armado, si no se dijo otro) espera repuestos.
+//
+// Los proveedores son una lista de cada rectificadora: se eligen al cotizar un repuesto y al emitir la orden de compra.
+import { z } from 'zod'
+import { rutValido } from '../../rut'
+
+/**
+ * Dos nombres son el mismo proveedor sin contar mayúsculas, tildes, espacios ni puntos (como en el ERP de Baufer):
+ * «Repuestos Diésel Sur» y «repuestos diesel sur» no se repiten en la lista.
+ */
+export const claveDeProveedor = (nombre: string) =>
+  nombre
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+
+export const proveedorSchema = z.object({
+  nombre: z
+    .string()
+    .trim()
+    .min(2, 'Escribe el nombre del proveedor.')
+    .max(120)
+    .refine((v) => claveDeProveedor(v).length >= 2, 'Escribe el nombre del proveedor.'),
+  rut: z
+    .string()
+    .trim()
+    .max(20)
+    .refine((v) => !v || rutValido(v), 'El RUT no es válido: revisa el dígito verificador.')
+    .optional(),
+  contacto: z.string().trim().max(120).optional(),
+  telefono: z.string().trim().max(40).optional(),
+  correo: z.union([z.literal(''), z.email('El correo no es válido.')]).optional(),
+  direccion: z.string().trim().max(200).optional(),
+  nota: z.string().trim().max(500).optional(),
+  activo: z.boolean().optional(),
+})
+export type DatosProveedor = z.infer<typeof proveedorSchema>
 
 export const QUIEN_COMPRA = { shop: 'La rectificadora', customer: 'El cliente' } as const
 export type QuienCompra = keyof typeof QUIEN_COMPRA

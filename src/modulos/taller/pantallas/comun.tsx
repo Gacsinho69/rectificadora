@@ -110,6 +110,18 @@ export function CamposDelMotor() {
   )
 }
 
+/** Dónde retira el chofer una orden de compra: la dirección del proveedor y su teléfono, que en el celular se marca con un toque. */
+export function DondeRetirar({ direccion, telefono }: { direccion: string | null; telefono: string | null }) {
+  if (!direccion && !telefono) return null
+  return (
+    <small className="retiro-donde">
+      {direccion}
+      {direccion && telefono ? ' · ' : ''}
+      {telefono && <a href={`tel:${telefono.replace(/[^+\d]/g, '')}`}>{telefono}</a>}
+    </small>
+  )
+}
+
 export const folioOt = (n: number) => `OT-${String(n).padStart(4, '0')}`
 export const folioCot = (n: number) => `COT-${String(n).padStart(4, '0')}`
 

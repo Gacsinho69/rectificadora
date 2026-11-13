@@ -12,6 +12,7 @@ No es programador. Todo en castellano de Chile, simple, con un caso del taller c
 - **El estado de una OT se calcula** (`estadoDeOt`) y se guarda con `recalcularOt` después de cada cambio de tareas o cotización. No se escribe a mano.
 - **La situación de cada trabajo se calcula y no se guarda** (`situacionDe`, en `taller/reglas.ts`): sale de su pieza y su paso, de lo detenido (`task_holds`), de los repuestos que le faltan (`work_order_parts`, `faltantesPorTrabajo`) y de lo adelantado. Lo que espera repuestos, espera su turno o está detenido no se inicia ni se termina.
 - **El estado de una orden de compra sale de sus repuestos** (`estadoDeOc`) y se guarda con `recalcularOc` cada vez que algo se recibe o se anula. El técnico no ve costos ni proveedores.
+- **El proveedor sale de la lista** (`suppliers`): una orden de compra va siempre a uno de la lista, activo. Su nombre va guardado junto a cada orden y cada repuesto; al corregirlo en la lista se corrige en todos, en la misma transacción. El mismo nombre no se repite (`claveDeProveedor`). El técnico no ve la lista: del proveedor ve solo dónde retirar una orden.
 - **Las cantidades salen del criterio de la actividad** (`cantidadSegun`) con los datos del motor de la OT o la cotización, y los trabajos nuevos se reparten con `repartirOt` (`taller/reparto.ts`), en la misma transacción que los crea.
 - **Lo que hace una rectificadora suma a su uso** con `sumarUso`, en la misma transacción. Así la consola mide el uso real.
 - **Acciones sensibles de la consola:** `exigirPermiso`, motivo obligatorio, y el cambio y su evento (`registrar`) en la misma transacción, con antes y después.
@@ -24,5 +25,6 @@ No es programador. Todo en castellano de Chile, simple, con un caso del taller c
 - Stack igual que ERP Nuevo: Hono dentro de Vite, React + Ant Design (solo esa biblioteca de controles), TanStack Router (todas las direcciones en `src/pantallas/rutas.tsx`) y Query (nada de `fetch` en `useEffect`), Drizzle + PGlite, Zod, Vitest.
 - Cada módulo en `src/modulos/<modulo>/`: `tablas.ts`, `reglas.ts` (puras, sin servidor: las pantallas las importan), `rutas.ts`, `pantallas/`.
 - Pantallas sobrias y densas: un solo azul, letra de 13 px, bloques blancos con borde fino; el color solo en los estados y siempre con su palabra. Todo cambio se mira a 1440 y a 390 de ancho.
+- En una subconsulta escrita con `sql` dentro de un `select`, la columna de la tabla de afuera va con su tabla (`"customers"."id"`): Drizzle la escribe sin ella y `id` a secas sería el de la tabla de adentro.
 - Cambiar una tabla: editar su `tablas.ts` y `npm run migracion`. Cambiar la siembra: `npm run demo:reiniciar`.
 - `npm test` y `npm run tipos` antes de entregar. Entrega: qué cambió, qué comprobaste y qué falta.

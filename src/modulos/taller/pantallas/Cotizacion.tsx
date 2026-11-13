@@ -13,6 +13,7 @@ import { Bloque, Cargando, Problema } from '../../../pantallas/componentes'
 import { fecha, fechaHora, plata, plural } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
 import { desglose, type Linea, lineaDe, loTraeElCliente, recontar, TIPOS_LINEA, totales, faltasParaEnviar } from '../../comercial/reglas'
+import { SelectorDeProveedor } from '../../compras/pantallas/Proveedores'
 import { QUIEN_COMPRA, type QuienCompra } from '../../compras/reglas'
 import { CILINDROS, PIEZAS, PIEZAS_SUELTAS, type Pieza } from '../reglas'
 import { comoSeCuenta, EstadoCotTag, EstadoOtTag, folioCot, folioOt, motorDeDatos, textoMotor, usePersona, usePortal } from './comun'
@@ -149,7 +150,7 @@ function Editor({ id, numero, inicial }: { id: string | null; numero: number | n
           <>
             <Button onClick={() => setDesglosando(true)} disabled={catalogo.isPending}>Desglose por pieza</Button>
             <Select key={b.lineas.length} showSearch optionFilterProp="label" placeholder="Agregar actividad de la lista…" style={{ width: 360 }} value={null} options={opciones} onChange={(v) => v && agregarTrabajo(v)} />
-            <Button onClick={() => setB({ ...b, lineas: [...b.lineas, { tipo: 'repuesto', trabajoId: null, seccionId: null, codigo: null, descripcion: '', cantidad: 1, precio: null, horas: 0, compra: 'shop', proveedor: null, costo: null, necesita: null }] })}>Agregar repuesto</Button>
+            <Button onClick={() => setB({ ...b, lineas: [...b.lineas, { tipo: 'repuesto', trabajoId: null, seccionId: null, codigo: null, descripcion: '', cantidad: 1, precio: null, horas: 0, compra: 'shop', proveedorId: null, proveedor: null, costo: null, necesita: null }] })}>Agregar repuesto</Button>
             <Button onClick={() => setB({ ...b, lineas: [...b.lineas, { tipo: 'otro', trabajoId: null, seccionId: null, codigo: null, descripcion: '', cantidad: 1, precio: null, horas: 0 }] })}>Otro cargo</Button>
           </>
         }
@@ -179,7 +180,7 @@ function Editor({ id, numero, inicial }: { id: string | null; numero: number | n
                       style={{ width: 140 }}
                       value={l.compra ?? 'shop'}
                       options={Object.entries(QUIEN_COMPRA).map(([value, label]) => ({ value, label: value === 'shop' ? 'Lo compramos' : 'Lo trae el cliente' }))}
-                      onChange={(v) => cambiar(l.i, v === 'customer' ? { compra: v as QuienCompra, precio: null, proveedor: null, costo: null } : { compra: v as QuienCompra })}
+                      onChange={(v) => cambiar(l.i, v === 'customer' ? { compra: v as QuienCompra, precio: null, proveedorId: null, proveedor: null, costo: null } : { compra: v as QuienCompra })}
                     />
                     <small>Repuesto</small>
                   </div>
@@ -195,7 +196,15 @@ function Editor({ id, numero, inicial }: { id: string | null; numero: number | n
                   <Input size="small" value={l.descripcion} onChange={(e) => cambiar(l.i, { descripcion: e.target.value })} placeholder="Qué es" />
                   {l.tipo === 'repuesto' && (
                     <div className="linea-repuesto">
-                      {!loTraeElCliente(l) && <Input size="small" style={{ width: 170 }} value={l.proveedor ?? ''} placeholder="Proveedor" onChange={(e) => cambiar(l.i, { proveedor: e.target.value || null })} />}
+                      {!loTraeElCliente(l) && (
+                        <SelectorDeProveedor
+                          size="small"
+                          style={{ width: 210 }}
+                          value={l.proveedorId}
+                          placeholder={l.proveedor && !l.proveedorId ? `${l.proveedor} (no está en la lista)` : 'Proveedor'}
+                          onChange={(id, p) => cambiar(l.i, { proveedorId: id, proveedor: p?.nombre ?? null })}
+                        />
+                      )}
                       {!loTraeElCliente(l) && <InputNumber size="small" style={{ width: 130 }} min={0} step={1000} value={l.costo ?? undefined} placeholder="Costo unitario" onChange={(v) => cambiar(l.i, { costo: v ?? null })} />}
                       <Select
                         size="small"

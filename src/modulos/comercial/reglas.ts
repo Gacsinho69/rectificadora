@@ -32,7 +32,11 @@ export type Linea = {
   criterio?: Criterio | null
   /** Repuestos: quién lo compra. Lo que trae el cliente no se cobra. */
   compra?: QuienCompra | null
-  /** Repuestos que compra la rectificadora: a quién y a cuánto por unidad (interno; el cliente ve el precio). */
+  /**
+   * Repuestos que compra la rectificadora: a quién (un proveedor de su lista; el nombre lo pone el servidor al guardar)
+   * y a cuánto por unidad. Interno: el cliente ve el precio.
+   */
+  proveedorId?: string | null
   proveedor?: string | null
   costo?: number | null
   /** Repuestos: el código de la actividad cotizada que no puede empezar sin él. Vacío: el armado. */
@@ -51,6 +55,7 @@ export const lineaSchema = z.object({
   pieza: z.enum(Object.keys(PIEZAS) as [Pieza, ...Pieza[]]).nullable().optional(),
   criterio: z.enum(Object.keys(CRITERIOS) as [Criterio, ...Criterio[]]).nullable().optional(),
   compra: z.enum(Object.keys(QUIEN_COMPRA) as [QuienCompra, ...QuienCompra[]]).nullable().optional(),
+  proveedorId: z.string().max(40).nullable().optional(),
   proveedor: z.string().trim().max(120).nullable().optional(),
   costo: z.number().int().min(0).max(1_000_000_000).nullable().optional(),
   necesita: z.string().max(40).nullable().optional(),

@@ -7,8 +7,9 @@
 import type { Linea } from '../comercial/reglas'
 import { totales } from '../comercial/reglas'
 import type { customers, quotes } from '../comercial/tablas'
-import type { QuienCompra } from '../compras/reglas'
-import type { purchaseOrders, workOrderParts } from '../compras/tablas'
+import { digitoVerificador, formatoRut } from '../../rut'
+import { claveDeProveedor, type QuienCompra } from '../compras/reglas'
+import type { purchaseOrders, suppliers, workOrderParts } from '../compras/tablas'
 import type { TipoEvento } from '../eventos/tipos'
 import { tallerInicial } from '../taller/comun'
 import { cantidadSegun, estadoDeOt, type Motor, type MotivoDetencion, nombreDeTarea, type Pieza } from '../taller/reglas'
@@ -74,7 +75,14 @@ const REPUESTOS = [
   { descripcion: 'Juego de empaquetaduras completo', precio: 150_000 }, { descripcion: 'Bomba de aceite', precio: 210_000 },
   { descripcion: 'Juego de válvulas de admisión y escape', precio: 160_000, necesita: 'C-06' }, { descripcion: 'Camisas de cilindro (juego)', precio: 380_000, necesita: 'B-03' },
 ]
-const PROVEEDORES = ['Repuestos Diesel Sur', 'Importadora Motores del Pacífico', 'Distribuidora Pistones Chile', 'Casa del Repuesto Pesado']
+/** Los proveedores de cada taller de demostración: con quién se habla, dónde retira el chofer y qué vende. El último ya no se usa. */
+const PROVEEDORES = [
+  { nombre: 'Repuestos Diesel Sur', rut: 76_412_893, contacto: 'Rodrigo Sáez', telefono: '+56 41 229 4410', direccion: 'Av. Colón 3456, Talcahuano', nota: 'Pistones, anillos y camisas. Se paga a 30 días.', activo: true },
+  { nombre: 'Importadora Motores del Pacífico', rut: 77_035_621, contacto: 'Carolina Muñoz', telefono: '+56 2 2786 1200', direccion: 'Camino a Melipilla 9870, Maipú', nota: 'Importa a pedido: demora de 3 a 5 días.', activo: true },
+  { nombre: 'Distribuidora Pistones Chile', rut: 76_880_147, contacto: 'Hernán Olivares', telefono: '+56 9 8823 4471', direccion: 'San Pablo 2215, Santiago', nota: 'Kits de pistones y metales. Bodega hasta las 17:30.', activo: true },
+  { nombre: 'Casa del Repuesto Pesado', rut: 78_201_559, contacto: 'Mónica Araya', telefono: '+56 41 231 7755', direccion: 'Paicaví 1580, Concepción', nota: 'Empaquetaduras, bombas y válvulas. Contado o transferencia.', activo: true },
+  { nombre: 'Comercial Andes Motor', rut: 76_559_302, contacto: 'Sergio Pinto', telefono: '+56 9 7741 2086', direccion: 'Los Carrera 890, Concepción', nota: 'Cerró su local: ya no se le compra.', activo: false },
+]
 
 type Ayudas = { azar: () => number; entre: (a: number, b: number) => number; uno: <T>(l: readonly T[]) => T; id: (p: string) => string }
 type Persona = { id: string; role: RolTenant; status: string }
@@ -89,6 +97,7 @@ export type Taller = {
   especialistas: (typeof serviceSpecialists.$inferInsert)[]
   detenciones: (typeof taskHolds.$inferInsert)[]
   cotizaciones: (typeof quotes.$inferInsert)[]
+  proveedores: (typeof suppliers.$inferInsert)[]
   ordenes: (typeof purchaseOrders.$inferInsert)[]
   repuestos: (typeof workOrderParts.$inferInsert)[]
   /** Por día (AAAA-MM-DD): OT recibidas, cotizaciones creadas y documentos emitidos (cotizaciones enviadas y entregas). */
@@ -135,6 +144,25 @@ export function sembrarTaller(
     return { id: id('cl'), tenantId: t.tenantId, name: nombre, taxId: particular ? null : `${entre(76, 79)}.${entre(100, 999)}.${entre(100, 999)}-${entre(0, 9)}`, contact: uno(PERSONAS), phone: `+56 9 ${entre(5000, 9999)} ${entre(1000, 9999)}`, email: null, createdAt: t.creado }
   }).filter((c, i, l) => l.findIndex((x) => x.name === c.name) === i)
 
+  // La lista de proveedores del taller. Sus ids salen del id del taller, sin gastar azar: así lo demás se siembra igual.
+  const proveedores: Taller['proveedores'] = PROVEEDORES.map((p, i) => ({
+    id: `prv_${t.tenantId.slice(3)}${i}`,
+    tenantId: t.tenantId,
+    name: p.nombre,
+    nameKey: claveDeProveedor(p.nombre),
+    taxId: formatoRut(`${p.rut}${digitoVerificador(p.rut)}`),
+    contact: p.contacto,
+    phone: p.telefono,
+    email: null,
+    address: p.direccion,
+    notes: p.nota,
+    active: p.activo,
+    createdBy: jefes[0]?.id ?? null,
+    createdAt: t.creado,
+  }))
+  const vigentes = proveedores.filter((p) => p.active)
+  const proveedorDe = new Map(proveedores.map((p) => [p.name, p.id]))
+
   /** Una actividad cotizada, contada para este motor (por cilindro, válvula, biela, culata o una vez). */
   const lineaDe = (codigo: string, m: Motor): Linea => {
     const x = trabajo.get(codigo)!
@@ -144,6 +172,7 @@ export function sembrarTaller(
   const repuesto = (r: (typeof REPUESTOS)[number], cotizadas: Linea[]): Linea => {
     const cliente = azar() < 0.18
     const precio = Math.round((r.precio * (0.8 + azar() * 0.5)) / 1000) * 1000
+    const proveedor = cliente ? null : uno(vigentes)
     return {
       tipo: 'repuesto',
       trabajoId: null,
@@ -154,7 +183,8 @@ export function sembrarTaller(
       precio: cliente ? null : precio,
       horas: 0,
       compra: cliente ? 'customer' : 'shop',
-      proveedor: cliente ? null : uno(PROVEEDORES),
+      proveedorId: proveedor?.id ?? null,
+      proveedor: proveedor?.name ?? null,
       costo: cliente ? null : Math.round((precio * (0.6 + azar() * 0.15)) / 1000) * 1000,
       necesita: r.necesita && cotizadas.some((x) => x.codigo === r.necesita) ? r.necesita : null,
     }
@@ -354,7 +384,7 @@ export function sembrarTaller(
         .filter((l) => l.tipo === 'repuesto')
         .map((l) => {
           const compra: QuienCompra = l.compra === 'customer' ? 'customer' : 'shop'
-          const proveedor = l.proveedor ?? uno(PROVEEDORES)
+          const proveedor = l.proveedor ?? uno(vigentes).name
           if (compra === 'shop' && !llegaDe.has(proveedor)) llegaDe.set(proveedor, enJornada(new Date(pedido.getTime() + (1 + azar() * 3) * DIA)))
           const llega = compra === 'shop' ? llegaDe.get(proveedor)! : enJornada(new Date(respuesta.getTime() + (1 + azar() * 4) * DIA))
           const espera = l.necesita ?? armado
@@ -377,7 +407,7 @@ export function sembrarTaller(
           const numeroDeOc = ++numeroOc
           const recibida = llega <= corte
           ocDe.set(proveedor, ocId)
-          ordenes.push({ id: ocId, tenantId: t.tenantId, number: numeroDeOc, supplier: proveedor, driverId: chofer?.id ?? null, expectedAt: new Date(pedido.getTime() + 2 * DIA).toISOString().slice(0, 10), notes: null, status: recibida ? 'received' : 'open', createdBy: recibe.id, createdAt: pedido, receivedAt: recibida ? llega : null })
+          ordenes.push({ id: ocId, tenantId: t.tenantId, number: numeroDeOc, supplierId: proveedorDe.get(proveedor) ?? null, supplier: proveedor, driverId: chofer?.id ?? null, expectedAt: new Date(pedido.getTime() + 2 * DIA).toISOString().slice(0, 10), notes: null, status: recibida ? 'received' : 'open', createdBy: recibe.id, createdAt: pedido, receivedAt: recibida ? llega : null })
           contar(pedido, 'documentos')
           evento({ tenantId: t.tenantId, tipo: 'purchase_order.created', en: pedido, actorId: recibe.id, targetId: ocId, targetType: 'purchase_order', metadata: { numero: `OC-${String(numeroDeOc).padStart(4, '0')}`, proveedor } })
           if (recibida) evento({ tenantId: t.tenantId, tipo: 'purchase_order.received', en: llega, actorId: chofer?.id ?? recibe.id, targetId: ocId, targetType: 'purchase_order', metadata: { numero: `OC-${String(numeroDeOc).padStart(4, '0')}`, proveedor } })
@@ -395,6 +425,7 @@ export function sembrarTaller(
           quantity: r.l.cantidad,
           position: posicion,
           source: r.compra,
+          supplierId: r.compra === 'shop' ? (proveedorDe.get(r.proveedor) ?? null) : null,
           supplier: r.compra === 'shop' ? r.proveedor : null,
           unitCost: r.l.costo ?? null,
           neededByTaskId: tarea?.id ?? null,
@@ -455,5 +486,5 @@ export function sembrarTaller(
     }
     if (listaAnulacion) evento({ tenantId: t.tenantId, tipo: 'work_order.cancelled', en: listaAnulacion, actorId: recibe.id, targetId: otId, targetType: 'work_order', metadata: { numero, motivo: 'Cotización rechazada' } })
   }
-  return { secciones, trabajos, clientes, ots, tareas, especialistas, detenciones, cotizaciones, ordenes, repuestos: repuestosOt, porDia }
+  return { secciones, trabajos, clientes, ots, tareas, especialistas, detenciones, cotizaciones, proveedores, ordenes, repuestos: repuestosOt, porDia }
 }

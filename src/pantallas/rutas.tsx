@@ -30,6 +30,7 @@ const ClientesTaller = lazyRouteComponent(() => import('../modulos/taller/pantal
 const Actividades = lazyRouteComponent(() => import('../modulos/taller/pantallas/Actividades'), 'Actividades')
 const CargaTaller = lazyRouteComponent(() => import('../modulos/taller/pantallas/Carga'), 'Carga')
 const Compras = lazyRouteComponent(() => import('../modulos/compras/pantallas/Compras'), 'Compras')
+const Proveedores = lazyRouteComponent(() => import('../modulos/compras/pantallas/Proveedores'), 'Proveedores')
 
 const texto = (v: unknown) => (typeof v === 'string' && v ? v : undefined)
 const numero = (v: unknown) => (Number.isInteger(Number(v)) && Number(v) > 0 ? Number(v) : undefined)
@@ -129,6 +130,7 @@ function MarcoTaller() {
     { a: '/c/$portal/carga', texto: 'Carga', icono: <DashboardOutlined />, activo: en(`${base}/carga`) },
     ...(persona.rol !== 'technician' ? [{ a: '/c/$portal/cotizaciones', texto: 'Cotizaciones', icono: <FileTextOutlined />, activo: en(`${base}/cotizaciones`) }] : []),
     { a: '/c/$portal/compras', texto: 'Compras', icono: <ShoppingCartOutlined />, activo: en(`${base}/compras`) },
+    ...(persona.rol !== 'technician' ? [{ a: '/c/$portal/proveedores', texto: 'Proveedores', icono: <ShopOutlined />, activo: en(`${base}/proveedores`) }] : []),
     { a: '/c/$portal/clientes', texto: 'Clientes', icono: <TeamOutlined />, activo: en(`${base}/clientes`) },
     { a: '/c/$portal/actividades', texto: 'Actividades', icono: <TagsOutlined />, activo: en(`${base}/actividades`) },
     ...(persona.rol === 'admin' ? [{ a: '/organizacion', texto: 'Administración', icono: <SettingOutlined />, activo: false }] : []),
@@ -305,6 +307,7 @@ const tallerClientes = createRoute({ getParentRoute: () => taller, path: 'client
 const actividades = createRoute({ getParentRoute: () => taller, path: 'actividades', component: Actividades })
 const carga = createRoute({ getParentRoute: () => taller, path: 'carga', component: CargaTaller })
 const compras = createRoute({ getParentRoute: () => taller, path: 'compras', component: Compras })
+const proveedores = createRoute({ getParentRoute: () => taller, path: 'proveedores', component: Proveedores })
 /** La dirección de antes de la lista de precios lleva a las actividades. */
 const precios = createRoute({ getParentRoute: () => taller, path: 'precios', component: () => <Navigate to="/c/$portal/actividades" params={(p) => ({ portal: p.portal ?? '' })} replace /> })
 
@@ -314,7 +317,7 @@ export const router = createRouter({
     entrar,
     plataforma.addChildren([resumen, clientes, cliente, alertas, actividad, auditoria]),
     organizacion.addChildren([panel]),
-    taller.addChildren([tallerInicio, tallerOts, tallerOt, tablero, carga, compras, tallerCotizaciones, tallerCotizacion, tallerClientes, actividades, precios]),
+    taller.addChildren([tallerInicio, tallerOts, tallerOt, tablero, carga, compras, proveedores, tallerCotizaciones, tallerCotizacion, tallerClientes, actividades, precios]),
   ]),
   defaultPreload: 'intent',
 })

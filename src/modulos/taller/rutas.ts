@@ -12,7 +12,7 @@ import { quotes, customers } from '../comercial/tablas'
 import { anularRepuestosDeOt } from '../compras/comun'
 import { folioOc } from '../compras/reglas'
 import { rutasCompras } from '../compras/rutas'
-import { purchaseOrders, workOrderParts } from '../compras/tablas'
+import { purchaseOrders, suppliers, workOrderParts } from '../compras/tablas'
 import { origenDe, registrar } from '../eventos/registrar'
 import { diaDe } from '../plataforma/panorama'
 import { users } from '../usuarios/tablas'
@@ -173,10 +173,11 @@ export const rutasTaller = new Hono<EntornoTenant>()
     const trabajos = await trabajosAbiertos(base, actor.tenantId)
     const { secciones } = await cargaDelTaller(base, actor.tenantId, trabajos)
     const misTareas = trabajos.filter((f) => f.t.assignedTo === actor.id).sort((a, b) => enCola(a, b, hoy))
-    // Los retiros del chofer: las órdenes de compra por retirar que tiene a su nombre, con lo que hay que traer.
+    // Los retiros del chofer: las órdenes de compra por retirar que tiene a su nombre, con lo que hay que traer y dónde.
     const retiros = await base
-      .select({ id: purchaseOrders.id, numero: purchaseOrders.number, proveedor: purchaseOrders.supplier, llega: purchaseOrders.expectedAt })
+      .select({ id: purchaseOrders.id, numero: purchaseOrders.number, proveedor: purchaseOrders.supplier, direccion: suppliers.address, telefono: suppliers.phone, llega: purchaseOrders.expectedAt })
       .from(purchaseOrders)
+      .leftJoin(suppliers, eq(suppliers.id, purchaseOrders.supplierId))
       .where(and(eq(purchaseOrders.tenantId, actor.tenantId), eq(purchaseOrders.driverId, actor.id), eq(purchaseOrders.status, 'open')))
       .orderBy(asc(purchaseOrders.number))
     const porTraer = retiros.length
