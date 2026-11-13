@@ -463,6 +463,8 @@ export const rutasTaller = new Hono<EntornoTenant>()
         compra: r.source,
         proveedor: veMontos(actor.rol) ? r.supplier : null,
         costo: veMontos(actor.rol) ? r.unitCost : null,
+        precio: veMontos(actor.rol) ? r.unitPrice : null,
+        costoReal: veMontos(actor.rol) ? r.realCost : null,
         estado: r.status,
         oc: oc ? folioOc(oc) : null,
         ocId: r.purchaseOrderId,

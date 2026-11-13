@@ -123,6 +123,9 @@ export type RepuestoDeOt = {
   compra: QuienCompra
   proveedor: string | null
   costo: number | null
+  /** Lo que se le cobra al cliente por unidad, y lo que de verdad costó. */
+  precio: number | null
+  costoReal: number | null
   estado: EstadoRepuesto
   oc: string | null
   ocId: string | null
@@ -242,6 +245,7 @@ export type RepuestoEnCompras = {
   proveedorId: string | null
   proveedor: string | null
   costo: number | null
+  costoReal: number | null
   estado: EstadoRepuesto
   ot: { id: string; numero: number; motor: string; entrega: string | null; prioridad: PrioridadOt; plazo: Plazo }
   cliente: string
@@ -268,12 +272,15 @@ export type OrdenDeCompra = {
   anulada: string | null
   motivo: string | null
   costo: number | null
+  /** Lo pagado: el costo real donde se anotó, el cotizado donde no. */
+  costoReal: number | null
+  factura: string | null
   repuestos: RepuestoEnCompras[]
   insumos: LineaInsumoOc[]
 }
 
 /** Un insumo de bodega pedido en una orden de compra. */
-export type LineaInsumoOc = { id: string; insumoId: string; nombre: string; unidad: string; cantidad: number; costo: number | null; estado: EstadoRepuesto; recibido: string | null }
+export type LineaInsumoOc = { id: string; insumoId: string; nombre: string; unidad: string; cantidad: number; costo: number | null; costoReal: number | null; estado: EstadoRepuesto; recibido: string | null }
 
 /** Un insumo que quedó en su mínimo o menos, con lo que conviene pedir. */
 export type InsumoBajo = { id: string; nombre: string; unidad: string; marca: string | null; codigo: string | null; stock: number; minimo: number; porLlegar: number; sugerido: number; proveedorId: string | null; proveedor: string | null; costo: number | null }

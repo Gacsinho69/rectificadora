@@ -10,7 +10,7 @@ import { Bloque, Cargando, Cifras, Problema } from '../../../pantallas/component
 import { fecha, fechaHora, plata } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
 import { SelectorDeProveedor } from '../../compras/pantallas/Proveedores'
-import { QUIEN_COMPRA, type QuienCompra, referenciaDe } from '../../compras/reglas'
+import { margenDe, QUIEN_COMPRA, type QuienCompra, referenciaDe } from '../../compras/reglas'
 import { cantidadSegun, MOTIVOS_DETENCION, nombreDeGrupo, PIEZAS, PIEZAS_SUELTAS, type Pieza, PRIORIDADES_OT } from '../reglas'
 import { Avance, CamposDelMotor, comoSeCuenta, enumerar, EstadoCotTag, EstadoOtTag, EstadoRepuestoTag, folioCot, folioOt, horas, motorDeDatos, PlazoTag, SituacionTag, textoEspera, textoFaltan, textoMaquinas, textoMotor, usePersona, usePortal } from './comun'
 import type { Catalogo, DetalleOt, Persona, PiezaDeOt, RepuestoDeOt, Tarea } from './tipos'
@@ -187,7 +187,7 @@ export function OrdenDeTrabajo() {
         )}
       </Bloque>
       {(ot.repuestos.length > 0 || (puede && enTaller)) && (
-        <Bloque titulo="Repuestos" extra={puede && enTaller ? <Button onClick={() => setDialogo('repuesto')}>Agregar repuesto</Button> : null}>
+        <Bloque titulo="Repuestos" extra={<>{veMontos && <MargenRepuestos repuestos={ot.repuestos} />}{puede && enTaller ? <Button onClick={() => setDialogo('repuesto')}>Agregar repuesto</Button> : null}</>}>
           <Table<RepuestoDeOt>
             size="small"
             rowKey="id"
@@ -362,6 +362,24 @@ function AgregarTrabajo({ ot, cerrar }: { ot: DetalleOt; cerrar: () => void }) {
         </div>
       </Form>
     </Modal>
+  )
+}
+
+/**
+ * Lo que dejan los repuestos de la OT: lo que se le cobra al cliente contra lo que costaron (el costo real donde se
+ * anotó, el cotizado donde no). Solo lo que compra la rectificadora.
+ */
+function MargenRepuestos({ repuestos }: { repuestos: RepuestoDeOt[] }) {
+  const propios = repuestos.filter((r) => r.compra === 'shop' && r.estado !== 'cancelled')
+  const vendido = propios.reduce((s, r) => s + Math.round((r.precio ?? 0) * r.cantidad), 0)
+  const costo = propios.reduce((s, r) => s + Math.round((r.costoReal ?? r.costo ?? 0) * r.cantidad), 0)
+  const margen = margenDe(vendido, costo)
+  if (!vendido) return null
+  return (
+    <span title="Lo cobrado al cliente por los repuestos que compra la rectificadora, contra lo que costaron">
+      Cobrado {plata(vendido)} · costó {plata(costo)}
+      {margen !== null && <b style={{ color: margen < 0.15 ? 'var(--naranjo)' : undefined }}> · margen {Math.round(margen * 100)} %</b>}
+    </span>
   )
 }
 

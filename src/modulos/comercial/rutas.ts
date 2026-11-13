@@ -130,6 +130,7 @@ async function pasarAlTaller(tx: Base, c: C, q: typeof quotes.$inferSelect) {
         supplierId: proveedorDe(l)?.id ?? null,
         supplier: proveedorDe(l)?.nombre ?? (l.compra === 'customer' ? null : l.proveedor || null),
         unitCost: l.costo ?? null,
+        unitPrice: l.compra === 'customer' ? null : (l.precio ?? null),
         neededByTaskId: trabajoQueLoNecesita(enLaOt, l.necesita)?.id ?? null,
         status: 'pending' as const,
         createdBy: actor.id,

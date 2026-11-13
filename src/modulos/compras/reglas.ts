@@ -69,6 +69,31 @@ export function estadoDeOc(repuestos: { estado: EstadoRepuesto }[], anulada: boo
 
 export const folioOc = (n: number) => `OC-${String(n).padStart(4, '0')}`
 
+/**
+ * El costo real contra lo cotizado, por proveedor. Solo se compara lo que tiene costo real y costo cotizado; lo demás
+ * se cuenta como «por anotar». La diferencia es real menos cotizado (positiva: se pagó más de lo cotizado).
+ */
+export function comparacionDeCostos(lineas: { proveedor: string | null; cantidad: number; costo: number | null; costoReal: number | null }[]) {
+  const grupos = new Map<string, { proveedor: string; lineas: number; porAnotar: number; cotizado: number; real: number }>()
+  for (const l of lineas) {
+    const clave = l.proveedor ?? 'Sin proveedor'
+    const g = grupos.get(clave) ?? { proveedor: clave, lineas: 0, porAnotar: 0, cotizado: 0, real: 0 }
+    g.lineas++
+    if (l.costoReal === null || l.costo === null) g.porAnotar++
+    else {
+      g.cotizado += Math.round(l.costo * l.cantidad)
+      g.real += Math.round(l.costoReal * l.cantidad)
+    }
+    grupos.set(clave, g)
+  }
+  return [...grupos.values()]
+    .map((g) => ({ ...g, diferencia: g.real - g.cotizado, fraccion: g.cotizado ? (g.real - g.cotizado) / g.cotizado : null }))
+    .sort((a, b) => b.diferencia - a.diferencia || a.proveedor.localeCompare(b.proveedor, 'es'))
+}
+
+/** El margen de lo vendido sobre lo que costó: 0,25 es 25 %. Sin venta, no hay margen. */
+export const margenDe = (vendido: number, costo: number) => (vendido > 0 ? (vendido - costo) / vendido : null)
+
 /** Lo que entra y sale de la bodega. */
 export const MOVIMIENTOS_INSUMO = { purchase: 'Compra', use: 'Consumo', adjust: 'Ajuste' } as const
 export type TipoMovimiento = keyof typeof MOVIMIENTOS_INSUMO

@@ -446,7 +446,7 @@ export function sembrarTaller(
           const numeroDeOc = ++numeroOc
           const recibida = llega <= corte
           ocDe.set(proveedor, ocId)
-          ordenes.push({ id: ocId, tenantId: t.tenantId, number: numeroDeOc, supplierId: proveedorDe.get(proveedor) ?? null, supplier: proveedor, driverId: chofer?.id ?? null, expectedAt: new Date(pedido.getTime() + 2 * DIA).toISOString().slice(0, 10), notes: null, status: recibida ? 'received' : 'open', createdBy: recibe.id, createdAt: pedido, receivedAt: recibida ? llega : null })
+          ordenes.push({ id: ocId, tenantId: t.tenantId, number: numeroDeOc, supplierId: proveedorDe.get(proveedor) ?? null, supplier: proveedor, driverId: chofer?.id ?? null, expectedAt: new Date(pedido.getTime() + 2 * DIA).toISOString().slice(0, 10), notes: null, invoiceNumber: recibida ? `F-${10_000 + numeroDeOc * 7}` : null, status: recibida ? 'received' : 'open', createdBy: recibe.id, createdAt: pedido, receivedAt: recibida ? llega : null })
           contar(pedido, 'documentos')
           evento({ tenantId: t.tenantId, tipo: 'purchase_order.created', en: pedido, actorId: recibe.id, targetId: ocId, targetType: 'purchase_order', metadata: { numero: `OC-${String(numeroDeOc).padStart(4, '0')}`, proveedor } })
           if (recibida) evento({ tenantId: t.tenantId, tipo: 'purchase_order.received', en: llega, actorId: chofer?.id ?? recibe.id, targetId: ocId, targetType: 'purchase_order', metadata: { numero: `OC-${String(numeroDeOc).padStart(4, '0')}`, proveedor } })
@@ -469,6 +469,9 @@ export function sembrarTaller(
           supplierId: r.compra === 'shop' ? (proveedorDe.get(r.proveedor) ?? null) : null,
           supplier: r.compra === 'shop' ? r.proveedor : null,
           unitCost: r.l.costo ?? null,
+          unitPrice: r.compra === 'shop' ? (r.l.precio ?? null) : null,
+          // Lo pagado de verdad, sin gastar azar: entre 6 % menos y 6 % más de lo cotizado; de algunos falta anotarlo.
+          realCost: recibido && r.compra === 'shop' && r.l.costo && (numero + posicion) % 4 !== 0 ? Math.round((r.l.costo * (0.94 + ((numero * 7 + posicion * 3) % 13) / 100)) / 100) * 100 : null,
           neededByTaskId: tarea?.id ?? null,
           status: recibido ? 'received' : ocId ? 'ordered' : 'pending',
           purchaseOrderId: ocId ?? null,

@@ -50,6 +50,8 @@ export const purchaseOrders = pgTable(
     /** Cuándo se espera en el taller. */
     expectedAt: date({ mode: 'string' }),
     notes: text(),
+    /** La factura o guía con que llegó: para cuadrar el costo real. */
+    invoiceNumber: text(),
     /** Calculado de sus repuestos (`estadoDeOc`); se guarda para filtrar rápido. */
     status: text().$type<EstadoOc>().notNull(),
     createdBy: text(),
@@ -89,8 +91,12 @@ export const workOrderParts = pgTable(
     /** A quién se piensa comprar (el de la cotización) o a quién se pidió (el de su orden de compra), con su nombre. */
     supplierId: text().references(() => suppliers.id),
     supplier: text(),
-    /** Costo por unidad, sin IVA. Interno: el cliente ve el precio de la cotización. */
+    /** Costo por unidad, sin IVA, el que se cotizó. Interno: el cliente ve el precio de la cotización. */
     unitCost: integer(),
+    /** Lo que se le cobra al cliente por unidad, sin IVA (el precio de la cotización); vacío si lo trae él. */
+    unitPrice: integer(),
+    /** Lo que de verdad se pagó por unidad, sin IVA: lo de la factura o guía del proveedor. */
+    realCost: integer(),
     /** El trabajo que no se puede empezar sin él: el armado, si no se dijo otro. */
     neededByTaskId: text().references(() => workOrderTasks.id),
     status: text().$type<EstadoRepuesto>().notNull(),
@@ -174,6 +180,8 @@ export const purchaseOrderSupplies = pgTable(
       .references(() => supplies.id),
     quantity: real().notNull(),
     unitCost: integer(),
+    /** Lo que de verdad se pagó por unidad, sin IVA. */
+    realCost: integer(),
     status: text().$type<EstadoRepuesto>().notNull(),
     receivedAt: timestamp({ withTimezone: true }),
     receivedBy: text(),

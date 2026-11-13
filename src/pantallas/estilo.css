@@ -275,6 +275,7 @@ details.tablero-grupo { display: block; }
 .pedir-repuesto .botones-tarea { justify-content: flex-end; }
 .tarjeta-trabajo.abre { cursor: pointer; }
 .nueva-seccion { display: flex; gap: 8px; margin-top: 12px; }
+.factura-oc { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 8px 10px; }
 .ant-table-wrapper .ant-table-tbody > tr.fila-inactiva > td { color: var(--tinta-3); }
 .tarjeta-trabajo.abre:hover { color: var(--marino); text-decoration: underline; }
 

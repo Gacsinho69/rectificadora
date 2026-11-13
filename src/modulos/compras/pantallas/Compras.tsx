@@ -36,6 +36,11 @@ export function Compras() {
     onSuccess: listo('Recibido en el taller: los trabajos que lo esperaban ya pueden seguir.'),
     onError: fallo,
   })
+  const anotar = useMutation({
+    mutationFn: ({ id, datos }: { id: string; datos: object }) => api('POST', `/servicio/compras/ordenes/${id}/costos`, datos),
+    onSuccess: listo('Anotado.'),
+    onError: fallo,
+  })
   const recibirSuelto = useMutation({ mutationFn: (id: string) => api('POST', `/servicio/repuestos/${id}/recibir`), onSuccess: listo('Repuesto recibido.'), onError: fallo })
   const cambiarChofer = useMutation({
     mutationFn: ({ id, choferId }: { id: string; choferId: string | null }) => api('POST', `/servicio/compras/ordenes/${id}/chofer`, { choferId }),
@@ -177,6 +182,7 @@ export function Compras() {
           />
         </Bloque>
       )}
+{veMontos && <CostosPorProveedor />}
       <Bloque titulo="Órdenes de compra" extra={<span className="tenue">Por retirar y las últimas cerradas. Abre una para recibir por partes.</span>}>
         <Table<OrdenDeCompra>
           size="small"
@@ -189,6 +195,7 @@ export function Compras() {
             rowExpandable: (o) => o.repuestos.length + o.insumos.length > 0,
             expandedRowRender: (o) => (
               <>
+              {veMontos && puede && o.estado !== 'cancelled' && <Factura valor={o.factura} guardar={(factura) => anotar.mutate({ id: o.id, datos: { factura } })} />}
               {o.insumos.length > 0 && (
                 <Table<LineaInsumoOc>
                   size="small"
@@ -200,6 +207,12 @@ export function Compras() {
                     { title: 'Cantidad', key: 'c', align: 'right', width: 120, render: (_, x) => `${cifra(x.cantidad)} ${x.unidad}` },
                     { title: 'Estado', key: 'e', width: 130, render: (_, x) => <EstadoRepuestoTag compra="shop" estado={x.estado} /> },
                     { title: 'Llegó', dataIndex: 'recibido', width: 120, render: (v: string | null) => (v ? fecha(v) : <span className="tenue">—</span>) },
+                    ...(veMontos
+                      ? [
+                          { title: 'Costo cotizado', key: 'cc', align: 'right' as const, width: 120, render: (_: unknown, x: LineaInsumoOc) => (x.costo ? plata(x.costo) : <span className="tenue">—</span>) },
+                          { title: 'Costo real', key: 'cr', align: 'right' as const, width: 140, render: (_: unknown, x: LineaInsumoOc) => <CostoReal valor={x.costoReal} cotizado={x.costo} editable={puede && o.estado !== 'cancelled'} guardar={(costo) => anotar.mutate({ id: o.id, datos: { insumos: [{ id: x.id, costo }] } })} /> },
+                        ]
+                      : []),
                     {
                       title: '',
                       key: 'x',
@@ -224,6 +237,12 @@ export function Compras() {
                   { title: 'Cantidad', dataIndex: 'cantidad', align: 'right', width: 90 },
                   { title: 'Estado', key: 'e', width: 130, render: (_, x) => <EstadoRepuestoTag compra={x.compra} estado={x.estado} /> },
                   { title: 'Llegó', dataIndex: 'recibido', width: 120, render: (v: string | null) => (v ? fecha(v) : <span className="tenue">—</span>) },
+                  ...(veMontos
+                    ? [
+                        { title: 'Costo cotizado', key: 'cc', align: 'right' as const, width: 120, render: (_: unknown, x: RepuestoEnCompras) => (x.costo ? plata(x.costo) : <span className="tenue">—</span>) },
+                        { title: 'Costo real', key: 'cr', align: 'right' as const, width: 140, render: (_: unknown, x: RepuestoEnCompras) => <CostoReal valor={x.costoReal} cotizado={x.costo} editable={puede && o.estado !== 'cancelled'} guardar={(costo) => anotar.mutate({ id: o.id, datos: { repuestos: [{ id: x.id, costo }] } })} /> },
+                      ]
+                    : []),
                   {
                     title: '',
                     key: 'x',
@@ -267,7 +286,7 @@ export function Compras() {
             { title: 'Estado', key: 'e', width: 120, render: (_, o) => <EstadoOcTag estado={o.estado} /> },
             { title: 'Emitida', dataIndex: 'creada', width: 110, render: (v: string) => fecha(v) },
             { title: 'Llega', dataIndex: 'llega', width: 110, render: (v: string | null) => (v ? fecha(`${v}T12:00:00Z`) : <span className="tenue">—</span>) },
-            ...(veMontos ? [{ title: 'Costo', dataIndex: 'costo', align: 'right' as const, width: 110, render: (v: number | null) => (v ? plata(v) : <span className="tenue">—</span>) }] : []),
+            ...(veMontos ? [{ title: 'Costo', key: 'costo', align: 'right' as const, width: 130, render: (_: unknown, o: OrdenDeCompra) => (o.costoReal ? <div className="fila-nombre"><span>{plata(o.costoReal)}</span>{o.costo !== o.costoReal && o.costo ? <small>cotizado {plata(o.costo)}</small> : null}{o.factura ? <small>{o.factura}</small> : null}</div> : <span className="tenue">—</span>) }] : []),
             {
               title: '',
               key: 'x',
@@ -338,6 +357,79 @@ export function Compras() {
       )}
       {anulando && <AnularOrden o={anulando} cerrar={() => setAnulando(null)} />}
     </>
+  )
+}
+
+/** Lo que de verdad se pagó por unidad. Quien gestiona lo anota (al salir del campo se guarda); los demás lo leen. */
+function CostoReal({ valor, cotizado, editable, guardar }: { valor: number | null; cotizado: number | null; editable: boolean; guardar: (v: number | null) => void }) {
+  const [v, setV] = useState<number | null>(valor)
+  const distinto = valor !== null && cotizado !== null && valor !== cotizado
+  if (!editable) return valor ? <span style={distinto ? { color: valor > (cotizado ?? 0) ? 'var(--naranjo)' : 'var(--verde)' } : undefined}>{plata(valor)}</span> : <span className="tenue">—</span>
+  return (
+    <InputNumber
+      size="small"
+      min={0}
+      step={1000}
+      value={v ?? undefined}
+      placeholder={cotizado ? String(cotizado) : 'Anotar'}
+      style={{ width: 120 }}
+      onChange={(x) => setV(x ?? null)}
+      onBlur={() => v !== valor && guardar(v)}
+      onPressEnter={() => v !== valor && guardar(v)}
+    />
+  )
+}
+
+/** El número de la factura o guía con que llegó la orden. */
+function Factura({ valor, guardar }: { valor: string | null; guardar: (v: string) => void }) {
+  const [v, setV] = useState(valor ?? '')
+  return (
+    <div className="factura-oc">
+      <span className="tenue">Factura o guía</span>
+      <Input size="small" style={{ width: 160 }} value={v} placeholder="N° del documento" onChange={(e) => setV(e.target.value)} onBlur={() => v !== (valor ?? '') && guardar(v)} onPressEnter={() => v !== (valor ?? '') && guardar(v)} />
+      <span className="tenue">Anota el costo real de cada línea con lo que dice el documento.</span>
+    </div>
+  )
+}
+
+type Comparacion = { dias: number; proveedores: { proveedor: string; lineas: number; porAnotar: number; cotizado: number; real: number; diferencia: number; fraccion: number | null }[] }
+
+/** El costo real contra lo cotizado, por proveedor, de lo que llegó en los últimos 90 días. */
+function CostosPorProveedor() {
+  const r = useQuery({ queryKey: ['taller', 'costos'], queryFn: () => api<Comparacion>('GET', '/servicio/compras/costos?dias=90') })
+  if (!r.data?.proveedores.length) return null
+  return (
+    <Bloque titulo="Costo real contra lo cotizado" extra={<span className="tenue">Repuestos que llegaron en los últimos {r.data.dias} días</span>}>
+      <Table
+        size="small"
+        rowKey="proveedor"
+        pagination={false}
+        dataSource={r.data.proveedores}
+        scroll={{ x: 720 }}
+        columns={[
+          { title: 'Proveedor', dataIndex: 'proveedor' },
+          { title: 'Cotizado', dataIndex: 'cotizado', align: 'right', width: 130, render: (v: number) => plata(v) },
+          { title: 'Pagado', dataIndex: 'real', align: 'right', width: 130, render: (v: number) => plata(v) },
+          {
+            title: 'Diferencia',
+            key: 'd',
+            align: 'right',
+            width: 150,
+            render: (_, g) =>
+              g.cotizado ? (
+                <b style={{ color: g.diferencia > 0 ? 'var(--naranjo)' : g.diferencia < 0 ? 'var(--verde)' : undefined }}>
+                  {g.diferencia > 0 ? '+' : ''}
+                  {plata(g.diferencia)}
+                  {g.fraccion !== null ? ` (${g.diferencia > 0 ? '+' : ''}${(g.fraccion * 100).toLocaleString('es-CL', { maximumFractionDigits: 1 })} %)` : ''}
+                </b>
+              ) : (
+                <span className="tenue">—</span>
+              ),
+          },
+          { title: 'Por anotar', dataIndex: 'porAnotar', align: 'right', width: 110, render: (v: number, g) => (v ? `${v} de ${g.lineas}` : <span className="tenue">0</span>) },
+        ]}
+      />
+    </Bloque>
   )
 }
 

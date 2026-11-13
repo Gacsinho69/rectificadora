@@ -2,10 +2,10 @@
 // compra a un proveedor con su chofer, la recepción en el taller, lo que traen los clientes y los repuestos que aparecen
 // con la OT abierta. Se monta dentro de `rutasTaller`, detrás de su guardia (solo personas del cliente, con su tenant
 // de la sesión). El técnico no ve costos ni la lista de proveedores: del proveedor ve solo dónde retirar una orden.
-import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNull, ne, or, sql } from 'drizzle-orm'
 import { type Context, Hono } from 'hono'
 import { z } from 'zod'
-import { conDatos, rechazo } from '../../http'
+import { conDatos, conFiltros, rechazo } from '../../http'
 import { nuevoId } from '../../ids'
 import { formatoRut } from '../../rut'
 import { type EntornoTenant, exigirQuePuedaEditar, filaDelTenant, filasDelTenant } from '../acceso/guardias'
@@ -19,7 +19,7 @@ import { diaDe } from '../plataforma/panorama'
 import { services, shopSections, workOrders, workOrderTasks } from '../taller/tablas'
 import { users } from '../usuarios/tablas'
 import { moverInsumo, recalcularOc } from './comun'
-import { bajoMinimo, cantidadSugerida, claveDeProveedor, type DatosInsumo, type DatosProveedor, folioOc, insumoSchema, POR_LLEGAR, proveedorSchema, QUIEN_COMPRA, trabajoQueLoNecesita } from './reglas'
+import { bajoMinimo, cantidadSugerida, claveDeProveedor, comparacionDeCostos, type DatosInsumo, type DatosProveedor, folioOc, insumoSchema, POR_LLEGAR, proveedorSchema, QUIEN_COMPRA, trabajoQueLoNecesita } from './reglas'
 import { purchaseOrders, purchaseOrderSupplies, suppliers, supplies, supplyMovements, workOrderParts } from './tablas'
 
 type C = Context<EntornoTenant>
@@ -191,7 +191,7 @@ export const rutasCompras = new Hono<EntornoTenant>()
     ])
     const insumoDe = new Map(listaInsumos.map((x) => [x.s.id, x]))
     const enCamino = (id: string) => lineasInsumos.filter((l) => l.supplyId === id && l.status === 'ordered').reduce((s, l) => s + l.quantity, 0)
-    const lineaInsumo = (l: (typeof lineasInsumos)[number]) => ({ id: l.id, insumoId: l.supplyId, nombre: insumoDe.get(l.supplyId)?.s.name ?? '—', unidad: insumoDe.get(l.supplyId)?.s.unit ?? '', cantidad: l.quantity, costo: montos ? l.unitCost : null, estado: l.status, recibido: iso(l.receivedAt) })
+    const lineaInsumo = (l: (typeof lineasInsumos)[number]) => ({ id: l.id, insumoId: l.supplyId, nombre: insumoDe.get(l.supplyId)?.s.name ?? '—', unidad: insumoDe.get(l.supplyId)?.s.unit ?? '', cantidad: l.quantity, costo: montos ? l.unitCost : null, costoReal: montos ? l.realCost : null, estado: l.status, recibido: iso(l.receivedAt) })
     const repuesto = ({ r, ot, cliente, necesita }: (typeof filas)[number]) => ({
       id: r.id,
       descripcion: r.description,
@@ -203,6 +203,7 @@ export const rutasCompras = new Hono<EntornoTenant>()
       proveedorId: montos ? r.supplierId : null,
       proveedor: montos ? r.supplier : null,
       costo: montos ? r.unitCost : null,
+      costoReal: montos ? r.realCost : null,
       estado: r.status,
       ot: { id: ot.id, numero: ot.numero, motor: ot.motor, entrega: ot.entrega, prioridad: ot.prioridad, plazo: plazoDeOt(ot.entrega, ot.estado, diaDe(c.var.ahora)) },
       cliente,
@@ -237,6 +238,9 @@ export const rutasCompras = new Hono<EntornoTenant>()
           anulada: iso(o.cancelledAt),
           motivo: o.cancelReason,
           costo: montos ? suyos.reduce((s, { r }) => s + Math.round((r.unitCost ?? 0) * r.quantity), 0) + insumos.reduce((s, l) => s + Math.round((l.unitCost ?? 0) * l.quantity), 0) : null,
+          factura: montos ? o.invoiceNumber : null,
+          // Lo pagado: el costo real donde se anotó, y el cotizado donde todavía no.
+          costoReal: montos ? suyos.reduce((s, { r }) => s + Math.round((r.realCost ?? r.unitCost ?? 0) * r.quantity), 0) + insumos.reduce((s, l) => s + Math.round((l.realCost ?? l.unitCost ?? 0) * l.quantity), 0) : null,
           repuestos: suyos.map(repuesto),
           insumos: insumos.map(lineaInsumo),
         }
@@ -305,6 +309,57 @@ export const rutasCompras = new Hono<EntornoTenant>()
       iva,
       total: neto + iva,
     })
+  })
+
+  /**
+   * Anotar lo que de verdad se pagó: el costo real de cada repuesto o insumo de la orden (el de la factura o guía) y su
+   * número. El costo real de un insumo queda además como su costo de ahora en adelante.
+   */
+  .post(
+    '/compras/ordenes/:id/costos',
+    conDatos(
+      z.object({
+        factura: z.string().trim().max(60).optional(),
+        repuestos: z.array(z.object({ id: z.string(), costo: z.number().int().min(0).max(1_000_000_000).nullable() })).max(200).default([]),
+        insumos: z.array(z.object({ id: z.string(), costo: z.number().int().min(0).max(1_000_000_000).nullable() })).max(200).default([]),
+      }),
+    ),
+    async (c) => {
+      exigirGestion(c)
+      const { base, actor } = c.var
+      const oc = await filaDelTenant(c, purchaseOrders, c.req.param('id'), 'purchase_order', 'esa orden de compra')
+      if (oc.status === 'cancelled') throw rechazo(409, 'Esa orden está anulada.')
+      const d = c.req.valid('json')
+      const repuestos = await filasDelTenant(c, workOrderParts, d.repuestos.map((r) => r.id), 'part', 'ese repuesto')
+      const lineas = await filasDelTenant(c, purchaseOrderSupplies, d.insumos.map((i) => i.id), 'purchase_order_supply', 'ese insumo')
+      if (repuestos.some((r) => r.purchaseOrderId !== oc.id) || lineas.some((l) => l.purchaseOrderId !== oc.id)) throw rechazo(409, 'Eso no es de esta orden de compra.')
+      await base.transaction(async (tx) => {
+        if (d.factura !== undefined) await tx.update(purchaseOrders).set({ invoiceNumber: d.factura || null }).where(eq(purchaseOrders.id, oc.id))
+        for (const r of d.repuestos) await tx.update(workOrderParts).set({ realCost: r.costo }).where(and(eq(workOrderParts.id, r.id), eq(workOrderParts.tenantId, actor.tenantId)))
+        for (const i of d.insumos) {
+          const [l] = await tx.update(purchaseOrderSupplies).set({ realCost: i.costo }).where(and(eq(purchaseOrderSupplies.id, i.id), eq(purchaseOrderSupplies.tenantId, actor.tenantId))).returning()
+          if (i.costo !== null) await tx.update(supplies).set({ unitCost: i.costo }).where(and(eq(supplies.id, l.supplyId), eq(supplies.tenantId, actor.tenantId)))
+        }
+      })
+      return c.json({ ok: true })
+    },
+  )
+
+  /**
+   * El costo real contra lo cotizado, por proveedor, de lo que llegó en los últimos días: cuánto se cotizó, cuánto se
+   * pagó y la diferencia. Solo cuenta lo que tiene su costo real anotado; dice cuánto falta por anotar.
+   */
+  .get('/compras/costos', conFiltros(z.object({ dias: z.coerce.number().int().min(1).max(365).default(90) })), async (c) => {
+    exigirMontos(c)
+    const { base, actor, ahora } = c.var
+    const { dias } = c.req.valid('query')
+    const desde = new Date(ahora.getTime() - dias * 86_400_000)
+    const filas = await base
+      .select({ proveedor: purchaseOrders.supplier, cantidad: workOrderParts.quantity, costo: workOrderParts.unitCost, costoReal: workOrderParts.realCost })
+      .from(workOrderParts)
+      .innerJoin(purchaseOrders, eq(purchaseOrders.id, workOrderParts.purchaseOrderId))
+      .where(and(eq(workOrderParts.tenantId, actor.tenantId), eq(workOrderParts.status, 'received'), gte(workOrderParts.receivedAt, desde)))
+    return c.json({ dias, proveedores: comparacionDeCostos(filas) })
   })
 
   /** Cambiar el chofer de una orden por retirar. */
