@@ -1,7 +1,7 @@
 import { boolean, date, index, integer, pgTable, real, text, timestamp, unique } from 'drizzle-orm/pg-core'
 import { workOrders, workOrderTasks } from '../taller/tablas'
 import { tenants } from '../tenants/tablas'
-import type { EstadoOc, EstadoRepuesto, QuienCompra, TipoMovimiento } from './reglas'
+import type { EstadoOc, EstadoRepuesto, QuienCompra, TipoArticulo, TipoMovimiento } from './reglas'
 
 /**
  * Los proveedores de cada rectificadora: a quién le compra los repuestos. No se borran (sus órdenes quedan): se
@@ -97,6 +97,8 @@ export const workOrderParts = pgTable(
     unitPrice: integer(),
     /** Lo que de verdad se pagó por unidad, sin IVA: lo de la factura o guía del proveedor. */
     realCost: integer(),
+    /** Si salió de la bodega en vez de comprarse: de qué artículo. */
+    supplyId: text(),
     /** El trabajo que no se puede empezar sin él: el armado, si no se dijo otro. */
     neededByTaskId: text().references(() => workOrderTasks.id),
     status: text().$type<EstadoRepuesto>().notNull(),
@@ -121,6 +123,8 @@ export const supplies = pgTable(
       .notNull()
       .references(() => tenants.id),
     name: text().notNull(),
+    /** Insumo (se gasta en el taller) o repuesto (se instala en un motor: un kit que se usa seguido). */
+    kind: text().$type<TipoArticulo>().notNull().default('supply'),
     /** Cómo se cuenta: litro, kilo, unidad, caja. */
     unit: text().notNull(),
     brand: text(),

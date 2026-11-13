@@ -3,27 +3,28 @@
 // recibe lo que trajo. El técnico no ve costos. Recibir un repuesto libera el trabajo que lo esperaba.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { Alert, App, Button, DatePicker, Form, Input, InputNumber, Modal, Select, Table } from 'antd'
+import { Alert, App, Button, DatePicker, Form, Input, InputNumber, Modal, Radio, Select, Table } from 'antd'
 import type dayjs from 'dayjs'
 import { useState } from 'react'
 import { api } from '../../../pantallas/api'
-import { Bloque, Cargando, Cifras, Hace, Problema } from '../../../pantallas/componentes'
+import { Bloque, Cargando, Cifras, Estado, Hace, Problema } from '../../../pantallas/componentes'
 import { cifra, fecha, plata, plural } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
 import { DondeRetirar, EstadoOcTag, EstadoRepuestoTag, folioOt, PlazoTag, usePersona, usePortal } from '../../taller/pantallas/comun'
-import type { Compras as DatosCompras, InsumoBajo, LineaInsumoOc, OrdenDeCompra, Persona, RepuestoEnCompras } from '../../taller/pantallas/tipos'
-import { folioOc, porProveedor, referenciaDe } from '../reglas'
+import type { Compras as DatosCompras, Insumo, InsumoBajo, LineaInsumoOc, OrdenDeCompra, Persona, RepuestoEnCompras } from '../../taller/pantallas/tipos'
+import { candidatosDeBodega, folioOc, porProveedor, referenciaDe } from '../reglas'
 import { SelectorDeProveedor } from './Proveedores'
 
 export function Compras() {
   const portal = usePortal()
-  const { persona, gestiona, veMontos, suspendida } = usePersona()
+  const { persona, gestiona, veMontos, suspendida, tiene } = usePersona()
   const consultas = useQueryClient()
   const { message } = App.useApp()
   const [elegidos, setElegidos] = useState<string[]>([])
   const [insumosElegidos, setInsumosElegidos] = useState<string[]>([])
   const [pidiendo, setPidiendo] = useState(false)
   const [anulando, setAnulando] = useState<OrdenDeCompra | null>(null)
+  const [deBodega, setDeBodega] = useState<RepuestoEnCompras | null>(null)
   const r = useQuery({ queryKey: ['taller', 'compras'], queryFn: () => api<DatosCompras>('GET', '/servicio/compras') })
   const personas = useQuery({ queryKey: ['taller', 'personas'], queryFn: () => api<Persona[]>('GET', '/servicio/personas'), enabled: gestiona })
   const listo = (texto: string) => () => {
@@ -149,6 +150,7 @@ export function Compras() {
                 { title: 'La OT se entrega', key: 'e', width: 160, render: (_, x) => <span className="evento-nombre">{x.ot.entrega ? fecha(`${x.ot.entrega}T12:00:00Z`) : '—'} <PlazoTag plazo={x.ot.plazo} />{x.ot.prioridad === 'urgent' && <span className="estado rojo">Urgente</span>}</span> },
                 ...(veMontos ? [{ title: 'Costo', key: 'c', align: 'right' as const, width: 120, render: (_: unknown, x: RepuestoEnCompras) => (x.costo ? plata(Math.round(x.costo * x.cantidad)) : <span className="tenue">—</span>) }] : []),
                 { title: 'Desde', dataIndex: 'creado', width: 110, render: (v: string) => <Hace iso={v} /> },
+                ...(puede && tiene('supplies') ? [{ title: '', key: 'b', width: 1, render: (_: unknown, x: RepuestoEnCompras) => <Button size="small" type="text" onClick={() => setDeBodega(x)} title="Si hay uno guardado, se saca de bodega en vez de comprarlo">De bodega</Button> }] : []),
               ]}
             />
           </div>
@@ -356,6 +358,7 @@ export function Compras() {
         />
       )}
       {anulando && <AnularOrden o={anulando} cerrar={() => setAnulando(null)} />}
+      {deBodega && <DeBodega repuesto={deBodega} cerrar={() => setDeBodega(null)} />}
     </>
   )
 }
@@ -430,6 +433,46 @@ function CostosPorProveedor() {
         ]}
       />
     </Bloque>
+  )
+}
+
+/** Sacar de bodega un repuesto por pedir: los artículos que alcanzan, los más parecidos primero. */
+function DeBodega({ repuesto, cerrar }: { repuesto: RepuestoEnCompras; cerrar: () => void }) {
+  const consultas = useQueryClient()
+  const { message } = App.useApp()
+  const [elegido, setElegido] = useState<string>()
+  const r = useQuery({ queryKey: ['taller', 'insumos'], queryFn: () => api<Insumo[]>('GET', '/servicio/insumos') })
+  const sacar = useMutation({
+    mutationFn: () => api('POST', `/servicio/repuestos/${repuesto.id}/de-bodega`, { insumoId: elegido }),
+    onSuccess: async () => {
+      message.success('Sacado de bodega: el trabajo que lo esperaba ya puede seguir.')
+      cerrar()
+      await consultas.invalidateQueries({ queryKey: ['taller'] })
+    },
+  })
+  const lista = candidatosDeBodega(r.data ?? [], repuesto)
+  return (
+    <Modal open title={`Sacar de bodega: ${repuesto.descripcion}`} okText="Sacar de bodega" okButtonProps={{ disabled: !elegido }} cancelText="Cancelar" onCancel={cerrar} confirmLoading={sacar.isPending} onOk={() => sacar.mutate()} destroyOnHidden>
+      {sacar.isError && <Alert type="error" showIcon title={(sacar.error as Error).message} style={{ marginBottom: 12 }} />}
+      <p className="tenue" style={{ marginTop: 0 }}>
+        Lleva {cifra(repuesto.cantidad)}
+        {referenciaDe(repuesto) ? ` · ${referenciaDe(repuesto)}` : ''} · {folioOt(repuesto.ot.numero)}
+      </p>
+      {r.isPending ? (
+        <Cargando />
+      ) : lista.length ? (
+        <Radio.Group className="lista-opciones" value={elegido} onChange={(e) => setElegido(e.target.value)}>
+          {lista.map((a) => (
+            <Radio key={a.id} value={a.id}>
+              <b>{a.nombre}</b> <span className="tenue">· hay {cifra(a.stock)} {a.unidad}</span> {a.parecido && <Estado tono="azul">Parecido</Estado>}
+              {referenciaDe(a) && <small className="tenue">{referenciaDe(a)}</small>}
+            </Radio>
+          ))}
+        </Radio.Group>
+      ) : (
+        <p>No hay en bodega nada que alcance. Se pide al proveedor.</p>
+      )}
+    </Modal>
   )
 }
 

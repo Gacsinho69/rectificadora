@@ -64,6 +64,13 @@
       "when": 1794603550030,
       "tag": "0008_costo_real",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794603819937,
+      "tag": "0009_repuestos_en_bodega",
+      "breakpoints": true
     }
   ]
 }

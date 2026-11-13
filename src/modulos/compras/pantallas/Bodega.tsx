@@ -2,7 +2,7 @@
 // bruñir). Cuánto hay, su mínimo y lo que viene en camino. Cualquiera que trabaje saca lo que usa; el jefe de taller
 // agrega insumos y ajusta el stock al conteo. Lo que queda en su mínimo aparece en Compras para pedirlo.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, App, AutoComplete, Button, Checkbox, Form, Input, InputNumber, Modal, Select, Table } from 'antd'
+import { Alert, App, AutoComplete, Button, Checkbox, Form, Input, InputNumber, Modal, Radio, Segmented, Select, Table } from 'antd'
 import { useState } from 'react'
 import { api } from '../../../pantallas/api'
 import { Cargando, Cifras, Estado, Hace, Problema } from '../../../pantallas/componentes'
@@ -10,22 +10,23 @@ import { cifra, plata } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
 import { folioOt, usePersona } from '../../taller/pantallas/comun'
 import type { FilaOt, Insumo } from '../../taller/pantallas/tipos'
-import { MOVIMIENTOS_INSUMO, referenciaDe, UNIDADES } from '../reglas'
+import { MOVIMIENTOS_INSUMO, referenciaDe, TIPOS_ARTICULO, type TipoArticulo, UNIDADES } from '../reglas'
 import { SelectorDeProveedor } from './Proveedores'
 
 export function Bodega() {
   const { gestiona, trabaja, veMontos, suspendida } = usePersona()
   const [q, setQ] = useState('')
+  const [tipo, setTipo] = useState<TipoArticulo | 'todo'>('todo')
   const [dialogo, setDialogo] = useState<{ tipo: 'sacar' | 'ajustar' | 'editar'; insumo: Insumo } | 'nuevo' | null>(null)
   const r = useQuery({ queryKey: ['taller', 'insumos'], queryFn: () => api<Insumo[]>('GET', '/servicio/insumos') })
   if (r.isPending) return <Cargando />
   if (r.isError) return <Problema error={r.error} />
   const activos = r.data.filter((x) => x.activo)
-  const lista = r.data.filter((x) => !q || `${x.nombre} ${x.marca ?? ''} ${x.codigo ?? ''}`.toLowerCase().includes(q.toLowerCase()))
+  const lista = r.data.filter((x) => (tipo === 'todo' || x.tipo === tipo) && (!q || `${x.nombre} ${x.marca ?? ''} ${x.codigo ?? ''}`.toLowerCase().includes(q.toLowerCase())))
   const puede = gestiona && !suspendida
   return (
     <>
-      <Encabezado titulo="Bodega" sub="Insumos del taller: cuánto hay, su mínimo y lo que viene. Lo que queda en su mínimo aparece en Compras." acciones={puede ? <Button type="primary" onClick={() => setDialogo('nuevo')}>Nuevo insumo</Button> : null} />
+      <Encabezado titulo="Bodega" sub="Insumos que gasta el taller y repuestos que se guardan: cuánto hay, su mínimo y lo que viene. Lo que queda en su mínimo aparece en Compras." acciones={puede ? <Button type="primary" onClick={() => setDialogo('nuevo')}>Nuevo artículo</Button> : null} />
       <Cifras
         cifras={[
           { rotulo: 'Insumos', valor: cifra(activos.length) },
@@ -34,7 +35,8 @@ export function Bodega() {
         ]}
       />
       <div className="filtros">
-        <Input.Search className="buscar" placeholder="Insumo, marca o código" allowClear onSearch={setQ} onChange={(e) => !e.target.value && setQ('')} />
+        <Input.Search className="buscar" placeholder="Artículo, marca o código" allowClear onSearch={setQ} onChange={(e) => !e.target.value && setQ('')} />
+        <Segmented value={tipo} onChange={(v) => setTipo(v as TipoArticulo | 'todo')} options={[{ value: 'todo', label: 'Todo' }, { value: 'supply', label: 'Insumos' }, { value: 'part', label: 'Repuestos' }]} />
       </div>
       <div className="bloque">
         <Table<Insumo>
@@ -65,7 +67,7 @@ export function Bodega() {
             ),
           }}
           columns={[
-            { title: 'Insumo', key: 'n', render: (_, x) => <div className="fila-nombre"><b>{x.nombre}</b><small>{[referenciaDe(x), x.activo ? null : 'fuera de uso'].filter(Boolean).join(' · ') || x.unidad}</small></div> },
+            { title: 'Artículo', key: 'n', render: (_, x) => <div className="fila-nombre"><b>{x.nombre}</b><small>{[TIPOS_ARTICULO[x.tipo], referenciaDe(x), x.activo ? null : 'fuera de uso'].filter(Boolean).join(' · ')}</small></div> },
             {
               title: 'Hay',
               key: 'h',
@@ -171,20 +173,23 @@ function Ajustar({ insumo, cerrar }: { insumo: Insumo; cerrar: () => void }) {
   )
 }
 
-type DatosInsumo = { nombre: string; unidad: string; minimo: number; marca?: string; codigo?: string; proveedorId?: string | null; costo?: number | null; nota?: string; activo: boolean }
+type DatosInsumo = { tipo: TipoArticulo; nombre: string; unidad: string; minimo: number; marca?: string; codigo?: string; proveedorId?: string | null; costo?: number | null; nota?: string; activo: boolean }
 
 /** Agregar o corregir un insumo: cómo se cuenta, su mínimo y a quién se le compra. */
 function FichaInsumo({ insumo, veMontos, cerrar }: { insumo: Insumo | null; veMontos: boolean; cerrar: () => void }) {
   const [form] = Form.useForm<DatosInsumo>()
   const guardar = useBodega<DatosInsumo>(insumo ? `/servicio/insumos/${insumo.id}` : '/servicio/insumos', insumo ? 'Insumo actualizado.' : 'Insumo agregado.', cerrar)
   const inicial: DatosInsumo = insumo
-    ? { nombre: insumo.nombre, unidad: insumo.unidad, minimo: insumo.minimo, marca: insumo.marca ?? '', codigo: insumo.codigo ?? '', proveedorId: insumo.proveedorId, costo: insumo.costo, nota: insumo.nota ?? '', activo: insumo.activo }
-    : { nombre: '', unidad: 'unidad', minimo: 0, activo: true }
+    ? { tipo: insumo.tipo, nombre: insumo.nombre, unidad: insumo.unidad, minimo: insumo.minimo, marca: insumo.marca ?? '', codigo: insumo.codigo ?? '', proveedorId: insumo.proveedorId, costo: insumo.costo, nota: insumo.nota ?? '', activo: insumo.activo }
+    : { tipo: 'supply', nombre: '', unidad: 'unidad', minimo: 0, activo: true }
   return (
     <Modal open title={insumo ? insumo.nombre : 'Nuevo insumo'} okText={insumo ? 'Guardar' : 'Agregar'} cancelText="Cancelar" onCancel={cerrar} confirmLoading={guardar.isPending} onOk={() => form.validateFields().then((v) => guardar.mutate({ ...v, proveedorId: v.proveedorId ?? null, costo: v.costo ?? null }))} destroyOnHidden width={600}>
       {guardar.isError && <Alert type="error" showIcon title={(guardar.error as Error).message} style={{ marginBottom: 12 }} />}
       <Form form={form} layout="vertical" requiredMark={false} initialValues={inicial}>
-        <Form.Item label="Insumo" name="nombre" rules={[{ required: true, message: 'Escribe el insumo.' }, { min: 2 }]}>
+        <Form.Item name="tipo" extra="Un repuesto guardado (un kit que se usa seguido) se puede sacar para una OT en vez de comprarlo.">
+          <Radio.Group options={[{ value: 'supply', label: 'Insumo: se gasta en el taller' }, { value: 'part', label: 'Repuesto: se instala en un motor' }]} />
+        </Form.Item>
+        <Form.Item label="Nombre" name="nombre" rules={[{ required: true, message: 'Escribe el nombre.' }, { min: 2 }]}>
           <Input placeholder="Aceite de prueba de presión" />
         </Form.Item>
         <div className="columnas-3">

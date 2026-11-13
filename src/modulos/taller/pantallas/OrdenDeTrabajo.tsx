@@ -199,7 +199,7 @@ export function OrdenDeTrabajo() {
               { title: 'Repuesto', key: 'n', render: (_, r) => <div className="fila-nombre"><span>{r.descripcion}</span>{referenciaDe(r) && <small>{referenciaDe(r)}</small>}{r.necesita && <small>Lo espera: {r.necesita}</small>}</div> },
               { title: 'Cantidad', dataIndex: 'cantidad', align: 'right', width: 90 },
               { title: 'Lo compra', key: 'c', width: 190, render: (_, r) => <div className="fila-nombre"><span>{QUIEN_COMPRA[r.compra]}</span>{r.proveedor && <small>{r.proveedor}</small>}</div> },
-              { title: 'Estado', key: 'e', width: 170, render: (_, r) => <div className="fila-nombre"><span><EstadoRepuestoTag compra={r.compra} estado={r.estado} /></span>{r.oc && <small>{r.oc}</small>}</div> },
+              { title: 'Estado', key: 'e', width: 170, render: (_, r) => <div className="fila-nombre"><span><EstadoRepuestoTag compra={r.compra} estado={r.estado} /></span>{r.oc && <small>{r.oc}</small>}{r.deBodega && <small>de bodega</small>}</div> },
               { title: 'Llegó', dataIndex: 'recibido', width: 130, render: (v: string | null) => (v ? fechaHora(v) : <span className="tenue">—</span>) },
               {
                 title: '',

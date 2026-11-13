@@ -67,7 +67,7 @@ function exigirQuienRecibe(c: C, choferId: string | null) {
 }
 
 /** Lo que se guarda de un insumo: lo vacío queda sin dato. */
-const datosDeInsumo = (d: DatosInsumo) => ({ name: d.nombre, unit: d.unidad, minStock: d.minimo, brand: d.marca || null, partNumber: d.codigo || null, supplierId: d.proveedorId || null, unitCost: d.costo ?? null, notes: d.nota || null })
+const datosDeInsumo = (d: DatosInsumo) => ({ name: d.nombre, kind: d.tipo, unit: d.unidad, minStock: d.minimo, brand: d.marca || null, partNumber: d.codigo || null, supplierId: d.proveedorId || null, unitCost: d.costo ?? null, notes: d.nota || null })
 
 /** Un proveedor de la lista de la propia rectificadora. */
 const proveedorDe = (c: C, id: string) => filaDelTenant(c, suppliers, id, 'supplier', 'ese proveedor')
@@ -204,6 +204,7 @@ export const rutasCompras = new Hono<EntornoTenant>()
       proveedor: montos ? r.supplier : null,
       costo: montos ? r.unitCost : null,
       costoReal: montos ? r.realCost : null,
+      deBodega: Boolean(r.supplyId),
       estado: r.status,
       ot: { id: ot.id, numero: ot.numero, motor: ot.motor, entrega: ot.entrega, prioridad: ot.prioridad, plazo: plazoDeOt(ot.entrega, ot.estado, diaDe(c.var.ahora)) },
       cliente,
@@ -218,7 +219,7 @@ export const rutasCompras = new Hono<EntornoTenant>()
       // Los insumos que quedan en su mínimo o menos, contando lo que ya viene en camino (si tiene bodega).
       insumosBajos: (actor.funciones.includes('supplies') ? listaInsumos : [])
         .filter(({ s }) => bajoMinimo(s.stock + enCamino(s.id), s.minStock))
-        .map(({ s, proveedor }) => ({ id: s.id, nombre: s.name, unidad: s.unit, marca: s.brand, codigo: s.partNumber, stock: s.stock, minimo: s.minStock, porLlegar: enCamino(s.id), sugerido: cantidadSugerida(s.stock, s.minStock, enCamino(s.id)), proveedorId: montos ? s.supplierId : null, proveedor: montos ? proveedor : null, costo: montos ? s.unitCost : null })),
+        .map(({ s, proveedor }) => ({ id: s.id, nombre: s.name, tipo: s.kind, unidad: s.unit, marca: s.brand, codigo: s.partNumber, stock: s.stock, minimo: s.minStock, porLlegar: enCamino(s.id), sugerido: cantidadSugerida(s.stock, s.minStock, enCamino(s.id)), proveedorId: montos ? s.supplierId : null, proveedor: montos ? proveedor : null, costo: montos ? s.unitCost : null })),
       ordenes: visibles.map((o) => {
         const suyos = filas.filter(({ r }) => r.purchaseOrderId === o.id)
         const insumos = lineasInsumos.filter((l) => l.purchaseOrderId === o.id)
@@ -444,6 +445,7 @@ export const rutasCompras = new Hono<EntornoTenant>()
       lista.map(({ s, proveedor }) => ({
         id: s.id,
         nombre: s.name,
+        tipo: s.kind,
         unidad: s.unit,
         marca: s.brand,
         codigo: s.partNumber,
@@ -504,6 +506,26 @@ export const rutasCompras = new Hono<EntornoTenant>()
     if (d.stock === s.stock) throw rechazo(409, 'El stock ya es ese.')
     const { actor, ahora } = c.var
     await c.var.base.transaction((tx) => moverInsumo(tx, { tenantId: actor.tenantId, insumoId: s.id, cantidad: d.stock - s.stock, tipo: 'adjust', nota: d.nota, por: actor.id, ahora }))
+    return c.json({ ok: true })
+  })
+
+  /**
+   * Sacar de bodega un repuesto por pedir, en vez de comprarlo (había un kit igual guardado): sale de bodega para la
+   * OT, el repuesto queda recibido con el costo de bodega y el trabajo que lo esperaba sigue.
+   */
+  .post('/repuestos/:id/de-bodega', conDatos(z.object({ insumoId: z.string({ error: 'Elige qué sacar de bodega.' }) })), async (c) => {
+    exigirGestion(c)
+    exigirFuncion(c, 'supplies')
+    const { actor, ahora } = c.var
+    const r = await filaDelTenant(c, workOrderParts, c.req.param('id'), 'part', 'ese repuesto')
+    const s = await filaDelTenant(c, supplies, c.req.valid('json').insumoId, 'supply', 'ese artículo de bodega')
+    if (r.source !== 'shop' || r.status !== 'pending') throw rechazo(409, 'Solo se saca de bodega un repuesto que compra la rectificadora y que está por pedir.')
+    if (!s.active) throw rechazo(409, 'Ese artículo está fuera de uso.')
+    if (s.stock < r.quantity) throw rechazo(409, `En bodega hay ${s.stock} ${s.unit}; este repuesto lleva ${r.quantity}.`)
+    await c.var.base.transaction(async (tx) => {
+      await moverInsumo(tx, { tenantId: actor.tenantId, insumoId: s.id, cantidad: -r.quantity, tipo: 'use', otId: r.workOrderId, nota: r.description, por: actor.id, ahora })
+      await tx.update(workOrderParts).set({ status: 'received', receivedAt: ahora, receivedBy: actor.id, supplyId: s.id, realCost: s.unitCost }).where(eq(workOrderParts.id, r.id))
+    })
     return c.json({ ok: true })
   })
 

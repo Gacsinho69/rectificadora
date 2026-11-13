@@ -387,7 +387,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
       ...repuestos.flatMap(({ r }) => [
         // Lo que se pidió con la OT abierta (no venía en la cotización): quién lo pidió y cuándo.
         r.quoteId ? null : { en: r.createdAt, que: `Repuesto pedido: ${r.description}${r.size ? ` (${r.size})` : ''}`, quien: quien(r.createdBy) },
-        r.receivedAt ? { en: r.receivedAt, que: `Llegó el repuesto: ${r.description}`, quien: quien(r.receivedBy) } : null,
+        r.receivedAt ? { en: r.receivedAt, que: r.supplyId ? `Sacado de bodega: ${r.description}` : `Llegó el repuesto: ${r.description}`, quien: quien(r.receivedBy) } : null,
       ]),
       ...detenciones.flatMap((d) => [
         { en: d.createdAt, que: `Detenido: ${nombreDe.get(d.taskId) ?? 'un trabajo'} (${MOTIVOS_DETENCION[d.reason].toLowerCase()}${d.note ? `: ${d.note}` : ''})`, quien: quien(d.createdBy) },
@@ -464,6 +464,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
         proveedor: veMontos(actor.rol) ? r.supplier : null,
         costo: veMontos(actor.rol) ? r.unitCost : null,
         precio: veMontos(actor.rol) ? r.unitPrice : null,
+        deBodega: Boolean(r.supplyId),
         costoReal: veMontos(actor.rol) ? r.realCost : null,
         estado: r.status,
         oc: oc ? folioOc(oc) : null,

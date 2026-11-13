@@ -94,6 +94,25 @@ export function comparacionDeCostos(lineas: { proveedor: string | null; cantidad
 /** El margen de lo vendido sobre lo que costó: 0,25 es 25 %. Sin venta, no hay margen. */
 export const margenDe = (vendido: number, costo: number) => (vendido > 0 ? (vendido - costo) / vendido : null)
 
+/** Lo que guarda la bodega: insumos que se gastan en el taller y repuestos que se instalan en un motor. */
+export const TIPOS_ARTICULO = { supply: 'Insumo', part: 'Repuesto' } as const
+export type TipoArticulo = keyof typeof TIPOS_ARTICULO
+
+/**
+ * Los artículos de bodega que pueden servir para un repuesto por pedir, los más parecidos primero: el mismo número de
+ * parte, o un nombre que contiene al otro. Solo los que alcanzan; de los insumos, solo los parecidos.
+ */
+export function candidatosDeBodega<A extends { nombre: string; codigo: string | null; stock: number; tipo: TipoArticulo; activo: boolean }>(articulos: A[], r: { descripcion: string; codigo: string | null; cantidad: number }) {
+  const clave = (s: string) => claveDeProveedor(s)
+  const puntos = (a: A) => (r.codigo && a.codigo && clave(a.codigo) === clave(r.codigo) ? 3 : clave(a.nombre).includes(clave(r.descripcion)) || clave(r.descripcion).includes(clave(a.nombre)) ? 2 : a.tipo === 'part' ? 1 : 0)
+  return articulos
+    .filter((a) => a.activo && a.stock >= r.cantidad)
+    .map((a) => ({ a, p: puntos(a) }))
+    .sort((x, y) => y.p - x.p || x.a.nombre.localeCompare(y.a.nombre, 'es'))
+    .filter(({ a, p }) => a.tipo === 'part' || p >= 2)
+    .map(({ a, p }) => ({ ...a, parecido: p >= 2 }))
+}
+
 /** Lo que entra y sale de la bodega. */
 export const MOVIMIENTOS_INSUMO = { purchase: 'Compra', use: 'Consumo', adjust: 'Ajuste' } as const
 export type TipoMovimiento = keyof typeof MOVIMIENTOS_INSUMO
@@ -117,6 +136,7 @@ export const insumoSchema = z.object({
   costo: z.number().int().min(0).max(1_000_000_000).nullable().optional(),
   nota: z.string().trim().max(500).optional(),
   activo: z.boolean().optional(),
+  tipo: z.enum(['supply', 'part']).default('supply'),
 })
 export type DatosInsumo = z.infer<typeof insumoSchema>
 

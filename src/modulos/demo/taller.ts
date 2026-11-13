@@ -95,6 +95,10 @@ const INSUMOS = [
   { nombre: 'Pintura de motor', unidad: 'litro', minimo: 8, costo: 12_500, marca: null },
   { nombre: 'Guaipe', unidad: 'kilo', minimo: 15, costo: 1_800, marca: null },
   { nombre: 'Sellante de silicona', unidad: 'unidad', minimo: 6, costo: 6_200, marca: 'Loctite' },
+  // Repuestos que se guardan porque se usan seguido.
+  { nombre: 'Juego de empaquetaduras completo', unidad: 'juego', minimo: 1, costo: 98_000, marca: 'Victor Reinz', tipo: 'part' as const },
+  { nombre: 'Kit de pistones y anillos STD', unidad: 'juego', minimo: 1, costo: 280_000, marca: 'Mahle', tipo: 'part' as const },
+  { nombre: 'Bomba de aceite', unidad: 'unidad', minimo: 1, costo: 140_000, marca: 'Melling', tipo: 'part' as const },
 ]
 
 type Ayudas = { azar: () => number; entre: (a: number, b: number) => number; uno: <T>(l: readonly T[]) => T; id: (p: string) => string }
@@ -195,7 +199,7 @@ export function sembrarTaller(
   }
   if (!t.nunca && !t.silencio && semilla % 3 === 0) parar('Bruñidora', 'maintenance', 'Cambio de piedras y aceite del cabezal', 6)
   // La bodega, también sin azar: un stock repartido desde el inventario inicial; a algunos insumos ya les toca pedir.
-  const insumos: Taller['insumos'] = INSUMOS.map((x, i) => ({ id: `ins_${sufijo}${i}`, tenantId: t.tenantId, name: x.nombre, unit: x.unidad, brand: x.marca, minStock: x.minimo, stock: (semilla + i * 17) % (x.minimo * 3 + 1), unitCost: x.costo, supplierId: vigentes[i % vigentes.length].id, active: true, createdAt: t.creado }))
+  const insumos: Taller['insumos'] = INSUMOS.map((x, i) => ({ id: `ins_${sufijo}${i}`, tenantId: t.tenantId, name: x.nombre, kind: 'tipo' in x ? x.tipo : 'supply', unit: x.unidad, brand: x.marca, minStock: x.minimo, stock: (semilla + i * 17) % (x.minimo * 3 + 1), unitCost: x.costo, supplierId: vigentes[i % vigentes.length].id, active: true, createdAt: t.creado }))
   const movimientosInsumo: Taller['movimientosInsumo'] = insumos.filter((s) => s.stock).map((s, i) => ({ id: `mov_${sufijo}${i}`, tenantId: t.tenantId, supplyId: s.id, quantity: s.stock!, kind: 'adjust' as const, note: 'Inventario inicial', createdBy: jefes[0]?.id ?? null, createdAt: t.creado }))
   if (!t.nunca && !t.silencio && semilla % 4 === 1) parar('Lineadora de bancada', 'breakdown', 'No avanza el carro; viene el técnico de la marca', 30)
   const proveedorDe = new Map(proveedores.map((p) => [p.name, p.id]))
