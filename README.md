@@ -19,12 +19,19 @@ Estado (13-11-2026): **MVP completo con datos de demostración.** Falta conectar
 3. **Aprobación.** Enviada, la OT queda «esperando aprobación». Si el cliente acepta, cada actividad cotizada pasa a la OT como un trabajo: a **su sección**, a la **ruta de su pieza** y a **uno de sus especialistas**. Lo que ya se hizo en el diagnóstico se cobra, pero no se repite. Los repuestos quedan en la OT: por pedir (los compra la rectificadora) o por llegar (los trae el cliente). Si rechaza, la OT se anula o se recotiza. También se puede cotizar sin OT; al aceptar, nace la OT.
 4. **Taller.** Desarmado, el motor deja de ser una sola cosa. Cada pieza sigue su ruta, un paso tras otro (en la culata: cepillado, guías, asientos, válvulas, armado de culata), y las piezas avanzan a la vez. El armado y el control final esperan a todas. El **tablero** tiene una columna por sección:
    - arriba, lo que se puede hacer ahora: primero lo en proceso, después lo atrasado, lo urgente y lo que vence antes;
-   - abajo, lo que **espera su turno** y lo **detenido** con su motivo (faltan repuestos, falta la respuesta del cliente, está donde un tercero).
+   - abajo, lo que **espera su máquina** (está detenida), lo que **espera repuestos**, lo que **espera su turno** y lo **detenido** con su motivo (falta la respuesta del cliente, está donde un tercero).
 
    El jefe de taller puede **adelantar** un trabajo, como armar el block mientras la culata sigue en su sección. La OT muestra **cómo va cada pieza**, lo que se contesta en el mesón: «la culata va en asientos con Pedro; el block espera los pistones».
+   Cada trabajo tiene su **ficha**, que se abre al tocarlo en el tablero, en «Mis trabajos» o en la OT. Trae lo que el técnico necesita para hacerlo, sin montos:
+   - la OT, el motor y su número, y la falla que trajo;
+   - lo que le **indicó el jefe de taller** («rectificar a 0,50»);
+   - **lo que ya se hizo en la misma pieza**, con lo que anotó cada uno (la medición, «muñones a 0,25»);
+   - los repuestos que espera.
+
+   Si le falta un repuesto, lo **pide desde la ficha**: queda por pedir en compras y el trabajo lo espera. No se termina sin él, aunque se haya empezado antes. Al terminar, anota la medida final o lo que encontró, y queda en la historia de la OT.
 5. **Calidad y entrega.** Con todos los trabajos terminados, la OT pasa sola a control de calidad. El jefe de taller lo aprueba, queda lista y se entrega anotando quién la recibe.
 
-El estado de una OT no se marca a mano: sale de sus trabajos y de su cotización (`estadoDeOt`). Tampoco la situación de cada trabajo (para hacer, espera su turno, detenido): sale de su pieza y su paso (`situacionDe`). Las dos están en `src/modulos/taller/reglas.ts`. Solo la aprobación de calidad, la entrega, la anulación, las detenciones y lo adelantado lo decide una persona.
+El estado de una OT no se marca a mano: sale de sus trabajos y de su cotización (`estadoDeOt`). Tampoco la situación de cada trabajo (para hacer, espera su máquina, espera repuestos, espera su turno, detenido): sale de su pieza y su paso, de sus repuestos y de sus máquinas (`situacionDe`). Las dos están en `src/modulos/taller/reglas.ts`. Solo la aprobación de calidad, la entrega, la anulación, las detenciones y lo adelantado lo decide una persona.
 
 **Actividades.** Cada rectificadora tiene su lista de actividades, ordenada por pieza. Cada actividad tiene:
 - la pieza a la que se hace y su paso en la ruta;
@@ -37,20 +44,28 @@ Por ejemplo, la prueba hidráulica de culata se cobra por cilindro: la culata m�
 
 **Proveedores.** Cada rectificadora tiene su lista de proveedores: nombre, RUT (se revisa su dígito verificador), contacto, teléfono, correo, dónde se retira y una nota (qué vende, cómo se le paga). El proveedor se elige de la lista al cotizar un repuesto, al agregarlo a una OT y al emitir la orden de compra; si no está, se agrega ahí mismo. El mismo nombre no entra dos veces, aunque se escriba con otras mayúsculas, tildes o espacios. Un proveedor no se borra: se desactiva, deja de ofrecerse y sus órdenes quedan como están. Corregir su nombre lo corrige en sus órdenes y repuestos. La lista muestra cuántas órdenes tiene cada uno por retirar, cuántas van y la última. La agregan y corrigen el jefe de taller y el administrador; el técnico no la ve.
 
-**Repuestos y compras.** Lo que compra la rectificadora aparece en **Compras**, «por pedir», con el proveedor que se cotizó. El jefe de taller elige qué pedir y emite la **orden de compra** (OC-0001) a un proveedor de la lista, con el **chofer** que va a buscarlo: cualquier persona del taller, que ve sus retiros en el inicio (con la dirección del proveedor y su teléfono, que en el celular se marca con un toque) y los marca «recibido en el taller» al volver, todo o por partes si no llegó todo. Una orden sin nada recibido se anula con motivo y lo suyo vuelve a por pedir. Lo que trae el cliente se marca recibido cuando llega. Mientras un repuesto no llega, el trabajo que lo espera queda en **«espera repuestos»** (en el tablero, con lo que falta) y no se puede iniciar; al recibirlo, se libera solo. Si con la OT abierta aparece algo más (una bomba que se quebró al armar), se agrega a la OT. Cada OT muestra sus repuestos, quién los compra, si llegaron y en qué orden van; el técnico no ve costos ni proveedores.
+**Repuestos y compras.** Cada repuesto lleva su **medida** (STD, 0,25, 0,50…), su **marca** y su **número de parte** desde la cotización, para pedir el correcto. Lo que compra la rectificadora aparece en **Compras**, «por pedir», **agrupado por proveedor** (el que se cotizó), y dentro de cada uno, primero lo que la OT necesita antes: lo atrasado, lo urgente y lo que se entrega antes. «Pedir todo a…» abre la orden con ese proveedor ya elegido. El jefe de taller elige qué pedir y emite la **orden de compra** (OC-0001) a un proveedor de la lista, con el **chofer** que va a buscarlo: cualquier persona del taller, que ve sus retiros en el inicio (con la dirección del proveedor y su teléfono, que en el celular se marca con un toque) y los marca «recibido en el taller» al volver, todo o por partes si no llegó todo. Una orden sin nada recibido se anula con motivo y lo suyo vuelve a por pedir. Lo que trae el cliente se marca recibido cuando llega. Mientras un repuesto no llega, el trabajo que lo espera queda en **«espera repuestos»** (en el tablero, con lo que falta) y no se puede iniciar; al recibirlo, se libera solo. Si con la OT abierta aparece algo más (una bomba que se quebró al armar), se agrega a la OT. Cada OT muestra sus repuestos, quién los compra, si llegaron y en qué orden van; el técnico no ve costos ni proveedores.
+
+**Bodega.** Los insumos del taller (aceite de prueba, pasta de esmeril, piedras de bruñir) tienen su unidad, su mínimo, su proveedor y su costo. Cualquiera que trabaje **saca** lo que usa, para una OT si se dice; el jefe de taller agrega insumos y **ajusta** al conteo con su motivo. Lo que queda en su mínimo aparece en Compras con lo que conviene pedir (hasta el doble del mínimo, descontando lo que viene en camino) y va en la misma orden de compra que los repuestos; al recibirse, entra a bodega. Cada movimiento queda anotado (`moverInsumo`).
+
+**Máquinas.** Cada taller tiene su lista de máquinas, con las actividades que necesitan cada una (la lineadora, el lineado de bancada). Si una para, en falla o en mantención, sus trabajos quedan en **«máquina detenida»**: no se inician ni se adelantan hasta que vuelva a operar, y el tablero, la OT, la ficha y el inicio lo dicen solos. Cualquiera que trabaje avisa una falla; el jefe de taller la vuelve a operar. La **mantención** se lleva por días: cada cuánto, la última, la próxima y si está vencida. Al volver de una mantención, la próxima se cuenta desde ese día.
 
 **Carga.** Por sección: su gente (los especialistas de sus actividades), las horas para hacer ahora, las que esperan su turno, lo detenido, lo sin asignar (que se reparte con un botón) y los días de cola. Por persona: lo que tiene cada uno.
 
 **Roles dentro de cada rectificadora:**
-- **Administrador:** todo, más la administración de la organización y las actividades con sus valores.
-- **Jefe de taller:** recibe, cotiza, elige quién hace cada actividad, asigna, adelanta, pide y recibe repuestos, aprueba calidad y entrega.
-- **Técnico:** ve el taller y las OT, trabaja lo suyo y lo detiene si falta algo; no ve cotizaciones, montos ni la lista de proveedores. Si es el chofer de compras, ve sus retiros (con dónde retirar) y recibe lo que trae.
+- **Administrador:** todo, más la administración de la organización (su gente, dentro del límite del plan), las actividades con sus valores y las secciones.
+- **Jefe de taller:** recibe, cotiza, elige quién hace cada actividad, asigna, indica, adelanta, pide y recibe repuestos e insumos, maneja las máquinas, aprueba calidad y entrega.
+- **Técnico:** ve el taller y las OT, trabaja lo suyo, lo detiene si falta algo, pide el repuesto que le falta, saca insumos de bodega y avisa si una máquina falla; no ve cotizaciones, montos ni la lista de proveedores. Si es el chofer de compras, ve sus retiros (con dónde retirar) y recibe lo que trae.
 - **Solo lectura:** mira todo y no cambia nada.
 
 Cada rectificadora nace con las secciones y actividades de su **plantilla**, cada actividad con su pieza, su paso, su criterio y su valor, que después ajusta (`PLANTILLAS_TALLER`, en `src/modulos/taller/reglas.ts`):
 - **Rectificadora completa:** 7 secciones y 29 actividades.
 - **Taller de culatas:** recepción, culatas y terceros, con 9 actividades.
 - **Block, cigüeñal y bielas:** sin culatas, con armado de medio motor y control final; 19 actividades.
+
+También nace con las máquinas que sirven a sus actividades. Después, el administrador agrega, renombra, ordena (es el orden de las columnas del tablero) y apaga sus **secciones** desde Actividades. Una sección se apaga cuando no le quedan actividades en uso ni trabajos por hacer.
+
+**Funciones por plan.** Tres módulos se encienden por cliente: **Compras y proveedores** (Free en adelante), **Bodega de insumos** (Starter en adelante) y **Máquinas y mantención** (Pro y Enterprise). La consola los enciende o apaga uno por uno. Apagado, su menú no aparece y el servidor no lo atiende: sin compras, los repuestos se agregan y se reciben en la OT; sin máquinas, una parada no frena trabajos.
 
 ## Cómo se corre
 
@@ -104,7 +119,8 @@ El stack es el mismo de ERP Nuevo: TypeScript, Hono dentro de Vite, React + Ant 
 |---|---|
 | `taller` | Secciones, actividades, OT y sus trabajos, el reparto (ruta por pieza, especialistas, detenciones, carga) y el tablero |
 | `comercial` | Clientes y cotizaciones |
-| `compras` | Proveedores, repuestos de cada OT, órdenes de compra con su chofer y recepción |
+| `compras` | Proveedores, repuestos de cada OT, órdenes de compra con su chofer y recepción, y la bodega de insumos |
+| `maquinas` | Máquinas, sus actividades, paradas y mantención |
 | `organizacion` | Panel del administrador de cada rectificadora |
 | `plataforma` | Consola |
 | `acceso` | Identidad, guardias y permisos |
@@ -118,11 +134,13 @@ El stack es el mismo de ERP Nuevo: TypeScript, Hono dentro de Vite, React + Ant 
 - **Cobro real.** Las facturas y los eventos de pago son de demostración; deben venir del procesador de pagos.
 - **Del taller, para la siguiente vuelta:**
   - PDF de la cotización y del acta de entrega, y envío por correo;
-  - fotos y mediciones del diagnóstico;
+  - fotos del diagnóstico, y las mediciones como datos (hoy se anotan como texto en la ficha);
   - horas reales con reloj (para comparar con las estándar y afinar la cola);
   - fecha de entrega sugerida según la cola de cada sección y los repuestos;
   - la orden de compra impresa o enviada al proveedor y el costo real contra el cotizado (con eso, cuánto se le compra a cada proveedor);
-  - bodega de repuestos (lo que queda en stock para la próxima OT);
+  - stock de repuestos (lo que sobra para la próxima OT; hoy la bodega es solo de insumos);
+  - piezas propias de cada taller (hoy son fijas: motor, culata, block, cigüeñal, bielas, árbol de levas y otra), para talleres de bombas inyectoras o turbos;
+  - días de gracia en la salud de un cliente recién creado (hoy aparece «en riesgo» porque nadie ha entrado todavía);
   - portal para los clientes de cada rectificadora;
   - facturación al cliente final.
 - **Zona horaria.** Los días se agrupan en UTC.
