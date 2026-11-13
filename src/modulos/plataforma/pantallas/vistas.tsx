@@ -1,7 +1,7 @@
 // Las vistas de UN cliente que se ven igual en la ficha de la consola y en el panel del administrador del cliente.
 // Reciben los datos ya pedidos: quién puede verlos lo decide el servidor, no estas piezas.
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { Segmented, Select, Table } from 'antd'
+import { Form, Input, Segmented, Select, Table } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { useState } from 'react'
 import { api, consulta } from '../../../pantallas/api'
@@ -58,6 +58,29 @@ export function TablaUsuarios({ usuarios, acciones }: { usuarios: UsuarioVisible
     ...(acciones ? [{ title: '', key: 'a', width: 1, render: (_: unknown, u: UsuarioVisible) => acciones(u) }] : []),
   ]
   return <Table size="small" rowKey="id" dataSource={usuarios} columns={columnas} scroll={{ x: 980 }} pagination={usuarios.length > 50 ? { pageSize: 50 } : false} />
+}
+
+/**
+ * Quién es una persona nueva: nombre, correo y, si se pide, su rol. Va dentro de un `Form`; con `prefijo` los campos
+ * quedan bajo ese nombre (el administrador del alta de una rectificadora).
+ */
+export function CamposDePersona({ prefijo, conRol = true }: { prefijo?: string; conRol?: boolean }) {
+  const nombre = (campo: string) => (prefijo ? [prefijo, campo] : campo)
+  return (
+    <div className="columnas">
+      <Form.Item label="Nombre y apellido" name={nombre('nombre')} rules={[{ required: true, message: 'Escribe el nombre y el apellido.' }, { min: 3, message: 'Escribe el nombre y el apellido.' }]}>
+        <Input placeholder="Rosa Muñoz" />
+      </Form.Item>
+      <Form.Item label="Correo" name={nombre('correo')} rules={[{ required: true, message: 'Escribe el correo.' }, { type: 'email', message: 'El correo no es válido.' }]}>
+        <Input placeholder="rosa@rectificadora.cl" />
+      </Form.Item>
+      {conRol && (
+        <Form.Item label="Rol" name={nombre('rol')} rules={[{ required: true, message: 'Elige el rol.' }]} extra="El técnico no ve montos; el jefe de taller recibe, cotiza, asigna y compra.">
+          <Select options={Object.entries(ROLES_TENANT).map(([value, label]) => ({ value, label }))} />
+        </Form.Item>
+      )}
+    </div>
+  )
 }
 
 export function CifrasUsuarios({ usuarios }: { usuarios: UsuarioVisible[] }) {

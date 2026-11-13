@@ -3,7 +3,7 @@
 import { DownOutlined } from '@ant-design/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getRouteApi, useNavigate } from '@tanstack/react-router'
-import { Alert, App, Button, Dropdown, Form, Input, Modal, Select, Table } from 'antd'
+import { Alert, App, Button, Dropdown, Form, Input, Modal, Select, Table, Tooltip } from 'antd'
 import { useState } from 'react'
 import { api } from '../../../pantallas/api'
 import { Bloque, Cargando, Cifras, Hace, PagoTag, Problema, TablaEventos } from '../../../pantallas/componentes'
@@ -15,7 +15,7 @@ import type { EstadoTenant } from '../../tenants/reglas'
 import { ESTADOS_TENANT, FUNCIONES, type Funcion } from '../../tenants/reglas'
 import { ROLES_TENANT, type RolTenant } from '../../usuarios/reglas'
 import type { Dia, Factura, FacturacionTenant, Integraciones, PaginaEventos, SeguridadTenant, Uso, UsoTenant, UsuarioVisible } from '../../plataforma/pantallas/tipos'
-import { ActividadPorPeriodo, CifrasUsuarios, TablaLimites, TablaUsuarios, VistaAuditoria, VistaFacturacion, VistaIntegraciones, VistaSeguridad, VistaUso } from '../../plataforma/pantallas/vistas'
+import { ActividadPorPeriodo, CamposDePersona, CifrasUsuarios, TablaLimites, TablaUsuarios, VistaAuditoria, VistaFacturacion, VistaIntegraciones, VistaSeguridad, VistaUso } from '../../plataforma/pantallas/vistas'
 
 const ruta = getRouteApi('/organizacion/')
 
@@ -37,7 +37,7 @@ export function Organizacion() {
   const persona = yo.data?.actor?.tipo === 'tenant' ? yo.data.actor : yo.data?.impersonacion
   const contenido: Record<PestanaOrganizacion, React.ReactNode> = {
     resumen: <Resumen />,
-    usuarios: <Usuarios yo={persona?.id} />,
+    usuarios: <Usuarios yo={persona?.id} suspendida={persona?.estadoTenant === 'suspended'} />,
     uso: <Consulta<UsoTenant> ruta="/organizacion/uso" vista={(d) => <VistaUso datos={d} />} />,
     facturacion: <Consulta<FacturacionTenant> ruta="/organizacion/facturacion" vista={(d) => <VistaFacturacion datos={d} />} />,
     integraciones: <Consulta<Integraciones> ruta="/organizacion/integraciones" vista={(d) => <VistaIntegraciones datos={d} />} />,
@@ -137,15 +137,37 @@ function Resumen() {
   )
 }
 
-function Usuarios({ yo }: { yo?: string }) {
+type Cupo = { usados: number; limite: number; plan: string }
+
+function Usuarios({ yo, suspendida }: { yo?: string; suspendida: boolean }) {
   const r = useQuery({ queryKey: ['organizacion', 'usuarios'], queryFn: () => api<UsuarioVisible[]>('GET', '/organizacion/usuarios') })
+  const cupo = useQuery({ queryKey: ['organizacion', 'usuarios', 'cupo'], queryFn: () => api<Cupo>('GET', '/organizacion/usuarios/cupo') })
   const [dialogo, setDialogo] = useState<{ tipo: 'bloqueo' | 'rol'; usuario: UsuarioVisible } | null>(null)
+  const [agregando, setAgregando] = useState(false)
   if (r.isPending) return <Cargando />
   if (r.isError) return <Problema error={r.error} />
+  const lleno = Boolean(cupo.data && cupo.data.usados >= cupo.data.limite)
+  const noSePuede = suspendida ? 'Tu organización está suspendida.' : lleno ? `Ya están los ${cupo.data!.limite} usuarios del plan ${cupo.data!.plan}. Para sumar a alguien hay que ampliar el plan.` : undefined
   return (
     <>
       <CifrasUsuarios usuarios={r.data} />
-      <Bloque titulo="Usuarios de la organización">
+      <Bloque
+        titulo="Usuarios de la organización"
+        extra={
+          <>
+            {cupo.data && (
+              <span>
+                {cupo.data.usados} de {cupo.data.limite} usuarios del plan {cupo.data.plan}
+              </span>
+            )}
+            <Tooltip title={noSePuede}>
+              <Button size="small" type="primary" disabled={Boolean(noSePuede)} onClick={() => setAgregando(true)}>
+                Agregar persona
+              </Button>
+            </Tooltip>
+          </>
+        }
+      >
         <TablaUsuarios
           usuarios={r.data}
           acciones={(u) =>
@@ -164,7 +186,31 @@ function Usuarios({ yo }: { yo?: string }) {
         />
       </Bloque>
       {dialogo && <AccionUsuario {...dialogo} cerrar={() => setDialogo(null)} />}
+      {agregando && <AgregarPersona cerrar={() => setAgregando(false)} />}
     </>
+  )
+}
+
+/** Sumar a alguien de la organización. Al técnico nuevo, después se le dan sus actividades en el sistema del taller. */
+function AgregarPersona({ cerrar }: { cerrar: () => void }) {
+  const [form] = Form.useForm<{ nombre: string; correo: string; rol: RolTenant }>()
+  const consultas = useQueryClient()
+  const { message } = App.useApp()
+  const agregar = useMutation({
+    mutationFn: (v: { nombre: string; correo: string; rol: RolTenant }) => api('POST', '/organizacion/usuarios', v),
+    onSuccess: async (_, v) => {
+      message.success(v.rol === 'technician' ? `${v.nombre} quedó agregado. Dale sus actividades en «Actividades» para que le lleguen sus trabajos.` : `${v.nombre} quedó agregado.`)
+      cerrar()
+      await consultas.invalidateQueries({ queryKey: ['organizacion'] })
+    },
+  })
+  return (
+    <Modal open title="Agregar a alguien de la organización" okText="Agregar" cancelText="Cancelar" confirmLoading={agregar.isPending} onCancel={() => !agregar.isPending && cerrar()} onOk={() => form.validateFields().then((v) => agregar.mutate(v))} destroyOnHidden width={600}>
+      {agregar.isError && <Alert type="error" showIcon title={(agregar.error as Error).message} style={{ marginBottom: 12 }} />}
+      <Form form={form} layout="vertical" requiredMark={false} initialValues={{ rol: 'technician' }}>
+        <CamposDePersona />
+      </Form>
+    </Modal>
   )
 }
 

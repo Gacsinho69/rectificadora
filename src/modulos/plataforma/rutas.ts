@@ -329,10 +329,10 @@ export const rutasPlataforma = new Hono<EntornoPlataforma>()
     return c.json({ ...r, completo, filas: ocultarIps(r.filas, completo) })
   })
 
-  /** Para los filtros de la pantalla: los clientes por nombre. */
+  /** Para las pantallas: los clientes por nombre (filtros) y el dominio de la plataforma (el alta muestra el subdominio). */
   .get('/opciones', async (c) => {
     const lista = await c.var.base.select({ id: tenants.id, nombre: tenants.name }).from(tenants).orderBy(asc(tenants.name))
-    return c.json({ tenants: lista })
+    return c.json({ tenants: lista, dominio: DOMINIO })
   })
 
   .route('/', accionesPlataforma)

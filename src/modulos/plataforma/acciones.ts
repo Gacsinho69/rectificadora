@@ -9,9 +9,12 @@ import { nuevoId } from '../../ids'
 import { type EntornoPlataforma, exigirPermiso } from '../acceso/guardias'
 import { origenDe, registrar } from '../eventos/registrar'
 import { impersonations } from '../soporte/tablas'
-import { CAMBIOS_DE_ESTADO, ESTADOS_TENANT, type EstadoTenant, FUNCIONES, type Funcion, LIMITES, type Limites, PLANES, type Plan } from '../tenants/reglas'
+import { tallerInicial } from '../taller/comun'
+import { services, shopSections } from '../taller/tablas'
+import { altaTenantSchema, CAMBIOS_DE_ESTADO, ESTADOS_TENANT, type EstadoTenant, FUNCIONES, FUNCIONES_DEL_PLAN, type Funcion, LIMITES, type Limites, PLANES, type Plan } from '../tenants/reglas'
 import { tenants } from '../tenants/tablas'
-import { ROLES_TENANT, type RolTenant } from '../usuarios/reglas'
+import { agregarPersona } from '../usuarios/alta'
+import { personaSchema, ROLES_TENANT, type RolTenant } from '../usuarios/reglas'
 import { users } from '../usuarios/tablas'
 
 type C = Context<EntornoPlataforma>
@@ -41,6 +44,60 @@ const eventoDeEstado = (antes: EstadoTenant, despues: EstadoTenant) =>
 
 /** Se montan dentro de `rutasPlataforma`, detrás de su guardia (solo el equipo). */
 export const accionesPlataforma = new Hono<EntornoPlataforma>()
+
+  /**
+   * Dar de alta una rectificadora: el cliente con su plan (en prueba o activo), su taller según la plantilla y su primer
+   * administrador, todo junto con sus eventos. Desde aquí su administrador suma a su gente.
+   */
+  .post('/tenants', conDatos(altaTenantSchema), async (c) => {
+    await exigirPermiso(c, 'tenants.create', null)
+    const { base, ahora } = c.var
+    const d = c.req.valid('json')
+    const [ocupado] = await base.select({ nombre: tenants.name }).from(tenants).where(eq(tenants.slug, d.subdominio))
+    if (ocupado) throw rechazo(409, `El subdominio «${d.subdominio}» ya es de ${ocupado.nombre}.`)
+    const id = nuevoId('tn')
+    const prueba = d.estado === 'trial'
+    // En prueba no paga todavía; activo, paga el precio de lista salvo que se haya negociado otro.
+    const mrr = prueba ? 0 : (d.mrr ?? PLANES[d.plan].precio)
+    const proximoCobro = new Date(ahora)
+    proximoCobro.setUTCMonth(proximoCobro.getUTCMonth() + 1)
+    const pruebaHasta = prueba ? new Date(ahora.getTime() + d.diasPrueba * 86_400_000) : null
+    const { secciones, trabajos } = tallerInicial(id, nuevoId, () => 1, d.plantilla)
+    const despues = { nombre: d.nombre, subdominio: d.subdominio, region: d.region, plan: d.plan, estado: d.estado, mrr, plantilla: d.plantilla, prueba_hasta: pruebaHasta?.toISOString() ?? null }
+    const administradorId = await base.transaction(async (tx) => {
+      await tx.insert(tenants).values({
+        id,
+        name: d.nombre,
+        slug: d.subdominio,
+        region: d.region,
+        status: d.estado,
+        plan: d.plan,
+        featureFlags: Object.fromEntries(FUNCIONES_DEL_PLAN[d.plan].map((f) => [f, true])),
+        billingEmail: d.correoFacturacion,
+        billingStatus: mrr ? 'paid' : 'none',
+        mrr,
+        nextBillingAt: mrr ? proximoCobro : null,
+        trialEndsAt: pruebaHasta,
+        createdAt: ahora,
+        updatedAt: ahora,
+      })
+      await tx.insert(shopSections).values(secciones)
+      await tx.insert(services).values(trabajos)
+      await registrar(tx, origenDe(c), { tenantId: id, eventType: 'tenant.created', targetId: id, targetType: 'tenant', metadata: { antes: null, despues, motivo: d.motivo } })
+      return agregarPersona(tx, origenDe(c), id, { ...d.administrador, rol: 'admin' }, ahora, { motivo: d.motivo })
+    })
+    return c.json({ id, administradorId, subdominio: d.subdominio })
+  })
+
+  /** Agregar a alguien a un cliente (lo pide el cliente, o su administrador se fue). Respeta el límite de su plan. */
+  .post('/tenants/:id/usuarios', conDatos(personaSchema.extend({ motivo })), async (c) => {
+    const t = await tenantOError(c, c.req.param('id'))
+    await exigirPermiso(c, 'users.create', t.id)
+    if (t.status === 'cancelled') throw rechazo(409, 'El cliente está cancelado.')
+    const { motivo, ...persona } = c.req.valid('json')
+    const id = await c.var.base.transaction((tx) => agregarPersona(tx, origenDe(c), t.id, persona, c.var.ahora, { motivo }))
+    return c.json({ id })
+  })
 
   .post('/tenants/:id/estado', conDatos(z.object({ estado: z.enum(claves(ESTADOS_TENANT)), motivo })), async (c) => {
     const t = await tenantOError(c, c.req.param('id'))

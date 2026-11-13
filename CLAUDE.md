@@ -14,6 +14,7 @@ No es programador. Todo en castellano de Chile, simple, con un caso del taller c
 - **El estado de una orden de compra sale de sus repuestos** (`estadoDeOc`) y se guarda con `recalcularOc` cada vez que algo se recibe o se anula. El técnico no ve costos ni proveedores.
 - **El proveedor sale de la lista** (`suppliers`): una orden de compra va siempre a uno de la lista, activo. Su nombre va guardado junto a cada orden y cada repuesto; al corregirlo en la lista se corrige en todos, en la misma transacción. El mismo nombre no se repite (`claveDeProveedor`). El técnico no ve la lista: del proveedor ve solo dónde retirar una orden.
 - **Las cantidades salen del criterio de la actividad** (`cantidadSegun`) con los datos del motor de la OT o la cotización, y los trabajos nuevos se reparten con `repartirOt` (`taller/reparto.ts`), en la misma transacción que los crea.
+- **Toda persona nueva entra con `agregarPersona`** (`usuarios/alta.ts`), en la misma transacción que su evento: respeta el límite de usuarios del plan y no repite el correo en la organización. Una rectificadora nueva nace con `tallerInicial` y su plantilla.
 - **Lo que hace una rectificadora suma a su uso** con `sumarUso`, en la misma transacción. Así la consola mide el uso real.
 - **Acciones sensibles de la consola:** `exigirPermiso`, motivo obligatorio, y el cambio y su evento (`registrar`) en la misma transacción, con antes y después.
 - **El técnico no ve montos** (`veMontos`). El sistema y el panel del cliente no reciben nada interno de la plataforma (salud, alertas).

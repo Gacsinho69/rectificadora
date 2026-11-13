@@ -13,7 +13,7 @@ import { tenants } from '../tenants/tablas'
 import { usageDaily } from '../uso/tablas'
 import type { RolTenant } from '../usuarios/reglas'
 import { nuevoId } from '../../ids'
-import { estadoDeOt, type Motor, MOTOR_POR_OMISION, SECCIONES_INICIALES, TRABAJOS_INICIALES } from './reglas'
+import { estadoDeOt, type Motor, MOTOR_POR_OMISION, PLANTILLAS_TALLER, type PlantillaTaller, SECCIONES_INICIALES, TRABAJOS_INICIALES } from './reglas'
 import { shopSections, workOrders, workOrderTasks } from './tablas'
 
 /** Recibe, cotiza, asigna, aprueba calidad y entrega: el jefe de taller y el administrador. */
@@ -116,13 +116,16 @@ export async function recalcularOt(tx: Base, otId: string) {
 }
 
 /**
- * Las secciones y la lista de trabajos con que nace el taller de un cliente nuevo. `id` y `factor` los cambia la
- * siembra de demostración (ids con semilla, precios algo distintos en cada taller).
+ * Las secciones y la lista de trabajos con que nace el taller de un cliente nuevo, según su plantilla (la rectificadora
+ * completa, si no se dice otra). `id` y `factor` los cambia la siembra de demostración (ids con semilla, precios algo
+ * distintos en cada taller).
  */
-export function tallerInicial(tenantId: string, id: (prefijo: string) => string = nuevoId, factor: (codigo: string) => number = () => 1) {
-  const secciones = SECCIONES_INICIALES.map((s, i) => ({ id: id('sec'), tenantId, name: s.nombre, kind: s.clave === 'diagnostico' ? ('diagnosis' as const) : ('work' as const), position: i, active: true }))
-  const porClave = new Map(SECCIONES_INICIALES.map((s, i) => [s.clave, secciones[i].id]))
-  const trabajos = TRABAJOS_INICIALES.map((t) => ({
+export function tallerInicial(tenantId: string, id: (prefijo: string) => string = nuevoId, factor: (codigo: string) => number = () => 1, plantilla: PlantillaTaller = 'completa') {
+  const p = PLANTILLAS_TALLER[plantilla]
+  const elegidas = SECCIONES_INICIALES.filter((s) => (p.secciones as readonly string[]).includes(s.clave))
+  const secciones = elegidas.map((s, i) => ({ id: id('sec'), tenantId, name: s.nombre, kind: s.clave === 'diagnostico' ? ('diagnosis' as const) : ('work' as const), position: i, active: true }))
+  const porClave = new Map(elegidas.map((s, i) => [s.clave, secciones[i].id]))
+  const trabajos = TRABAJOS_INICIALES.filter((t) => (p.codigos as readonly string[]).includes(t.codigo)).map((t) => ({
     id: id('srv'),
     tenantId,
     sectionId: porClave.get(t.seccion)!,

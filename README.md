@@ -47,7 +47,10 @@ Por ejemplo, la prueba hidráulica de culata se cobra por cilindro: la culata m�
 - **Técnico:** ve el taller y las OT, trabaja lo suyo y lo detiene si falta algo; no ve cotizaciones, montos ni la lista de proveedores. Si es el chofer de compras, ve sus retiros (con dónde retirar) y recibe lo que trae.
 - **Solo lectura:** mira todo y no cambia nada.
 
-Cada rectificadora nace con 7 secciones y 29 actividades con su pieza, su paso, su criterio y su valor (`SECCIONES_INICIALES` y `TRABAJOS_INICIALES`), que después ajusta.
+Cada rectificadora nace con las secciones y actividades de su **plantilla**, cada actividad con su pieza, su paso, su criterio y su valor, que después ajusta (`PLANTILLAS_TALLER`, en `src/modulos/taller/reglas.ts`):
+- **Rectificadora completa:** 7 secciones y 29 actividades.
+- **Taller de culatas:** recepción, culatas y terceros, con 9 actividades.
+- **Block, cigüeñal y bielas:** sin culatas, con armado de medio motor y control final; 19 actividades.
 
 ## Cómo se corre
 
@@ -69,10 +72,13 @@ Se abre en http://localhost:5180. La primera vez crea la base en `.datos/desarro
 
 - **Resumen:** clientes por estado, MRR, pagos vencidos o fallidos, usuarios activos, ingresos y fallidos, errores críticos, alertas y clientes en riesgo.
 - **Clientes:** tabla con filtros y orden. Los filtros viajan en la dirección.
-- **Ficha de cada cliente:** general, usuarios, actividad, uso, facturación, seguridad y auditoría, más «Abrir su sistema», que entra como su administrador con motivo y registro.
+- **Nueva rectificadora:** se da de alta con su nombre y subdominio (se propone desde el nombre), su región, su plan, si parte en prueba (con sus días) o activa (con el precio de lista o uno negociado), su correo de facturación, la plantilla de su taller y su primer administrador. Pide el permiso «Dar de alta clientes nuevos» y un motivo; queda en su auditoría con el después. El subdominio no se repite ni toma los de la plataforma (`www`, `api`, `admin`…).
+- **Ficha de cada cliente:** general, usuarios, actividad, uso, facturación, seguridad y auditoría, más «Abrir su sistema», que entra como su administrador con motivo y registro. En usuarios, «Agregar persona» (con su permiso y motivo).
 - **Alertas, ingresos y actividad, y auditoría.**
 
-El **uso** que mide la consola (OT del mes contra el límite del plan, cotizaciones, documentos y llamadas a la API) sale del trabajo real de cada rectificadora: cada pedido a su sistema suma una llamada y cada OT o cotización suma lo suyo (`sumarUso` en `src/modulos/taller/comun.ts`). Si una rectificadora llega al límite de OT de su plan, la recepción se lo avisa. Las operaciones (OT recibidas, entregadas o anuladas, y cotizaciones enviadas, aceptadas o rechazadas) aparecen en su actividad y su auditoría.
+**Su gente.** Desde que nace, el administrador de cada rectificadora agrega a su gente en su panel («Usuarios y roles»): nombre, correo y rol. A un técnico nuevo se le dan después sus actividades, y desde ahí le llegan sus trabajos. Un correo no se repite dentro de una organización, pero la misma persona puede estar en dos. Las cuentas nacen activas mientras no haya inicio de sesión real.
+
+El **uso** que mide la consola (OT del mes contra el límite del plan, cotizaciones, documentos y llamadas a la API) sale del trabajo real de cada rectificadora: cada pedido a su sistema suma una llamada y cada OT o cotización suma lo suyo (`sumarUso` en `src/modulos/taller/comun.ts`). Dos límites se cumplen: si una rectificadora llega al de OT del mes, la recepción se lo avisa; si llega al de usuarios, no se agrega a nadie más hasta ampliar el plan o el límite (cuenta quien tiene cuenta, activo o bloqueado). El almacenamiento y las llamadas a la API se miden, pero todavía no frenan nada. Las operaciones (OT recibidas, entregadas o anuladas, y cotizaciones enviadas, aceptadas o rechazadas) aparecen en su actividad y su auditoría.
 
 **Alertas:** sin actividad 14/30 días o nunca, pago fallido o vencido, prueba por vencer, uso sobre 80/90 %, muchos ingresos fallidos, error crítico, webhook o tarea fallando, consumo de API anormal e intento de acceso a otro cliente. Se calculan con los datos de ahora (`src/modulos/alertas/reglas.ts`).
 
@@ -88,7 +94,7 @@ El **uso** que mide la consola (OT del mes contra el límite del plan, cotizacio
    - elegir otro tenant por encabezado o por la dirección;
    - que alguien de una rectificadora pida la consola global.
 
-El equipo de la plataforma vive en su propia tabla y es el único perfil con acceso global. Cada acción sensible pide su permiso y un motivo, y queda en la auditoría con antes y después. Al **impersonar** queda registrado quién, a qué cliente, como quién, inicio, fin, motivo e IP. Vence en una hora, y lo hecho dentro queda a nombre de la persona del equipo. Lo prueban `acceso/aislamiento.test.ts`, `plataforma/acciones.test.ts`, `taller/rutas.test.ts` y `compras/rutas.test.ts`.
+El equipo de la plataforma vive en su propia tabla y es el único perfil con acceso global. Cada acción sensible pide su permiso y un motivo, y queda en la auditoría con antes y después. Al **impersonar** queda registrado quién, a qué cliente, como quién, inicio, fin, motivo e IP. Vence en una hora, y lo hecho dentro queda a nombre de la persona del equipo. Lo prueban `acceso/aislamiento.test.ts`, `plataforma/acciones.test.ts`, `plataforma/alta.test.ts`, `taller/rutas.test.ts` y `compras/rutas.test.ts`.
 
 ## Cómo está hecho
 
@@ -108,7 +114,7 @@ El stack es el mismo de ERP Nuevo: TypeScript, Hono dentro de Vite, React + Ant 
 
 ## Qué falta
 
-- **Inicio de sesión real.** Hoy se entra con «Entrar como» (cookie sin firma, solo desarrollo). Para producción hay que pasar a `crearApp` una `Identidad` que lea la sesión firmada (`src/modulos/acceso/identidad.ts`). Tampoco hay invitaciones ni alta de rectificadoras nuevas desde la pantalla. `tallerInicial` ya arma su taller.
+- **Inicio de sesión real.** Hoy se entra con «Entrar como» (cookie sin firma, solo desarrollo). Para producción hay que pasar a `crearApp` una `Identidad` que lea la sesión firmada (`src/modulos/acceso/identidad.ts`). Con eso, las personas nuevas deben nacer invitadas, recibir su correo y quedar activas al entrar la primera vez (hoy nacen activas, en `agregarPersona`).
 - **Cobro real.** Las facturas y los eventos de pago son de demostración; deben venir del procesador de pagos.
 - **Del taller, para la siguiente vuelta:**
   - PDF de la cotización y del acta de entrega, y envío por correo;

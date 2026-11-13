@@ -61,7 +61,11 @@ export function Cliente() {
 
   const pestanas: { key: PestanaCliente; label: string; children: React.ReactNode }[] = [
     { key: 'general', label: 'General', children: <General t={t} puede={puede} cambiarFuncion={(funcion, activa) => setDialogo({ tipo: 'funcion', funcion, activa })} /> },
-    { key: 'usuarios', label: `Usuarios (${t.usuarios.total + t.usuarios.invitados})`, children: <Usuarios id={id} acciones={accionesUsuario} puedeVer={puede('data.sensitive')} /> },
+    {
+      key: 'usuarios',
+      label: `Usuarios (${t.usuarios.total + t.usuarios.invitados})`,
+      children: <Usuarios id={id} acciones={accionesUsuario} puedeVer={puede('data.sensitive')} agregar={t.estado === 'cancelled' ? undefined : { permitido: puede('users.create'), abrir: () => setDialogo({ tipo: 'agregar' }) }} />,
+    },
     { key: 'actividad', label: 'Actividad', children: <Actividad id={id} /> },
     { key: 'uso', label: 'Uso', children: <PestanaUso id={id} ajustes={t.ajustes} /> },
     { key: 'facturacion', label: 'Facturación', children: <PestanaFacturacion id={id} /> },
@@ -230,7 +234,7 @@ function VerCompleto({ completo, puede, cambiar }: { completo: boolean; puede: b
   )
 }
 
-function Usuarios({ id, acciones, puedeVer }: { id: string; acciones: (u: UsuarioVisible) => React.ReactNode; puedeVer: boolean }) {
+function Usuarios({ id, acciones, puedeVer, agregar }: { id: string; acciones: (u: UsuarioVisible) => React.ReactNode; puedeVer: boolean; agregar?: { permitido: boolean; abrir: () => void } }) {
   const [completo, setCompleto] = useState(false)
   const r = useQuery({ queryKey: ['tenant', id, 'usuarios', completo], queryFn: () => api<{ usuarios: UsuarioVisible[] }>('GET', `/plataforma/tenants/${id}/usuarios${completo ? '?completo=1' : ''}`) })
   if (r.isPending) return <Cargando />
@@ -238,7 +242,21 @@ function Usuarios({ id, acciones, puedeVer }: { id: string; acciones: (u: Usuari
   return (
     <>
       <CifrasUsuarios usuarios={r.data.usuarios} />
-      <Bloque titulo="Usuarios" extra={<VerCompleto completo={completo} puede={puedeVer} cambiar={setCompleto} />}>
+      <Bloque
+        titulo="Usuarios"
+        extra={
+          <>
+            <VerCompleto completo={completo} puede={puedeVer} cambiar={setCompleto} />
+            {agregar && (
+              <Tooltip title={agregar.permitido ? undefined : `Te falta el permiso «${PERMISOS_PLATAFORMA['users.create']}»`}>
+                <Button size="small" disabled={!agregar.permitido} onClick={agregar.abrir}>
+                  Agregar persona
+                </Button>
+              </Tooltip>
+            )}
+          </>
+        }
+      >
         <TablaUsuarios usuarios={r.data.usuarios} acciones={acciones} />
       </Bloque>
     </>

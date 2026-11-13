@@ -163,8 +163,8 @@ export async function sembrarDemo(base: Base, ahora = new Date(), semilla = 2026
   // ── El equipo de la plataforma ──
   const equipo = [
     { id: id('adm'), name: 'Valentina Rojas', email: 'valentina.rojas@plataforma.test', permissions: TODOS_LOS_PERMISOS },
-    { id: id('adm'), name: 'Matías Soto', email: 'matias.soto@plataforma.test', permissions: ['users.block', 'support.impersonate'] as typeof TODOS_LOS_PERMISOS },
-    { id: id('adm'), name: 'Camila Fuentes', email: 'camila.fuentes@plataforma.test', permissions: ['tenants.plan', 'tenants.status'] as typeof TODOS_LOS_PERMISOS },
+    { id: id('adm'), name: 'Matías Soto', email: 'matias.soto@plataforma.test', permissions: ['users.create', 'users.block', 'support.impersonate'] as typeof TODOS_LOS_PERMISOS },
+    { id: id('adm'), name: 'Camila Fuentes', email: 'camila.fuentes@plataforma.test', permissions: ['tenants.create', 'tenants.plan', 'tenants.status'] as typeof TODOS_LOS_PERMISOS },
   ]
   await base.insert(platformAdmins).values(equipo.map((a) => ({ ...a, createdAt: new Date(ahora.getTime() - 800 * DIA) })))
   const [valentina, matias, camila] = equipo

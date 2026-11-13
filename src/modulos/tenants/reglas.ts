@@ -1,5 +1,10 @@
-// Los catálogos del negocio: estados, planes con sus límites y las funciones que se encienden por cliente.
-// Sin dependencias del servidor: las pantallas los importan igual.
+// Los catálogos del negocio: estados, planes con sus límites y las funciones que se encienden por cliente, y lo que
+// pide el alta de una rectificadora nueva. Sin dependencias del servidor: las pantallas los importan igual.
+import { z } from 'zod'
+import { PLANTILLAS_TALLER } from '../taller/reglas'
+import { correoSchema } from '../usuarios/reglas'
+
+const claves = <T extends object>(o: T) => Object.keys(o) as [keyof T & string, ...(keyof T & string)[]]
 
 export const ESTADOS_TENANT = {
   active: 'Activo',
@@ -89,3 +94,58 @@ export type UsoClave = keyof typeof USOS_CLAVE
 
 export const REGIONES = { 'sa-1': 'Sudamérica 1 (Santiago)', 'sa-2': 'Sudamérica 2 (São Paulo)', 'na-1': 'Norteamérica 1' } as const
 export type Region = keyof typeof REGIONES
+
+/** Los subdominios que no puede tomar una rectificadora: son de la plataforma o se confunden con ella. */
+export const SUBDOMINIOS_RESERVADOS = ['www', 'api', 'app', 'admin', 'administracion', 'plataforma', 'consola', 'soporte', 'ayuda', 'mail', 'correo', 'static', 'assets', 'cdn', 'organizacion', 'entrar', 'salir', 'demo', 'test', 'status', 'blog']
+
+/** El subdominio que se propone para un nombre: «Rectificadora Ñuble Sur» → «nuble-sur». */
+export const subdominioDe = (nombre: string) =>
+  nombre
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+    .replace(/^rectificadoras?\s+/, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/-+$/, '')
+
+/** Qué tiene de malo un subdominio, en palabras de quien lo escribe; null si sirve. */
+export function faltaDelSubdominio(s: string): string | null {
+  if (!/^[a-z0-9-]{3,40}$/.test(s)) return 'El subdominio va de 3 a 40 letras sin tildes, números o guiones.'
+  if (s.startsWith('-') || s.endsWith('-') || s.includes('--')) return 'El subdominio no empieza ni termina con guion, ni lleva dos seguidos.'
+  if (SUBDOMINIOS_RESERVADOS.includes(s)) return `«${s}» es de la plataforma: elige otro.`
+  return null
+}
+
+/**
+ * El alta de una rectificadora desde la consola: quién es, su subdominio, su plan (en prueba o activo desde ya), con qué
+ * taller nace y su primer administrador. El motivo queda en la auditoría.
+ */
+export const altaTenantSchema = z.object({
+  nombre: z.string({ error: 'Escribe el nombre de la rectificadora.' }).trim().min(3, 'Escribe el nombre de la rectificadora.').max(120),
+  subdominio: z
+    .string({ error: 'Escribe el subdominio.' })
+    .trim()
+    .toLowerCase()
+    .superRefine((s, ctx) => {
+      const falta = faltaDelSubdominio(s)
+      if (falta) ctx.addIssue({ code: 'custom', message: falta })
+    }),
+  region: z.enum(claves(REGIONES)),
+  plan: z.enum(claves(PLANES)),
+  estado: z.enum(['trial', 'active']),
+  /** Cuántos días de prueba, si parte en prueba. */
+  diasPrueba: z.number().int().min(1, 'La prueba dura al menos un día.').max(90, 'La prueba dura a lo más 90 días.').default(14),
+  /** Un precio distinto al de lista (Enterprise negociado). Vacío: el de lista. */
+  mrr: z.number().int().min(0).max(100_000_000).nullable().optional(),
+  correoFacturacion: correoSchema,
+  plantilla: z.enum(claves(PLANTILLAS_TALLER), { error: 'Elige con qué taller parte.' }),
+  administrador: z.object({
+    nombre: z.string({ error: 'Escribe el nombre del administrador.' }).trim().min(3, 'Escribe el nombre del administrador.').max(120),
+    correo: correoSchema,
+  }),
+  motivo: z.string({ error: 'Escribe el motivo.' }).trim().min(10, 'Escribe el motivo (al menos 10 letras): queda en la auditoría.').max(500),
+})
+export type DatosAltaTenant = z.infer<typeof altaTenantSchema>

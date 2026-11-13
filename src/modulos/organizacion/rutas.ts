@@ -20,7 +20,8 @@ import { panorama } from '../plataforma/panorama'
 import { DOMINIO } from '../plataforma/rutas'
 import { FUNCIONES, type Funcion, PLANES } from '../tenants/reglas'
 import { tenants } from '../tenants/tablas'
-import { ROLES_TENANT, type RolTenant } from '../usuarios/reglas'
+import { agregarPersona, cupoDeUsuarios } from '../usuarios/alta'
+import { personaSchema, ROLES_TENANT, type RolTenant } from '../usuarios/reglas'
 import { users } from '../usuarios/tablas'
 
 type C = Context<EntornoTenant>
@@ -83,6 +84,17 @@ export const rutasOrganizacion = new Hono<EntornoTenant>()
   })
 
   .get('/usuarios', async (c) => c.json(await usuariosDelTenant(c.var.base, c.var.actor.tenantId)))
+
+  /** Cuántos usuarios ocupan el plan y cuántos permite: lo que el administrador ve antes de agregar a alguien. */
+  .get('/usuarios/cupo', async (c) => c.json(await cupoDeUsuarios(c.var.base, c.var.actor.tenantId)))
+
+  /** Agregar a alguien de la organización (un técnico nuevo, el chofer), mientras alcance el plan. */
+  .post('/usuarios', conDatos(personaSchema), async (c) => {
+    exigirTenantOperativo(c)
+    const d = c.req.valid('json')
+    const id = await c.var.base.transaction((tx) => agregarPersona(tx, origenDe(c), c.var.actor.tenantId, d, c.var.ahora))
+    return c.json({ id })
+  })
 
   .post('/usuarios/:id/bloqueo', conDatos(z.object({ bloqueado: z.boolean(), motivo: z.string().trim().max(500).optional() })), async (c) => {
     exigirTenantOperativo(c)

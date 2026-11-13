@@ -67,6 +67,33 @@ export const TRABAJOS_INICIALES: { codigo: string; nombre: string; seccion: Clav
   { codigo: 'Q-01', nombre: 'Control final y prueba de presión de aceite', seccion: 'calidad', pieza: 'motor', paso: 300, tipico: true, criterio: 'fixed', unidad: 'motor', precio: 35_000, horas: 1 },
 ]
 
+/**
+ * Con qué taller nace una rectificadora nueva: las secciones y las actividades de la lista inicial que le sirven (un
+ * taller de culatas no necesita block ni cigüeñal). Después cada una ajusta sus valores, agrega las suyas y apaga las
+ * que no hace.
+ */
+export const PLANTILLAS_TALLER = {
+  completa: {
+    nombre: 'Rectificadora completa',
+    detalle: 'Motor completo y piezas sueltas: culatas, block, cigüeñal y bielas, con armado, control final y trabajos de terceros.',
+    secciones: SECCIONES_INICIALES.map((s) => s.clave),
+    codigos: TRABAJOS_INICIALES.map((t) => t.codigo),
+  },
+  culatas: {
+    nombre: 'Taller de culatas',
+    detalle: 'Solo culatas: pruebas de fisuras e hidráulica, cepillado, guías, asientos, válvulas y armado. La soldadura, con un tercero.',
+    secciones: ['diagnostico', 'culatas', 'terceros'],
+    codigos: ['D-03', 'D-04', 'T-01', 'C-01', 'C-04', 'C-05', 'C-02', 'C-03', 'C-06'],
+  },
+  block: {
+    nombre: 'Block, cigüeñal y bielas',
+    detalle: 'Sin culatas: block, cigüeñal y bielas, armado de medio motor y control final. Metalizado y nitrurado, con terceros.',
+    secciones: ['diagnostico', 'block', 'cigueñal', 'armado', 'calidad', 'terceros'],
+    codigos: ['D-01', 'D-02', 'D-03', 'B-05', 'B-03', 'B-04', 'B-01', 'B-02', 'B-06', 'G-04', 'T-03', 'G-01', 'T-02', 'G-02', 'G-03', 'G-06', 'G-05', 'A-02', 'Q-01'],
+  },
+} as const satisfies Record<string, { nombre: string; detalle: string; secciones: readonly ClaveSeccion[]; codigos: readonly string[] }>
+export type PlantillaTaller = keyof typeof PLANTILLAS_TALLER
+
 /** Lo que entra a la rectificadora: un motor completo o piezas sueltas. */
 export const PIEZAS = { motor: 'Motor completo', culata: 'Culata', block: 'Block', cigüeñal: 'Cigüeñal', bielas: 'Bielas', árbol: 'Árbol de levas', otra: 'Otra pieza' } as const
 export type Pieza = keyof typeof PIEZAS

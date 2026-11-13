@@ -2,17 +2,21 @@
 // copiando el enlace, y el botón «atrás» vuelve a la misma vista.
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { getRouteApi, useNavigate } from '@tanstack/react-router'
-import { Button, DatePicker, Input, Select, Table } from 'antd'
+import { Button, DatePicker, Input, Select, Table, Tooltip } from 'antd'
 import type { SorterResult } from 'antd/es/table/interface'
 import dayjs from 'dayjs'
+import { useState } from 'react'
 import { api, consulta } from '../../../pantallas/api'
 import { Cargando, EstadoTenantTag, Hace, Medidor, PagoTag, Problema, SaludTag } from '../../../pantallas/componentes'
 import { cifra, fecha, plata } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
 import type { BusquedaClientes } from '../../../pantallas/rutas'
+import { useYo } from '../../../pantallas/sesion'
+import { PERMISOS_PLATAFORMA } from '../../acceso/permisos'
 import { ESTADOS_SALUD } from '../../salud/reglas'
 import { ESTADOS_PAGO, ESTADOS_TENANT, PLANES } from '../../tenants/reglas'
 import { ACTIVIDAD, NIVELES_USO, type Orden } from '../listado'
+import { NuevoCliente } from './NuevoCliente'
 import type { ResumenTenant } from './tipos'
 
 const ruta = getRouteApi('/plataforma/clientes')
@@ -32,10 +36,24 @@ export function Clientes() {
   const dir = b.dir ?? 'desc'
   const ordenDe = (campo: Orden) => (orden === campo ? (dir === 'asc' ? 'ascend' : 'descend') : null)
   const hayFiltros = Object.entries(b).some(([k, v]) => v !== undefined && !['orden', 'dir', 'pagina', 'porPagina'].includes(k))
+  const yo = useYo()
+  const puedeCrear = yo.data?.actor?.tipo === 'plataforma' && yo.data.actor.permisos.includes('tenants.create')
+  const [nuevo, setNuevo] = useState(false)
 
   return (
     <>
-      <Encabezado titulo="Clientes" sub={r.data ? `${cifra(r.data.total)} ${hayFiltros ? 'con estos filtros' : 'en total'}` : undefined} />
+      <Encabezado
+        titulo="Clientes"
+        sub={r.data ? `${cifra(r.data.total)} ${hayFiltros ? 'con estos filtros' : 'en total'}` : undefined}
+        acciones={
+          <Tooltip title={puedeCrear ? undefined : `Te falta el permiso «${PERMISOS_PLATAFORMA['tenants.create']}»`}>
+            <Button type="primary" disabled={!puedeCrear} onClick={() => setNuevo(true)}>
+              Nueva rectificadora
+            </Button>
+          </Tooltip>
+        }
+      />
+      {nuevo && <NuevoCliente cerrar={() => setNuevo(false)} />}
       <div className="filtros">
         <Input.Search className="buscar" placeholder="Nombre, correo o ID del cliente" defaultValue={b.q} allowClear onSearch={(q) => cambiar({ q: q || undefined })} />
         <Select mode="multiple" allowClear maxTagCount="responsive" placeholder="Estado" value={lista(b.estado)} options={opciones(ESTADOS_TENANT)} onChange={(v) => cambiar({ estado: v.join(',') || undefined })} />

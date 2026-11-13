@@ -8,6 +8,7 @@ import { megas, plata } from '../../../pantallas/formato'
 import { CAMBIOS_DE_ESTADO, ESTADOS_TENANT, FUNCIONES, type Funcion, LIMITES, type Limites, PLANES, type Plan } from '../../tenants/reglas'
 import { ROLES_TENANT, type RolTenant } from '../../usuarios/reglas'
 import type { DetalleTenant, UsuarioVisible } from './tipos'
+import { CamposDePersona } from './vistas'
 
 export type Dialogo =
   | { tipo: 'estado' }
@@ -15,6 +16,7 @@ export type Dialogo =
   | { tipo: 'limites' }
   | { tipo: 'impersonar' }
   | { tipo: 'funcion'; funcion: Funcion; activa: boolean }
+  | { tipo: 'agregar' }
   | { tipo: 'bloqueo'; usuario: UsuarioVisible }
   | { tipo: 'rol'; usuario: UsuarioVisible }
 
@@ -50,6 +52,8 @@ export function Acciones({ tenant, dialogo, cerrar }: { tenant: DetalleTenant; d
       return <Impersonar {...props} />
     case 'funcion':
       return <CambiarFuncion {...props} funcion={dialogo.funcion} activa={dialogo.activa} />
+    case 'agregar':
+      return <AgregarPersona {...props} />
     case 'bloqueo':
       return <Bloquear {...props} usuario={dialogo.usuario} />
     case 'rol':
@@ -151,6 +155,24 @@ function CambiarFuncion({ tenant, cerrar, funcion, activa }: Props & { funcion: 
           </Form.Item>
         </Form>
       </Dialogo>
+  )
+}
+
+/** Agregar a alguien al cliente, dentro del límite de usuarios de su plan. */
+function AgregarPersona({ tenant, cerrar }: Props) {
+  const [form] = Form.useForm<{ nombre: string; correo: string; rol: RolTenant; motivo: string }>()
+  const accion = useAccion(tenant.id, cerrar, '/usuarios', 'Persona agregada.')
+  const cupo = tenant.usos.find((u) => u.clave === 'users')
+  return (
+    <Dialogo cerrar={cerrar} titulo={`Agregar a alguien a ${tenant.nombre}`} accion={accion} enviar={() => form.validateFields().then((v) => accion.mutate(v))} textoOk="Agregar">
+      {cupo && <p className="tenue" style={{ marginTop: 0 }}>Usa {cupo.usado} de {cupo.limite} usuarios de su plan. Si ya no caben, primero se ajusta el límite.</p>}
+      <Form form={form} layout="vertical" requiredMark={false} initialValues={{ rol: 'admin' }}>
+        <CamposDePersona />
+        <Form.Item label="Motivo" name="motivo" rules={MOTIVO}>
+          <Input.TextArea rows={2} placeholder="El cliente lo pidió por correo: su administrador dejó la empresa" />
+        </Form.Item>
+      </Form>
+    </Dialogo>
   )
 }
 
