@@ -10,6 +10,7 @@ import { plata } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
 import { cantidadSegun, type Criterio, CRITERIOS, type Motor, PIEZAS, PIEZAS_SUELTAS, type Pieza, unidadDe } from '../reglas'
 import { horas, usePersona } from './comun'
+import { Secciones } from './Secciones'
 import type { Actividad, Catalogo, Persona } from './tipos'
 
 const GRUPOS: Pieza[] = ['motor', ...PIEZAS_SUELTAS]
@@ -21,6 +22,7 @@ export function Actividades() {
   const consultas = useQueryClient()
   const { message } = App.useApp()
   const [editar, setEditar] = useState<Actividad | 'nueva' | null>(null)
+  const [secciones, setSecciones] = useState(false)
   const r = useQuery({ queryKey: ['taller', 'catalogo'], queryFn: () => api<Catalogo>('GET', '/servicio/catalogo') })
   const personas = useQuery({ queryKey: ['taller', 'personas'], queryFn: () => api<Persona[]>('GET', '/servicio/personas') })
   const hacen = useMutation({
@@ -42,7 +44,14 @@ export function Actividades() {
       <Encabezado
         titulo="Actividades"
         sub="Por pieza, en el orden de su ruta, con su valor y quién las hace."
-        acciones={puedeEditar ? <Button type="primary" onClick={() => setEditar('nueva')}>Nueva actividad</Button> : null}
+        acciones={
+          puedeEditar ? (
+            <>
+              <Button onClick={() => setSecciones(true)}>Secciones</Button>
+              <Button type="primary" onClick={() => setEditar('nueva')}>Nueva actividad</Button>
+            </>
+          ) : null
+        }
       />
       <p className="ayuda">
         Cada actividad es de una pieza y va en un paso de su ruta: el taller la hace después de las de paso menor. Al cotizar se cuenta con los datos del motor (por
@@ -130,6 +139,7 @@ export function Actividades() {
         )
       })}
       {editar && <EditarActividad actividad={editar === 'nueva' ? null : editar} catalogo={r.data} cerrar={() => setEditar(null)} />}
+      {secciones && <Secciones catalogo={r.data} cerrar={() => setSecciones(false)} />}
     </>
   )
 }

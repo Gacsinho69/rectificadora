@@ -116,12 +116,23 @@ const actividad = z.object({
   paso: z.number().int().min(0).max(9999).optional(),
   tipico: z.boolean(),
 })
+const nombreSeccion = z.string({ error: 'Escribe el nombre de la sección.' }).trim().min(2, 'Escribe el nombre de la sección.').max(60)
+
+/** Dos secciones no se llaman igual (sin contar mayúsculas). */
+async function exigirSeccionLibre(c: C, nombre: string, salvo?: string) {
+  const [otra] = await c.var.base
+    .select({ nombre: shopSections.name })
+    .from(shopSections)
+    .where(and(eq(shopSections.tenantId, c.var.actor.tenantId), sql`lower(${shopSections.name}) = lower(${nombre})`, salvo ? ne(shopSections.id, salvo) : undefined))
+  if (otra) throw rechazo(409, `Ya hay una sección «${otra.nombre}».`)
+}
+
 /** Al crear, lo que no se dice va por omisión; al ajustar, solo cambia lo que llega. */
 const actividadNueva = actividad.extend({ tipico: z.boolean().default(false) })
 
 function exigirAdministrador(c: C) {
   if (c.var.actor.estadoTenant === 'suspended' || c.var.actor.estadoTenant === 'cancelled') throw rechazo(403, 'Tu organización está suspendida: puedes revisar, pero no hacer cambios.')
-  if (c.var.actor.rol !== 'admin') throw rechazo(403, 'Las actividades y sus valores los cambia el administrador.')
+  if (c.var.actor.rol !== 'admin') throw rechazo(403, 'Las actividades, sus valores y las secciones los cambia el administrador.')
 }
 
 /** Trabaja quien no es de solo lectura, con la organización operando, y sobre lo suyo (el jefe de taller, sobre todo). */
@@ -907,6 +918,67 @@ export const rutasTaller = new Hono<EntornoTenant>()
     await c.var.base.transaction(async (tx) => {
       await tx.delete(serviceSpecialists).where(and(eq(serviceSpecialists.serviceId, t.id), eq(serviceSpecialists.tenantId, actor.tenantId)))
       if (gente.length) await tx.insert(serviceSpecialists).values(gente.map((u) => ({ tenantId: actor.tenantId, serviceId: t.id, userId: u.id, createdAt: ahora })))
+    })
+    return c.json({ ok: true })
+  })
+
+  /** Una sección nueva del taller (la de bombas inyectoras, la de turbos): va al final del tablero. Solo el administrador. */
+  .post('/secciones', conDatos(z.object({ nombre: nombreSeccion })), async (c) => {
+    exigirAdministrador(c)
+    const { base, actor } = c.var
+    const { nombre } = c.req.valid('json')
+    await exigirSeccionLibre(c, nombre)
+    const id = nuevoId('sec')
+    await base.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`shop_sections:${actor.tenantId}`}))`)
+      const [{ ultima }] = await tx.select({ ultima: sql<number>`coalesce(max(${shopSections.position}), -1)`.mapWith(Number) }).from(shopSections).where(eq(shopSections.tenantId, actor.tenantId))
+      await tx.insert(shopSections).values({ id, tenantId: actor.tenantId, name: nombre, kind: 'work', position: ultima + 1, active: true })
+    })
+    return c.json({ id })
+  })
+
+  /**
+   * Renombrar una sección, o apagarla cuando ya no tiene nada: ni actividades en uso ni trabajos por hacer. La de
+   * recepción y diagnóstico no se apaga: ahí nace cada OT.
+   */
+  .post('/secciones/:id', conDatos(z.object({ nombre: nombreSeccion.optional(), activa: z.boolean().optional() })), async (c) => {
+    exigirAdministrador(c)
+    const { base, actor } = c.var
+    const s = await filaDelTenant(c, shopSections, c.req.param('id'), 'section', 'esa sección')
+    const d = c.req.valid('json')
+    if (d.nombre && d.nombre !== s.name) await exigirSeccionLibre(c, d.nombre, s.id)
+    if (d.activa === false && s.active) {
+      if (s.kind === 'diagnosis') throw rechazo(409, 'La sección de recepción y diagnóstico no se apaga: ahí nace cada OT.')
+      const [{ actividades }] = await base.select({ actividades: count() }).from(services).where(and(eq(services.tenantId, actor.tenantId), eq(services.sectionId, s.id), eq(services.active, true)))
+      if (actividades) throw rechazo(409, `Tiene ${actividades === 1 ? 'una actividad' : `${actividades} actividades`} en uso: muévelas a otra sección o apágalas primero.`)
+      const [{ trabajos }] = await base
+        .select({ trabajos: count() })
+        .from(workOrderTasks)
+        .innerJoin(workOrders, eq(workOrders.id, workOrderTasks.workOrderId))
+        .where(and(eq(workOrderTasks.tenantId, actor.tenantId), eq(workOrderTasks.sectionId, s.id), ne(workOrderTasks.status, 'done'), inArray(workOrders.status, OT_EN_TALLER)))
+      if (trabajos) throw rechazo(409, `Tiene ${trabajos === 1 ? 'un trabajo' : `${trabajos} trabajos`} por hacer: se apaga cuando terminen.`)
+    }
+    await base
+      .update(shopSections)
+      .set({ ...(d.nombre ? { name: d.nombre } : {}), ...(d.activa !== undefined ? { active: d.activa } : {}) })
+      .where(and(eq(shopSections.id, s.id), eq(shopSections.tenantId, actor.tenantId)))
+    return c.json({ ok: true })
+  })
+
+  /** Subir o bajar una sección: es el orden de las columnas del tablero. */
+  .post('/secciones/:id/mover', conDatos(z.object({ hacia: z.enum(['arriba', 'abajo']) })), async (c) => {
+    exigirAdministrador(c)
+    const { base, actor } = c.var
+    const s = await filaDelTenant(c, shopSections, c.req.param('id'), 'section', 'esa sección')
+    const { hacia } = c.req.valid('json')
+    await base.transaction(async (tx) => {
+      const todas = await tx.select({ id: shopSections.id }).from(shopSections).where(eq(shopSections.tenantId, actor.tenantId)).orderBy(asc(shopSections.position), asc(shopSections.name))
+      const i = todas.findIndex((x) => x.id === s.id)
+      const j = hacia === 'arriba' ? i - 1 : i + 1
+      if (j < 0 || j >= todas.length) throw rechazo(409, hacia === 'arriba' ? 'Ya es la primera.' : 'Ya es la última.')
+      ;[todas[i], todas[j]] = [todas[j], todas[i]]
+      // Se numeran de nuevo todas, en el orden nuevo.
+      for (const [posicion, x] of todas.entries()) await tx.update(shopSections).set({ position: posicion }).where(eq(shopSections.id, x.id))
     })
     return c.json({ ok: true })
   })
