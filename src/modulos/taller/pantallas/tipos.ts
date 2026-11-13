@@ -1,6 +1,6 @@
 // Lo que responde la API del sistema de la rectificadora, como lo ven las pantallas.
 import type { EstadoCotizacion, Linea } from '../../comercial/reglas'
-import type { EstadoOc, EstadoRepuesto, QuienCompra } from '../../compras/reglas'
+import type { EstadoOc, EstadoRepuesto, QuienCompra, TipoMovimiento } from '../../compras/reglas'
 import type { RolTenant } from '../../usuarios/reglas'
 import type { Criterio, EstadoOt, EstadoTarea, GrupoDeOt, MotivoDetencion, Pieza, PrioridadOt, Situacion } from '../reglas'
 
@@ -48,7 +48,7 @@ export type Inicio = {
   carga: { seccionId: string; nombre: string; gente: number; enProceso: number; ahora: number; espera: number; detenidos: number; sinAsignar: number; dias: number | null }[]
   misTareas: { id: string; nombre: string; estado: EstadoTarea; situacion: Situacion; espera: string[]; faltan: string[]; maquinas: string[]; otId: string; ot: number; motor: string; entrega: string | null; seccion: string; pieza: Pieza }[]
   /** Las órdenes de compra que tiene que ir a buscar quien mira (el chofer de compras). */
-  misRetiros: { id: string; numero: number; proveedor: string; direccion: string | null; telefono: string | null; llega: string | null; repuestos: { descripcion: string; medida: string | null; cantidad: number; ot: number }[] }[]
+  misRetiros: { id: string; numero: number; proveedor: string; direccion: string | null; telefono: string | null; llega: string | null; repuestos: { descripcion: string; medida: string | null; cantidad: number; ot: number | null }[] }[]
   comercial: { enviadasMes: number; cotizadoMes: number; aceptadasMes: number; aceptadoMes: number; pendientes: number; montoPendiente: number; tasaAceptacion: number | null } | null
 }
 
@@ -269,9 +269,35 @@ export type OrdenDeCompra = {
   motivo: string | null
   costo: number | null
   repuestos: RepuestoEnCompras[]
+  insumos: LineaInsumoOc[]
 }
 
-export type Compras = { porPedir: RepuestoEnCompras[]; clientes: RepuestoEnCompras[]; ordenes: OrdenDeCompra[] }
+/** Un insumo de bodega pedido en una orden de compra. */
+export type LineaInsumoOc = { id: string; insumoId: string; nombre: string; unidad: string; cantidad: number; costo: number | null; estado: EstadoRepuesto; recibido: string | null }
+
+/** Un insumo que quedó en su mínimo o menos, con lo que conviene pedir. */
+export type InsumoBajo = { id: string; nombre: string; unidad: string; marca: string | null; codigo: string | null; stock: number; minimo: number; porLlegar: number; sugerido: number; proveedorId: string | null; proveedor: string | null; costo: number | null }
+
+/** Un insumo de la bodega, con sus últimos movimientos. */
+export type Insumo = {
+  id: string
+  nombre: string
+  unidad: string
+  marca: string | null
+  codigo: string | null
+  proveedorId: string | null
+  proveedor: string | null
+  costo: number | null
+  minimo: number
+  stock: number
+  porLlegar: number
+  bajo: boolean
+  nota: string | null
+  activo: boolean
+  movimientos: { id: string; tipo: TipoMovimiento; cantidad: number; ot: number | null; nota: string | null; quien: string | null; en: string }[]
+}
+
+export type Compras = { porPedir: RepuestoEnCompras[]; clientes: RepuestoEnCompras[]; ordenes: OrdenDeCompra[]; insumosBajos: InsumoBajo[] }
 
 /** Un proveedor de la lista, con sus órdenes de compra: las que están por retirar, cuántas van y la última. */
 export type Proveedor = {

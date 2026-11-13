@@ -3,7 +3,7 @@
 // recibe lo que trajo. El técnico no ve costos. Recibir un repuesto libera el trabajo que lo esperaba.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { Alert, App, Button, DatePicker, Form, Input, Modal, Select, Table } from 'antd'
+import { Alert, App, Button, DatePicker, Form, Input, InputNumber, Modal, Select, Table } from 'antd'
 import type dayjs from 'dayjs'
 import { useState } from 'react'
 import { api } from '../../../pantallas/api'
@@ -11,7 +11,7 @@ import { Bloque, Cargando, Cifras, Hace, Problema } from '../../../pantallas/com
 import { cifra, fecha, plata, plural } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
 import { DondeRetirar, EstadoOcTag, EstadoRepuestoTag, folioOt, PlazoTag, usePersona, usePortal } from '../../taller/pantallas/comun'
-import type { Compras as DatosCompras, OrdenDeCompra, Persona, RepuestoEnCompras } from '../../taller/pantallas/tipos'
+import type { Compras as DatosCompras, InsumoBajo, LineaInsumoOc, OrdenDeCompra, Persona, RepuestoEnCompras } from '../../taller/pantallas/tipos'
 import { folioOc, porProveedor, referenciaDe } from '../reglas'
 import { SelectorDeProveedor } from './Proveedores'
 
@@ -21,6 +21,7 @@ export function Compras() {
   const consultas = useQueryClient()
   const { message } = App.useApp()
   const [elegidos, setElegidos] = useState<string[]>([])
+  const [insumosElegidos, setInsumosElegidos] = useState<string[]>([])
   const [pidiendo, setPidiendo] = useState(false)
   const [anulando, setAnulando] = useState<OrdenDeCompra | null>(null)
   const r = useQuery({ queryKey: ['taller', 'compras'], queryFn: () => api<DatosCompras>('GET', '/servicio/compras') })
@@ -31,7 +32,7 @@ export function Compras() {
   }
   const fallo = (e: unknown) => message.error((e as Error).message)
   const recibirOc = useMutation({
-    mutationFn: ({ id, repuestos }: { id: string; repuestos?: string[] }) => api('POST', `/servicio/compras/ordenes/${id}/recibir`, { repuestos }),
+    mutationFn: ({ id, repuestos, insumos }: { id: string; repuestos?: string[]; insumos?: string[] }) => api('POST', `/servicio/compras/ordenes/${id}/recibir`, { repuestos, insumos }),
     onSuccess: listo('Recibido en el taller: los trabajos que lo esperaban ya pueden seguir.'),
     onError: fallo,
   })
@@ -43,7 +44,7 @@ export function Compras() {
   })
   if (r.isPending) return <Cargando />
   if (r.isError) return <Problema error={r.error} />
-  const { porPedir, clientes, ordenes } = r.data
+  const { porPedir, clientes, ordenes, insumosBajos } = r.data
   const abiertas = ordenes.filter((o) => o.estado === 'open')
   const misRetiros = abiertas.filter((o) => o.chofer?.id === persona?.id)
   const puede = gestiona && !suspendida
@@ -89,6 +90,13 @@ export function Compras() {
                         {referenciaDe(x) ? ` · ${referenciaDe(x)}` : ''} <span className="tenue">({folioOt(x.ot.numero)})</span>
                       </li>
                     ))}
+                  {o.insumos
+                    .filter((x) => x.estado === 'ordered')
+                    .map((x) => (
+                      <li key={x.id}>
+                        {cifra(x.cantidad)} {x.unidad} × {x.nombre} <span className="tenue">(bodega)</span>
+                      </li>
+                    ))}
                 </ul>
                 {o.nota && <small className="tenue">{o.nota}</small>}
                 <Button type="primary" size="small" loading={recibirOc.isPending && recibirOc.variables?.id === o.id} onClick={() => recibirOc.mutate({ id: o.id })}>
@@ -103,8 +111,8 @@ export function Compras() {
         titulo="Por pedir"
         extra={
           puede ? (
-            <Button type="primary" disabled={!elegidos.length} onClick={() => setPidiendo(true)}>
-              {elegidos.length ? `Pedir ${plural(elegidos.length, 'repuesto')}` : 'Elige qué pedir'}
+            <Button type="primary" disabled={!elegidos.length && !insumosElegidos.length} onClick={() => setPidiendo(true)}>
+              {elegidos.length || insumosElegidos.length ? `Pedir ${plural(elegidos.length + insumosElegidos.length, 'elegido')}` : 'Elige qué pedir'}
             </Button>
           ) : null
         }
@@ -141,6 +149,34 @@ export function Compras() {
           </div>
         ))}
       </Bloque>
+      {insumosBajos.length > 0 && (
+        <Bloque
+          titulo={`Insumos bajo el mínimo (${insumosBajos.length})`}
+          extra={
+            puede ? (
+              <Button onClick={() => { if (!insumosElegidos.length) setInsumosElegidos(insumosBajos.map((x) => x.id)); setPidiendo(true) }}>
+                {insumosElegidos.length ? `Pedir ${plural(insumosElegidos.length, 'insumo')}` : 'Pedir todos'}
+              </Button>
+            ) : null
+          }
+        >
+          <Table<InsumoBajo>
+            size="small"
+            rowKey="id"
+            pagination={false}
+            dataSource={insumosBajos}
+            scroll={{ x: 720 }}
+            rowSelection={puede ? { selectedRowKeys: insumosElegidos, onChange: (k) => setInsumosElegidos(k as string[]) } : undefined}
+            columns={[
+              { title: 'Insumo', key: 'n', render: (_, x) => <div className="fila-nombre"><b>{x.nombre}</b>{referenciaDe(x) && <small>{referenciaDe(x)}</small>}</div> },
+              { title: 'Hay', key: 'h', align: 'right', width: 130, render: (_, x) => <span><b style={{ color: 'var(--rojo)' }}>{cifra(x.stock)}</b> <span className="tenue">/ mín. {cifra(x.minimo)} {x.unidad}</span></span> },
+              { title: 'Viene', dataIndex: 'porLlegar', align: 'right', width: 90, render: (v: number) => (v ? cifra(v) : <span className="tenue">—</span>) },
+              { title: 'Conviene pedir', key: 's', align: 'right', width: 130, render: (_, x) => `${cifra(x.sugerido)} ${x.unidad}` },
+              ...(veMontos ? [{ title: 'Proveedor', dataIndex: 'proveedor', width: 190, render: (v: string | null) => v ?? <span className="tenue">Sin proveedor</span> }] : []),
+            ]}
+          />
+        </Bloque>
+      )}
       <Bloque titulo="Órdenes de compra" extra={<span className="tenue">Por retirar y las últimas cerradas. Abre una para recibir por partes.</span>}>
         <Table<OrdenDeCompra>
           size="small"
@@ -150,9 +186,35 @@ export function Compras() {
           scroll={{ x: 980 }}
           locale={{ emptyText: 'Todavía no hay órdenes de compra.' }}
           expandable={{
-            rowExpandable: (o) => o.repuestos.length > 0,
+            rowExpandable: (o) => o.repuestos.length + o.insumos.length > 0,
             expandedRowRender: (o) => (
-              <Table<RepuestoEnCompras>
+              <>
+              {o.insumos.length > 0 && (
+                <Table<LineaInsumoOc>
+                  size="small"
+                  rowKey="id"
+                  pagination={false}
+                  dataSource={o.insumos}
+                  columns={[
+                    { title: 'Insumo de bodega', key: 'n', render: (_, x) => x.nombre },
+                    { title: 'Cantidad', key: 'c', align: 'right', width: 120, render: (_, x) => `${cifra(x.cantidad)} ${x.unidad}` },
+                    { title: 'Estado', key: 'e', width: 130, render: (_, x) => <EstadoRepuestoTag compra="shop" estado={x.estado} /> },
+                    { title: 'Llegó', dataIndex: 'recibido', width: 120, render: (v: string | null) => (v ? fecha(v) : <span className="tenue">—</span>) },
+                    {
+                      title: '',
+                      key: 'x',
+                      width: 1,
+                      render: (_, x) =>
+                        x.estado === 'ordered' && recibe(o) ? (
+                          <Button size="small" loading={recibirOc.isPending && recibirOc.variables?.insumos?.[0] === x.id} onClick={() => recibirOc.mutate({ id: o.id, insumos: [x.id] })}>
+                            Recibido
+                          </Button>
+                        ) : null,
+                    },
+                  ]}
+                />
+              )}
+              {o.repuestos.length > 0 && <Table<RepuestoEnCompras>
                 size="small"
                 rowKey="id"
                 pagination={false}
@@ -174,7 +236,8 @@ export function Compras() {
                       ) : null,
                   },
                 ]}
-              />
+              />}
+              </>
             ),
           }}
           columns={[
@@ -200,7 +263,7 @@ export function Compras() {
                   (o.chofer?.nombre ?? <span className="tenue">—</span>)
                 ),
             },
-            { title: 'Repuestos', key: 'r', width: 110, render: (_, o) => `${o.repuestos.filter((x) => x.estado === 'received').length} de ${o.repuestos.filter((x) => x.estado !== 'cancelled').length} llegaron` },
+            { title: 'Repuestos', key: 'r', width: 110, render: (_, o) => { const todo = [...o.repuestos, ...o.insumos]; return `${todo.filter((x) => x.estado === 'received').length} de ${todo.filter((x) => x.estado !== 'cancelled').length} llegaron` } },
             { title: 'Estado', key: 'e', width: 120, render: (_, o) => <EstadoOcTag estado={o.estado} /> },
             { title: 'Emitida', dataIndex: 'creada', width: 110, render: (v: string) => fecha(v) },
             { title: 'Llega', dataIndex: 'llega', width: 110, render: (v: string | null) => (v ? fecha(`${v}T12:00:00Z`) : <span className="tenue">—</span>) },
@@ -213,7 +276,7 @@ export function Compras() {
                 o.estado === 'open' ? (
                   <span className="botones-tarea">
                     {recibe(o) && (
-                      <Button size="small" loading={recibirOc.isPending && recibirOc.variables?.id === o.id && !recibirOc.variables.repuestos} onClick={() => recibirOc.mutate({ id: o.id })}>
+                      <Button size="small" loading={recibirOc.isPending && recibirOc.variables?.id === o.id && !recibirOc.variables.repuestos && !recibirOc.variables.insumos} onClick={() => recibirOc.mutate({ id: o.id })}>
                         Recibir todo
                       </Button>
                     )}
@@ -262,10 +325,14 @@ export function Compras() {
       {pidiendo && (
         <NuevaOrden
           repuestos={porPedir.filter((x) => elegidos.includes(x.id))}
+          insumos={insumosBajos.filter((x) => insumosElegidos.includes(x.id))}
           personas={personas.data ?? []}
           cerrar={(listo) => {
             setPidiendo(false)
-            if (listo) setElegidos([])
+            if (listo) {
+              setElegidos([])
+              setInsumosElegidos([])
+            }
           }}
         />
       )}
@@ -277,15 +344,17 @@ export function Compras() {
 type DatosOrden = { proveedorId: string; choferId?: string; llega?: dayjs.Dayjs | null; nota?: string }
 
 /** Emitir la orden de compra con lo elegido: a qué proveedor de la lista, quién va a buscarlo y cuándo llega. */
-function NuevaOrden({ repuestos, personas, cerrar }: { repuestos: RepuestoEnCompras[]; personas: Persona[]; cerrar: (listo: boolean) => void }) {
+function NuevaOrden({ repuestos, insumos, personas, cerrar }: { repuestos: RepuestoEnCompras[]; insumos: InsumoBajo[]; personas: Persona[]; cerrar: (listo: boolean) => void }) {
   const [form] = Form.useForm<DatosOrden>()
+  // Cuánto pedir de cada insumo: lo que conviene, y se puede cambiar.
+  const [cantidades, setCantidades] = useState<Record<string, number>>(() => Object.fromEntries(insumos.map((x) => [x.id, x.sugerido])))
   const consultas = useQueryClient()
   const { message } = App.useApp()
   // Si todo lo elegido se cotizó con el mismo proveedor, la orden parte con él.
-  const proveedores = [...new Set(repuestos.map((x) => x.proveedorId ?? x.proveedor).filter((p): p is string => Boolean(p)))]
-  const cotizado = proveedores.length === 1 ? (repuestos.find((x) => x.proveedorId)?.proveedorId ?? undefined) : undefined
+  const proveedores = [...new Set([...repuestos, ...insumos].map((x) => x.proveedorId ?? x.proveedor).filter((p): p is string => Boolean(p)))]
+  const cotizado = proveedores.length === 1 ? ([...repuestos, ...insumos].find((x) => x.proveedorId)?.proveedorId ?? undefined) : undefined
   const emitir = useMutation({
-    mutationFn: (v: DatosOrden) => api<{ numero: number }>('POST', '/servicio/compras/ordenes', { repuestos: repuestos.map((x) => x.id), proveedorId: v.proveedorId, choferId: v.choferId ?? null, llega: v.llega ? v.llega.format('YYYY-MM-DD') : null, nota: v.nota }),
+    mutationFn: (v: DatosOrden) => api<{ numero: number }>('POST', '/servicio/compras/ordenes', { repuestos: repuestos.map((x) => x.id), insumos: insumos.map((x) => ({ insumoId: x.id, cantidad: cantidades[x.id] ?? x.sugerido })), proveedorId: v.proveedorId, choferId: v.choferId ?? null, llega: v.llega ? v.llega.format('YYYY-MM-DD') : null, nota: v.nota }),
     onSuccess: async (r) => {
       message.success(`${folioOc(r.numero)} emitida: queda por retirar.`)
       cerrar(true)
@@ -295,12 +364,17 @@ function NuevaOrden({ repuestos, personas, cerrar }: { repuestos: RepuestoEnComp
   return (
     <Modal open title="Orden de compra" okText="Emitir la orden" cancelText="Cancelar" onCancel={() => cerrar(false)} confirmLoading={emitir.isPending} onOk={() => form.validateFields().then((v) => emitir.mutate(v))} destroyOnHidden width={600}>
       {emitir.isError && <Alert type="error" showIcon title={(emitir.error as Error).message} style={{ marginBottom: 12 }} />}
-      {proveedores.length > 1 && <Alert type="warning" showIcon title={`Elegiste repuestos de ${proveedores.length} proveedores: la orden va a uno solo.`} style={{ marginBottom: 12 }} />}
+      {proveedores.length > 1 && <Alert type="warning" showIcon title={`Lo elegido es de ${proveedores.length} proveedores: la orden va a uno solo.`} style={{ marginBottom: 12 }} />}
       <ul className="lista-simple">
         {repuestos.map((x) => (
           <li key={x.id}>
             {x.cantidad} × {x.descripcion}
             {referenciaDe(x) ? ` · ${referenciaDe(x)}` : ''} <span className="tenue">({folioOt(x.ot.numero)})</span>
+          </li>
+        ))}
+        {insumos.map((x) => (
+          <li key={x.id} className="linea-insumo">
+            <InputNumber size="small" min={1} max={1_000_000} value={cantidades[x.id]} onChange={(v) => setCantidades({ ...cantidades, [x.id]: v ?? x.sugerido })} style={{ width: 90 }} /> {x.unidad} × {x.nombre} <span className="tenue">(bodega: hay {cifra(x.stock)}, mínimo {cifra(x.minimo)})</span>
           </li>
         ))}
       </ul>

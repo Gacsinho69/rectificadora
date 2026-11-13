@@ -50,6 +50,13 @@
       "when": 1794600111931,
       "tag": "0006_maquinas",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794600849761,
+      "tag": "0007_insumos",
+      "breakpoints": true
     }
   ]
 }

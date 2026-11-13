@@ -9,7 +9,7 @@ import { totales } from '../comercial/reglas'
 import type { customers, quotes } from '../comercial/tablas'
 import { digitoVerificador, formatoRut } from '../../rut'
 import { claveDeProveedor, type QuienCompra } from '../compras/reglas'
-import type { purchaseOrders, suppliers, workOrderParts } from '../compras/tablas'
+import type { purchaseOrders, suppliers, supplies, supplyMovements, workOrderParts } from '../compras/tablas'
 import { maquinasIniciales } from '../maquinas/reglas'
 import type { machines, machineServices, machineStops } from '../maquinas/tablas'
 import type { TipoEvento } from '../eventos/tipos'
@@ -86,6 +86,17 @@ const PROVEEDORES = [
   { nombre: 'Comercial Andes Motor', rut: 76_559_302, contacto: 'Sergio Pinto', telefono: '+56 9 7741 2086', direccion: 'Los Carrera 890, Concepción', nota: 'Cerró su local: ya no se le compra.', activo: false },
 ]
 
+/** Lo que gasta un taller y no es de una OT, con su mínimo y su costo por unidad. */
+const INSUMOS = [
+  { nombre: 'Aceite de prueba de presión', unidad: 'litro', minimo: 20, costo: 4_500, marca: 'Mobil' },
+  { nombre: 'Pasta de esmeril para válvulas', unidad: 'tarro', minimo: 4, costo: 7_900, marca: 'Permatex' },
+  { nombre: 'Piedras de bruñir (juego)', unidad: 'juego', minimo: 2, costo: 38_000, marca: 'Sunnen' },
+  { nombre: 'Desengrasante para lavado', unidad: 'litro', minimo: 40, costo: 2_300, marca: null },
+  { nombre: 'Pintura de motor', unidad: 'litro', minimo: 8, costo: 12_500, marca: null },
+  { nombre: 'Guaipe', unidad: 'kilo', minimo: 15, costo: 1_800, marca: null },
+  { nombre: 'Sellante de silicona', unidad: 'unidad', minimo: 6, costo: 6_200, marca: 'Loctite' },
+]
+
 type Ayudas = { azar: () => number; entre: (a: number, b: number) => number; uno: <T>(l: readonly T[]) => T; id: (p: string) => string }
 type Persona = { id: string; role: RolTenant; status: string }
 type Evento = (e: { tenantId: string; tipo: TipoEvento; en: Date; actorId?: string | null; targetId?: string; targetType?: string; metadata?: Record<string, unknown> }) => void
@@ -103,6 +114,8 @@ export type Taller = {
   maquinas: (typeof machines.$inferInsert)[]
   usosMaquinas: (typeof machineServices.$inferInsert)[]
   paradas: (typeof machineStops.$inferInsert)[]
+  insumos: (typeof supplies.$inferInsert)[]
+  movimientosInsumo: (typeof supplyMovements.$inferInsert)[]
   ordenes: (typeof purchaseOrders.$inferInsert)[]
   repuestos: (typeof workOrderParts.$inferInsert)[]
   /** Por día (AAAA-MM-DD): OT recibidas, cotizaciones creadas y documentos emitidos (cotizaciones enviadas y entregas). */
@@ -181,6 +194,9 @@ export function sembrarTaller(
     if (m) paradas.push({ id: `par_${sufijo}${paradas.length}`, tenantId: t.tenantId, machineId: m.id, reason, note, startedAt: new Date(t.ahora.getTime() - horas * HORA), startedBy: jefes[0]?.id ?? null })
   }
   if (!t.nunca && !t.silencio && semilla % 3 === 0) parar('Bruñidora', 'maintenance', 'Cambio de piedras y aceite del cabezal', 6)
+  // La bodega, también sin azar: un stock repartido desde el inventario inicial; a algunos insumos ya les toca pedir.
+  const insumos: Taller['insumos'] = INSUMOS.map((x, i) => ({ id: `ins_${sufijo}${i}`, tenantId: t.tenantId, name: x.nombre, unit: x.unidad, brand: x.marca, minStock: x.minimo, stock: (semilla + i * 17) % (x.minimo * 3 + 1), unitCost: x.costo, supplierId: vigentes[i % vigentes.length].id, active: true, createdAt: t.creado }))
+  const movimientosInsumo: Taller['movimientosInsumo'] = insumos.filter((s) => s.stock).map((s, i) => ({ id: `mov_${sufijo}${i}`, tenantId: t.tenantId, supplyId: s.id, quantity: s.stock!, kind: 'adjust' as const, note: 'Inventario inicial', createdBy: jefes[0]?.id ?? null, createdAt: t.creado }))
   if (!t.nunca && !t.silencio && semilla % 4 === 1) parar('Lineadora de bancada', 'breakdown', 'No avanza el carro; viene el técnico de la marca', 30)
   const proveedorDe = new Map(proveedores.map((p) => [p.name, p.id]))
 
@@ -511,5 +527,5 @@ export function sembrarTaller(
     }
     if (listaAnulacion) evento({ tenantId: t.tenantId, tipo: 'work_order.cancelled', en: listaAnulacion, actorId: recibe.id, targetId: otId, targetType: 'work_order', metadata: { numero, motivo: 'Cotización rechazada' } })
   }
-  return { secciones, trabajos, clientes, ots, tareas, especialistas, detenciones, cotizaciones, proveedores, maquinas, usosMaquinas, paradas, ordenes, repuestos: repuestosOt, porDia }
+  return { secciones, trabajos, clientes, ots, tareas, especialistas, detenciones, cotizaciones, proveedores, maquinas, usosMaquinas, paradas, insumos, movimientosInsumo, ordenes, repuestos: repuestosOt, porDia }
 }

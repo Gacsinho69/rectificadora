@@ -69,6 +69,32 @@ export function estadoDeOc(repuestos: { estado: EstadoRepuesto }[], anulada: boo
 
 export const folioOc = (n: number) => `OC-${String(n).padStart(4, '0')}`
 
+/** Lo que entra y sale de la bodega. */
+export const MOVIMIENTOS_INSUMO = { purchase: 'Compra', use: 'Consumo', adjust: 'Ajuste' } as const
+export type TipoMovimiento = keyof typeof MOVIMIENTOS_INSUMO
+
+/** Las unidades más comunes; se puede escribir otra. */
+export const UNIDADES = ['unidad', 'litro', 'kilo', 'caja', 'juego', 'metro', 'tarro'] as const
+
+/** Hay que pedir un insumo cuando queda su mínimo o menos (sin mínimo, nunca se avisa). */
+export const bajoMinimo = (stock: number, minimo: number) => minimo > 0 && stock <= minimo
+
+/** Cuánto conviene pedir: hasta tener el doble del mínimo, descontando lo que ya viene en camino. */
+export const cantidadSugerida = (stock: number, minimo: number, porLlegar = 0) => Math.max(1, Math.ceil(minimo * 2 - stock - porLlegar))
+
+export const insumoSchema = z.object({
+  nombre: z.string({ error: 'Escribe el insumo.' }).trim().min(2, 'Escribe el insumo.').max(120),
+  unidad: z.string({ error: 'Escribe la unidad.' }).trim().min(1, 'Escribe la unidad.').max(20),
+  minimo: z.number().min(0, 'El mínimo no puede ser negativo.').max(1_000_000).default(0),
+  marca: z.string().trim().max(60).optional(),
+  codigo: z.string().trim().max(60).optional(),
+  proveedorId: z.string().nullable().optional(),
+  costo: z.number().int().min(0).max(1_000_000_000).nullable().optional(),
+  nota: z.string().trim().max(500).optional(),
+  activo: z.boolean().optional(),
+})
+export type DatosInsumo = z.infer<typeof insumoSchema>
+
 /** Lo que identifica un repuesto para pedir el correcto: «0,50 · Mahle · 228-0001». Vacío si no se dijo nada. */
 export const referenciaDe = (r: { medida?: string | null; marca?: string | null; codigo?: string | null }) => [r.medida, r.marca, r.codigo].filter(Boolean).join(' · ')
 

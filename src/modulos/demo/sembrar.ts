@@ -15,7 +15,7 @@ import { apiKeys, integrations } from '../integraciones/tablas'
 import { customers, quotes } from '../comercial/tablas'
 import { impersonations } from '../soporte/tablas'
 import { services, serviceSpecialists, shopSections, taskHolds, workOrders, workOrderTasks } from '../taller/tablas'
-import { purchaseOrders, suppliers, workOrderParts } from '../compras/tablas'
+import { purchaseOrders, suppliers, supplies, supplyMovements, workOrderParts } from '../compras/tablas'
 import { machines, machineServices, machineStops } from '../maquinas/tablas'
 import { type EstadoPago, type EstadoTenant, FUNCIONES_DEL_PLAN, type Funcion, PLANES, type Plan, type Region, type UsoClave } from '../tenants/reglas'
 import { tenants } from '../tenants/tablas'
@@ -186,6 +186,8 @@ export async function sembrarDemo(base: Base, ahora = new Date(), semilla = 2026
   const filasDetenciones: (typeof taskHolds.$inferInsert)[] = []
   const filasProveedores: (typeof suppliers.$inferInsert)[] = []
   const filasMaquinas: (typeof machines.$inferInsert)[] = []
+  const filasInsumos: (typeof supplies.$inferInsert)[] = []
+  const filasMovimientos: (typeof supplyMovements.$inferInsert)[] = []
   const filasUsosMaquinas: (typeof machineServices.$inferInsert)[] = []
   const filasParadas: (typeof machineStops.$inferInsert)[] = []
   const filasOrdenes: (typeof purchaseOrders.$inferInsert)[] = []
@@ -368,6 +370,8 @@ export async function sembrarDemo(base: Base, ahora = new Date(), semilla = 2026
     filasDetenciones.push(...taller.detenciones)
     filasProveedores.push(...taller.proveedores)
     filasMaquinas.push(...taller.maquinas)
+    filasInsumos.push(...taller.insumos)
+    filasMovimientos.push(...taller.movimientosInsumo)
     filasUsosMaquinas.push(...taller.usosMaquinas)
     filasParadas.push(...taller.paradas)
     filasOrdenes.push(...taller.ordenes)
@@ -515,6 +519,8 @@ export async function sembrarDemo(base: Base, ahora = new Date(), semilla = 2026
     await enLotes(tx, serviceSpecialists, filasEspecialistas)
     await enLotes(tx, taskHolds, filasDetenciones)
     await enLotes(tx, suppliers, filasProveedores)
+    await enLotes(tx, supplies, filasInsumos)
+    await enLotes(tx, supplyMovements, filasMovimientos)
     await enLotes(tx, machines, filasMaquinas)
     await enLotes(tx, machineServices, filasUsosMaquinas)
     await enLotes(tx, machineStops, filasParadas)

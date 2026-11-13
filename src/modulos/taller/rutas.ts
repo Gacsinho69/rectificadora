@@ -13,7 +13,7 @@ import { anularRepuestosDeOt } from '../compras/comun'
 import { folioOc } from '../compras/reglas'
 import { rutasCompras } from '../compras/rutas'
 import { rutasMaquinas } from '../maquinas/rutas'
-import { purchaseOrders, suppliers, workOrderParts } from '../compras/tablas'
+import { purchaseOrders, purchaseOrderSupplies, suppliers, supplies, workOrderParts } from '../compras/tablas'
 import { origenDe, registrar } from '../eventos/registrar'
 import { diaDe } from '../plataforma/panorama'
 import { users } from '../usuarios/tablas'
@@ -189,6 +189,14 @@ export const rutasTaller = new Hono<EntornoTenant>()
           .innerJoin(workOrders, eq(workOrders.id, workOrderParts.workOrderId))
           .where(and(eq(workOrderParts.tenantId, actor.tenantId), inArray(workOrderParts.purchaseOrderId, retiros.map((r) => r.id)), eq(workOrderParts.status, 'ordered')))
       : []
+    // Y los insumos de bodega que vienen en esas mismas órdenes.
+    const insumosPorTraer = retiros.length
+      ? await base
+          .select({ oc: purchaseOrderSupplies.purchaseOrderId, descripcion: supplies.name, unidad: supplies.unit, cantidad: purchaseOrderSupplies.quantity })
+          .from(purchaseOrderSupplies)
+          .innerJoin(supplies, eq(supplies.id, purchaseOrderSupplies.supplyId))
+          .where(and(eq(purchaseOrderSupplies.tenantId, actor.tenantId), inArray(purchaseOrderSupplies.purchaseOrderId, retiros.map((r) => r.id)), eq(purchaseOrderSupplies.status, 'ordered')))
+      : []
     let comercial = null
     if (veMontos(actor.rol)) {
       const inicioMes = `${hoy.slice(0, 7)}-01`
@@ -224,7 +232,10 @@ export const rutasTaller = new Hono<EntornoTenant>()
       urgentes: urgentes.map((o) => ({ ...o, creada: o.creada.toISOString(), entregada: undefined, ...avances.get(o.id) })),
       carga: secciones.map((s) => ({ seccionId: s.id, nombre: s.nombre, gente: s.gente.length, enProceso: s.enProceso, ahora: s.ahora, espera: s.espera, detenidos: s.nDetenidas, sinAsignar: s.sinAsignar, dias: s.dias })),
       misTareas: misTareas.map((f) => ({ id: f.t.id, nombre: f.t.name, estado: f.t.status, situacion: f.situacion, espera: f.espera, faltan: f.faltan, maquinas: f.maquinas, otId: f.ot.id, ot: f.ot.numero, motor: f.ot.motor, entrega: f.ot.entrega, seccion: f.seccion, pieza: f.t.piece })),
-      misRetiros: retiros.map((r) => ({ ...r, repuestos: porTraer.filter((x) => x.oc === r.id).map(({ descripcion, medida, cantidad, ot }) => ({ descripcion, medida, cantidad, ot })) })),
+      misRetiros: retiros.map((r) => ({ ...r, repuestos: [
+          ...porTraer.filter((x) => x.oc === r.id).map(({ descripcion, medida, cantidad, ot }) => ({ descripcion, medida, cantidad, ot: ot as number | null })),
+          ...insumosPorTraer.filter((x) => x.oc === r.id).map(({ descripcion, unidad, cantidad }) => ({ descripcion: `${descripcion} (${unidad})`, medida: null, cantidad, ot: null })),
+        ] })),
       comercial,
     })
   })

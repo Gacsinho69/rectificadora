@@ -71,7 +71,7 @@ export function Inicio() {
                   {o.repuestos.map((x, i) => (
                     <li key={i}>
                       {x.cantidad} × {x.descripcion}
-                      {x.medida ? ` · ${x.medida}` : ''} <span className="tenue">({folioOt(x.ot)})</span>
+                      {x.medida ? ` · ${x.medida}` : ''} <span className="tenue">({x.ot ? folioOt(x.ot) : 'bodega'})</span>
                     </li>
                   ))}
                 </ul>

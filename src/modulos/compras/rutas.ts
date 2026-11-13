@@ -8,7 +8,7 @@ import { z } from 'zod'
 import { conDatos, rechazo } from '../../http'
 import { nuevoId } from '../../ids'
 import { formatoRut } from '../../rut'
-import { type EntornoTenant, filaDelTenant, filasDelTenant } from '../acceso/guardias'
+import { type EntornoTenant, exigirQuePuedaEditar, filaDelTenant, filasDelTenant } from '../acceso/guardias'
 import { customers } from '../comercial/tablas'
 import { origenDe, registrar } from '../eventos/registrar'
 import { exigirGestion, gestiona, siguienteNumero, sumarUso, veMontos } from '../taller/comun'
@@ -17,16 +17,18 @@ import { plazoDeOt } from '../taller/reglas'
 import { diaDe } from '../plataforma/panorama'
 import { services, shopSections, workOrders, workOrderTasks } from '../taller/tablas'
 import { users } from '../usuarios/tablas'
-import { recalcularOc } from './comun'
-import { claveDeProveedor, type DatosProveedor, folioOc, POR_LLEGAR, proveedorSchema, QUIEN_COMPRA, trabajoQueLoNecesita } from './reglas'
-import { purchaseOrders, suppliers, workOrderParts } from './tablas'
+import { moverInsumo, recalcularOc } from './comun'
+import { bajoMinimo, cantidadSugerida, claveDeProveedor, type DatosInsumo, type DatosProveedor, folioOc, insumoSchema, POR_LLEGAR, proveedorSchema, QUIEN_COMPRA, trabajoQueLoNecesita } from './reglas'
+import { purchaseOrders, purchaseOrderSupplies, suppliers, supplies, supplyMovements, workOrderParts } from './tablas'
 
 type C = Context<EntornoTenant>
 const claves = <T extends object>(o: T) => Object.keys(o) as [keyof T & string, ...(keyof T & string)[]]
 const fechaSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
 const nuevaOrden = z.object({
-  repuestos: z.array(z.string()).min(1, 'Elige qué repuestos pedir.').max(200),
+  repuestos: z.array(z.string()).max(200).default([]),
+  /** Insumos de bodega, con cuánto pedir de cada uno. */
+  insumos: z.array(z.object({ insumoId: z.string(), cantidad: z.number().positive('La cantidad debe ser mayor que cero.').max(1_000_000) })).max(200).default([]),
   proveedorId: z.string({ error: 'Elige el proveedor.' }).min(1, 'Elige el proveedor.'),
   choferId: z.string().nullable().optional(),
   llega: fechaSchema.nullable().optional(),
@@ -62,6 +64,9 @@ function exigirQuienRecibe(c: C, choferId: string | null) {
   if (actor.estadoTenant === 'suspended' || actor.estadoTenant === 'cancelled') throw rechazo(403, 'Tu organización está suspendida: puedes revisar, pero no hacer cambios.')
   if (!gestiona(actor.rol) && choferId !== actor.id) throw rechazo(403, 'Lo recibe el chofer de esa orden o el jefe de taller.')
 }
+
+/** Lo que se guarda de un insumo: lo vacío queda sin dato. */
+const datosDeInsumo = (d: DatosInsumo) => ({ name: d.nombre, unit: d.unidad, minStock: d.minimo, brand: d.marca || null, partNumber: d.codigo || null, supplierId: d.proveedorId || null, unitCost: d.costo ?? null, notes: d.nota || null })
 
 /** Un proveedor de la lista de la propia rectificadora. */
 const proveedorDe = (c: C, id: string) => filaDelTenant(c, suppliers, id, 'supplier', 'ese proveedor')
@@ -173,6 +178,13 @@ export const rutasCompras = new Hono<EntornoTenant>()
       )
       .orderBy(asc(workOrderParts.createdAt), asc(workOrderParts.position))
     const iso = (d: Date | null) => d?.toISOString() ?? null
+    const [listaInsumos, lineasInsumos] = await Promise.all([
+      base.select({ s: supplies, proveedor: suppliers.name }).from(supplies).leftJoin(suppliers, eq(suppliers.id, supplies.supplierId)).where(and(eq(supplies.tenantId, actor.tenantId), eq(supplies.active, true))).orderBy(asc(supplies.name)),
+      base.select().from(purchaseOrderSupplies).where(and(eq(purchaseOrderSupplies.tenantId, actor.tenantId), or(eq(purchaseOrderSupplies.status, 'ordered'), visibles.length ? inArray(purchaseOrderSupplies.purchaseOrderId, visibles.map((o) => o.id)) : undefined))),
+    ])
+    const insumoDe = new Map(listaInsumos.map((x) => [x.s.id, x]))
+    const enCamino = (id: string) => lineasInsumos.filter((l) => l.supplyId === id && l.status === 'ordered').reduce((s, l) => s + l.quantity, 0)
+    const lineaInsumo = (l: (typeof lineasInsumos)[number]) => ({ id: l.id, insumoId: l.supplyId, nombre: insumoDe.get(l.supplyId)?.s.name ?? '—', unidad: insumoDe.get(l.supplyId)?.s.unit ?? '', cantidad: l.quantity, costo: montos ? l.unitCost : null, estado: l.status, recibido: iso(l.receivedAt) })
     const repuesto = ({ r, ot, cliente, necesita }: (typeof filas)[number]) => ({
       id: r.id,
       descripcion: r.description,
@@ -195,8 +207,13 @@ export const rutasCompras = new Hono<EntornoTenant>()
     return c.json({
       porPedir: filas.filter(({ r }) => r.source === 'shop' && r.status === 'pending').map(repuesto),
       clientes: filas.filter(({ r }) => r.source === 'customer' && r.status === 'pending').map(repuesto),
+      // Los insumos que quedan en su mínimo o menos, contando lo que ya viene en camino.
+      insumosBajos: listaInsumos
+        .filter(({ s }) => bajoMinimo(s.stock + enCamino(s.id), s.minStock))
+        .map(({ s, proveedor }) => ({ id: s.id, nombre: s.name, unidad: s.unit, marca: s.brand, codigo: s.partNumber, stock: s.stock, minimo: s.minStock, porLlegar: enCamino(s.id), sugerido: cantidadSugerida(s.stock, s.minStock, enCamino(s.id)), proveedorId: montos ? s.supplierId : null, proveedor: montos ? proveedor : null, costo: montos ? s.unitCost : null })),
       ordenes: visibles.map((o) => {
         const suyos = filas.filter(({ r }) => r.purchaseOrderId === o.id)
+        const insumos = lineasInsumos.filter((l) => l.purchaseOrderId === o.id)
         return {
           id: o.id,
           numero: o.number,
@@ -212,8 +229,9 @@ export const rutasCompras = new Hono<EntornoTenant>()
           recibida: iso(o.receivedAt),
           anulada: iso(o.cancelledAt),
           motivo: o.cancelReason,
-          costo: montos ? suyos.reduce((s, { r }) => s + Math.round((r.unitCost ?? 0) * r.quantity), 0) : null,
+          costo: montos ? suyos.reduce((s, { r }) => s + Math.round((r.unitCost ?? 0) * r.quantity), 0) + insumos.reduce((s, l) => s + Math.round((l.unitCost ?? 0) * l.quantity), 0) : null,
           repuestos: suyos.map(repuesto),
+          insumos: insumos.map(lineaInsumo),
         }
       }),
     })
@@ -224,8 +242,12 @@ export const rutasCompras = new Hono<EntornoTenant>()
     exigirGestion(c)
     const { actor, ahora } = c.var
     const d = c.req.valid('json')
+    if (!d.repuestos.length && !d.insumos.length) throw rechazo(400, 'Elige qué pedir.')
     const repuestos = await filasDelTenant(c, workOrderParts, d.repuestos, 'part', 'ese repuesto')
     if (repuestos.some((r) => r.source !== 'shop' || r.status !== 'pending')) throw rechazo(409, 'Solo se piden los repuestos que compra la rectificadora y que están por pedir.')
+    const insumos = await filasDelTenant(c, supplies, d.insumos.map((i) => i.insumoId), 'supply', 'ese insumo')
+    if (insumos.some((s) => !s.active)) throw rechazo(409, 'Un insumo de la orden está fuera de uso.')
+    const costoDe = new Map(insumos.map((s) => [s.id, s.unitCost]))
     const proveedor = await proveedorDe(c, d.proveedorId)
     if (!proveedor.active) throw rechazo(409, `${proveedor.name} está inactivo: actívalo en Proveedores o elige otro.`)
     if (d.choferId) await exigirChofer(c, d.choferId)
@@ -233,8 +255,9 @@ export const rutasCompras = new Hono<EntornoTenant>()
     const numero = await c.var.base.transaction(async (tx) => {
       const numero = await siguienteNumero(tx, purchaseOrders, actor.tenantId)
       await tx.insert(purchaseOrders).values({ id, tenantId: actor.tenantId, number: numero, supplierId: proveedor.id, supplier: proveedor.name, driverId: d.choferId ?? null, expectedAt: d.llega ?? null, notes: d.nota || null, status: 'open', createdBy: actor.id, createdAt: ahora })
-      await tx.update(workOrderParts).set({ status: 'ordered', purchaseOrderId: id, supplierId: proveedor.id, supplier: proveedor.name }).where(inArray(workOrderParts.id, repuestos.map((r) => r.id)))
-      await registrar(tx, origenDe(c), { tenantId: actor.tenantId, eventType: 'purchase_order.created', targetId: id, targetType: 'purchase_order', metadata: { numero: folioOc(numero), proveedor: proveedor.name, repuestos: repuestos.length } })
+      if (repuestos.length) await tx.update(workOrderParts).set({ status: 'ordered', purchaseOrderId: id, supplierId: proveedor.id, supplier: proveedor.name }).where(inArray(workOrderParts.id, repuestos.map((r) => r.id)))
+      if (d.insumos.length) await tx.insert(purchaseOrderSupplies).values(d.insumos.map((i) => ({ id: nuevoId('ocl'), tenantId: actor.tenantId, purchaseOrderId: id, supplyId: i.insumoId, quantity: i.cantidad, unitCost: costoDe.get(i.insumoId) ?? null, status: 'ordered' as const })))
+      await registrar(tx, origenDe(c), { tenantId: actor.tenantId, eventType: 'purchase_order.created', targetId: id, targetType: 'purchase_order', metadata: { numero: folioOc(numero), proveedor: proveedor.name, repuestos: repuestos.length, insumos: d.insumos.length } })
       await sumarUso(tx, actor.tenantId, ahora, { documents: 1 })
       return numero
     })
@@ -252,24 +275,32 @@ export const rutasCompras = new Hono<EntornoTenant>()
     return c.json({ ok: true })
   })
 
-  /** Recibir en el taller lo que trajo el chofer: todo, o solo algunos repuestos si no llegó todo. */
-  .post('/compras/ordenes/:id/recibir', conDatos(z.object({ repuestos: z.array(z.string()).max(200).optional() })), async (c) => {
+  /** Recibir en el taller lo que trajo el chofer: todo, o solo algunos repuestos o insumos si no llegó todo. Los insumos entran a bodega. */
+  .post('/compras/ordenes/:id/recibir', conDatos(z.object({ repuestos: z.array(z.string()).max(200).optional(), insumos: z.array(z.string()).max(200).optional() })), async (c) => {
     const { actor, ahora } = c.var
     const oc = await filaDelTenant(c, purchaseOrders, c.req.param('id'), 'purchase_order', 'esa orden de compra')
     exigirQuienRecibe(c, oc.driverId)
     if (oc.status !== 'open') throw rechazo(409, 'Esa orden de compra ya no está por retirar.')
-    const { repuestos } = c.req.valid('json')
+    const { repuestos, insumos } = c.req.valid('json')
+    // Sin decir qué, es todo lo que falta; diciendo, solo eso.
+    const todo = !repuestos && !insumos
     if (repuestos) await filasDelTenant(c, workOrderParts, repuestos, 'part', 'ese repuesto')
     const pedidos = await c.var.base.select().from(workOrderParts).where(and(eq(workOrderParts.purchaseOrderId, oc.id), eq(workOrderParts.tenantId, actor.tenantId), eq(workOrderParts.status, 'ordered')))
-    const elegidos = repuestos ? pedidos.filter((r) => repuestos.includes(r.id)) : pedidos
-    if (!elegidos.length || (repuestos && elegidos.length !== new Set(repuestos).size)) throw rechazo(409, 'Esos repuestos no están pedidos en esta orden.')
+    const lineas = await c.var.base.select().from(purchaseOrderSupplies).where(and(eq(purchaseOrderSupplies.purchaseOrderId, oc.id), eq(purchaseOrderSupplies.tenantId, actor.tenantId), eq(purchaseOrderSupplies.status, 'ordered')))
+    const elegidos = todo ? pedidos : pedidos.filter((r) => repuestos?.includes(r.id))
+    const lineasElegidas = todo ? lineas : lineas.filter((l) => insumos?.includes(l.id))
+    if ((!elegidos.length && !lineasElegidas.length) || (repuestos && elegidos.length !== new Set(repuestos).size) || (insumos && lineasElegidas.length !== new Set(insumos).size)) throw rechazo(409, 'Eso no está pedido en esta orden.')
     const estado = await c.var.base.transaction(async (tx) => {
-      await tx.update(workOrderParts).set({ status: 'received', receivedAt: ahora, receivedBy: actor.id }).where(inArray(workOrderParts.id, elegidos.map((r) => r.id)))
+      if (elegidos.length) await tx.update(workOrderParts).set({ status: 'received', receivedAt: ahora, receivedBy: actor.id }).where(inArray(workOrderParts.id, elegidos.map((r) => r.id)))
+      for (const l of lineasElegidas) {
+        await tx.update(purchaseOrderSupplies).set({ status: 'received', receivedAt: ahora, receivedBy: actor.id }).where(eq(purchaseOrderSupplies.id, l.id))
+        await moverInsumo(tx, { tenantId: actor.tenantId, insumoId: l.supplyId, cantidad: l.quantity, tipo: 'purchase', ocId: oc.id, nota: folioOc(oc.number), por: actor.id, ahora })
+      }
       const r = await recalcularOc(tx, oc.id, ahora)
       if (r.recienRecibida) await registrar(tx, origenDe(c), { tenantId: actor.tenantId, eventType: 'purchase_order.received', targetId: oc.id, targetType: 'purchase_order', metadata: { numero: folioOc(oc.number), proveedor: oc.supplier } })
       return r.estado
     })
-    return c.json({ ok: true, estado, recibidos: elegidos.length })
+    return c.json({ ok: true, estado, recibidos: elegidos.length + lineasElegidas.length })
   })
 
   /** Anular una orden de la que no ha llegado nada: lo que tenía vuelve a por pedir. */
@@ -279,12 +310,102 @@ export const rutasCompras = new Hono<EntornoTenant>()
     const oc = await filaDelTenant(c, purchaseOrders, c.req.param('id'), 'purchase_order', 'esa orden de compra')
     if (oc.status !== 'open') throw rechazo(409, 'Esa orden de compra ya no está por retirar.')
     const recibidos = await c.var.base.select({ id: workOrderParts.id }).from(workOrderParts).where(and(eq(workOrderParts.purchaseOrderId, oc.id), eq(workOrderParts.status, 'received')))
-    if (recibidos.length) throw rechazo(409, 'Ya llegó parte de esta orden: recibe lo que falta o déjala abierta.')
+    const insumosRecibidos = await c.var.base.select({ id: purchaseOrderSupplies.id }).from(purchaseOrderSupplies).where(and(eq(purchaseOrderSupplies.purchaseOrderId, oc.id), eq(purchaseOrderSupplies.status, 'received')))
+    if (recibidos.length || insumosRecibidos.length) throw rechazo(409, 'Ya llegó parte de esta orden: recibe lo que falta o déjala abierta.')
     const { motivo } = c.req.valid('json')
     await c.var.base.transaction(async (tx) => {
       await tx.update(workOrderParts).set({ status: 'pending', purchaseOrderId: null }).where(and(eq(workOrderParts.purchaseOrderId, oc.id), eq(workOrderParts.tenantId, actor.tenantId), eq(workOrderParts.status, 'ordered')))
+      await tx.update(purchaseOrderSupplies).set({ status: 'cancelled' }).where(and(eq(purchaseOrderSupplies.purchaseOrderId, oc.id), eq(purchaseOrderSupplies.tenantId, actor.tenantId), eq(purchaseOrderSupplies.status, 'ordered')))
       await tx.update(purchaseOrders).set({ status: 'cancelled', cancelledAt: ahora, cancelReason: motivo }).where(eq(purchaseOrders.id, oc.id))
     })
+    return c.json({ ok: true })
+  })
+
+/** Los insumos de la bodega: lo que hay, su mínimo, lo que viene en camino y sus últimos movimientos. */
+  .get('/insumos', async (c) => {
+    const { base, actor } = c.var
+    const montos = veMontos(actor.rol)
+    const [lista, enCamino, movimientos, nombres] = await Promise.all([
+      base.select({ s: supplies, proveedor: suppliers.name }).from(supplies).leftJoin(suppliers, eq(suppliers.id, supplies.supplierId)).where(eq(supplies.tenantId, actor.tenantId)).orderBy(desc(supplies.active), asc(supplies.name)),
+      base
+        .select({ insumo: purchaseOrderSupplies.supplyId, cantidad: sql<number>`sum(${purchaseOrderSupplies.quantity})`.mapWith(Number) })
+        .from(purchaseOrderSupplies)
+        .where(and(eq(purchaseOrderSupplies.tenantId, actor.tenantId), eq(purchaseOrderSupplies.status, 'ordered')))
+        .groupBy(purchaseOrderSupplies.supplyId),
+      base
+        .select({ m: supplyMovements, ot: workOrders.number })
+        .from(supplyMovements)
+        .leftJoin(workOrders, eq(workOrders.id, supplyMovements.workOrderId))
+        .where(eq(supplyMovements.tenantId, actor.tenantId))
+        .orderBy(desc(supplyMovements.createdAt))
+        .limit(500),
+      nombresDe(c),
+    ])
+    const porLlegar = new Map(enCamino.map((e) => [e.insumo, e.cantidad]))
+    return c.json(
+      lista.map(({ s, proveedor }) => ({
+        id: s.id,
+        nombre: s.name,
+        unidad: s.unit,
+        marca: s.brand,
+        codigo: s.partNumber,
+        proveedorId: montos ? s.supplierId : null,
+        proveedor: montos ? proveedor : null,
+        costo: montos ? s.unitCost : null,
+        minimo: s.minStock,
+        stock: s.stock,
+        porLlegar: porLlegar.get(s.id) ?? 0,
+        bajo: bajoMinimo(s.stock, s.minStock),
+        nota: s.notes,
+        activo: s.active,
+        movimientos: movimientos
+          .filter(({ m }) => m.supplyId === s.id)
+          .slice(0, 5)
+          .map(({ m, ot }) => ({ id: m.id, tipo: m.kind, cantidad: m.quantity, ot, nota: m.note, quien: m.createdBy ? (nombres.get(m.createdBy) ?? null) : null, en: m.createdAt.toISOString() })),
+      })),
+    )
+  })
+
+  .post('/insumos', conDatos(insumoSchema), async (c) => {
+    exigirGestion(c)
+    const d = c.req.valid('json')
+    if (d.proveedorId) await proveedorDe(c, d.proveedorId)
+    const id = nuevoId('ins')
+    await c.var.base.insert(supplies).values({ id, tenantId: c.var.actor.tenantId, ...datosDeInsumo(d), active: d.activo ?? true, createdAt: c.var.ahora })
+    return c.json({ id })
+  })
+
+  /** Corregir un insumo, o sacarlo de uso. El stock no se cambia aquí: se ajusta con su motivo. */
+  .post('/insumos/:id', conDatos(insumoSchema), async (c) => {
+    exigirGestion(c)
+    const s = await filaDelTenant(c, supplies, c.req.param('id'), 'supply', 'ese insumo')
+    const d = c.req.valid('json')
+    if (d.proveedorId) await proveedorDe(c, d.proveedorId)
+    await c.var.base.update(supplies).set({ ...datosDeInsumo(d), active: d.activo ?? s.active }).where(and(eq(supplies.id, s.id), eq(supplies.tenantId, c.var.actor.tenantId)))
+    return c.json({ ok: true })
+  })
+
+  /** Sacar de bodega lo que se usó (para una OT, si se dice). Lo hace cualquiera que trabaje. */
+  .post('/insumos/:id/sacar', conDatos(z.object({ cantidad: z.number().positive('La cantidad debe ser mayor que cero.').max(1_000_000), otId: z.string().nullable().optional(), nota: z.string().trim().max(300).optional() })), async (c) => {
+    exigirQuePuedaEditar(c)
+    const s = await filaDelTenant(c, supplies, c.req.param('id'), 'supply', 'ese insumo')
+    if (!s.active) throw rechazo(409, 'Ese insumo está fuera de uso.')
+    const d = c.req.valid('json')
+    if (d.otId) await filaDelTenant(c, workOrders, d.otId, 'work_order', 'esa orden de trabajo')
+    if (d.cantidad > s.stock) throw rechazo(409, `Solo quedan ${s.stock} ${s.unit}. Si hay más en bodega, que el jefe de taller ajuste el stock.`)
+    const { actor, ahora } = c.var
+    const stock = await c.var.base.transaction((tx) => moverInsumo(tx, { tenantId: actor.tenantId, insumoId: s.id, cantidad: -d.cantidad, tipo: 'use', otId: d.otId ?? null, nota: d.nota || null, por: actor.id, ahora }))
+    return c.json({ ok: true, stock })
+  })
+
+  /** Ajustar el stock a lo que se contó en bodega, con su motivo: queda la diferencia como movimiento. */
+  .post('/insumos/:id/ajustar', conDatos(z.object({ stock: z.number().min(0, 'El stock no puede ser negativo.').max(1_000_000), nota: z.string({ error: 'Escribe el motivo del ajuste.' }).trim().min(3, 'Escribe el motivo del ajuste.').max(300) })), async (c) => {
+    exigirGestion(c)
+    const s = await filaDelTenant(c, supplies, c.req.param('id'), 'supply', 'ese insumo')
+    const d = c.req.valid('json')
+    if (d.stock === s.stock) throw rechazo(409, 'El stock ya es ese.')
+    const { actor, ahora } = c.var
+    await c.var.base.transaction((tx) => moverInsumo(tx, { tenantId: actor.tenantId, insumoId: s.id, cantidad: d.stock - s.stock, tipo: 'adjust', nota: d.nota, por: actor.id, ahora }))
     return c.json({ ok: true })
   })
 
