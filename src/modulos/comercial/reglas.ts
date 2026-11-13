@@ -4,7 +4,7 @@
 // a un costo) o el cliente, que lo trae y no se le cobra. Sin servidor: la pantalla calcula igual que el servidor.
 import { z } from 'zod'
 import { QUIEN_COMPRA, type QuienCompra } from '../compras/reglas'
-import { cantidadSegun, type Criterio, CRITERIOS, type Motor, ordenDeGrupo, type Pieza, PIEZAS } from '../taller/reglas'
+import { cantidadSegun, type Criterio, CRITERIOS, type Motor, ordenDeGrupo, type Pieza, type PiezaPropia } from '../taller/reglas'
 
 export const IVA = 0.19
 
@@ -56,7 +56,8 @@ export const lineaSchema = z.object({
   cantidad: z.number().positive('La cantidad debe ser mayor que cero.').max(10_000),
   precio: z.number().int().min(0).max(1_000_000_000).nullable(),
   horas: z.number().min(0).max(1000),
-  pieza: z.enum(Object.keys(PIEZAS) as [Pieza, ...Pieza[]]).nullable().optional(),
+  // Una de las de siempre o una propia del taller (su id): la ruta revisa que sea de la rectificadora.
+  pieza: z.string().max(40).nullable().optional(),
   criterio: z.enum(Object.keys(CRITERIOS) as [Criterio, ...Criterio[]]).nullable().optional(),
   compra: z.enum(Object.keys(QUIEN_COMPRA) as [QuienCompra, ...QuienCompra[]]).nullable().optional(),
   proveedorId: z.string().max(40).nullable().optional(),
@@ -134,9 +135,9 @@ export const lineaDe = (a: ActividadDeLista, m: Motor, pieza: Pieza = a.pieza): 
  * ruta (lo del motor completo: el desarme primero, el armado y el control al final). Lo que ya está no se repite.
  * Quien cotiza quita después lo que no corresponda.
  */
-export function desglose(actividades: ActividadDeLista[], piezas: Pieza[], m: Motor, yaEstan: Linea[], diagnostico: Set<string>): Linea[] {
+export function desglose(actividades: ActividadDeLista[], piezas: Pieza[], m: Motor, yaEstan: Linea[], diagnostico: Set<string>, propias: readonly PiezaPropia[] = []): Linea[] {
   const ya = new Set(yaEstan.map((l) => l.trabajoId).filter(Boolean))
-  const orden = (a: ActividadDeLista) => (a.pieza === 'motor' ? (diagnostico.has(a.seccionId) ? -1 : 99) : ordenDeGrupo(a.pieza))
+  const orden = (a: ActividadDeLista) => (a.pieza === 'motor' ? (diagnostico.has(a.seccionId) ? -1 : 9999) : ordenDeGrupo(a.pieza, propias))
   return actividades
     .filter((a) => a.activo && a.tipico && piezas.includes(a.pieza) && !ya.has(a.id))
     .sort((a, b) => orden(a) - orden(b) || a.paso - b.paso || a.codigo.localeCompare(b.codigo))

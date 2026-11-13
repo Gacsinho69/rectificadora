@@ -78,6 +78,13 @@
       "when": 1794604558683,
       "tag": "0010_sesiones",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794605801226,
+      "tag": "0011_piezas_propias",
+      "breakpoints": true
     }
   ]
 }

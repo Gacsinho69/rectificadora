@@ -4,6 +4,25 @@ import { tenants } from '../tenants/tablas'
 import { users } from '../usuarios/tablas'
 import type { Criterio, EstadoOt, EstadoTarea, MotivoDetencion, Pieza, PrioridadOt } from './reglas'
 
+/**
+ * Las piezas propias de cada rectificadora, además de las de siempre (motor, culata, block…): un turbo, una bomba
+ * inyectora, un volante. Las actividades, las OT y las cotizaciones las nombran por su id.
+ */
+export const customPieces = pgTable(
+  'custom_pieces',
+  {
+    id: text().primaryKey(),
+    tenantId: text()
+      .notNull()
+      .references(() => tenants.id),
+    name: text().notNull(),
+    position: integer().notNull().default(0),
+    active: boolean().notNull().default(true),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index().on(t.tenantId)],
+)
+
 /** Las secciones del taller de cada rectificadora (culatas, block…). `kind` marca la de recepción y diagnóstico. */
 export const shopSections = pgTable(
   'shop_sections',

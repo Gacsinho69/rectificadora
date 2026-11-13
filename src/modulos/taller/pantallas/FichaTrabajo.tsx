@@ -8,7 +8,7 @@ import { useState } from 'react'
 import { api } from '../../../pantallas/api'
 import { Bloque, Cargando, Hace, Problema } from '../../../pantallas/componentes'
 import { fecha, fechaHora } from '../../../pantallas/formato'
-import { PIEZAS } from '../reglas'
+import { usePiezas } from './Piezas'
 import { EstadoRepuestoTag, folioOt, horas, PlazoTag, SituacionTag, textoEspera, textoFaltan, textoMaquinas, textoMotor, usePersona, usePortal } from './comun'
 import type { FichaTarea } from './tipos'
 import { BotonesDeTarea, useAccionesDeTarea } from './Trabajo'
@@ -24,6 +24,7 @@ export function FichaTrabajo({ id, cerrar }: { id: string; cerrar: () => void })
 
 function Contenido({ t }: { t: FichaTarea }) {
   const portal = usePortal()
+  const pz = usePiezas()
   const { persona, gestiona, trabaja, suspendida } = usePersona()
   const accion = useAccionesDeTarea()
   const [resultado, setResultado] = useState('')
@@ -63,7 +64,7 @@ function Contenido({ t }: { t: FichaTarea }) {
         )}
         <dt>Pieza y sección</dt>
         <dd>
-          {t.pieza === 'motor' ? 'Toda la OT' : PIEZAS[t.pieza]} · {t.seccion}
+          {t.pieza === 'motor' ? 'Toda la OT' : pz.nombre(t.pieza)} · {t.seccion}
         </dd>
         <dt>Horas estándar</dt>
         <dd>{t.horas ? horas(t.horas) : '—'}</dd>

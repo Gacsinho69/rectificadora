@@ -94,11 +94,38 @@ export const PLANTILLAS_TALLER = {
 } as const satisfies Record<string, { nombre: string; detalle: string; secciones: readonly ClaveSeccion[]; codigos: readonly string[] }>
 export type PlantillaTaller = keyof typeof PLANTILLAS_TALLER
 
-/** Lo que entra a la rectificadora: un motor completo o piezas sueltas. */
+/** Lo que entra a la rectificadora: un motor completo o piezas sueltas. Estas las tiene todo taller. */
 export const PIEZAS = { motor: 'Motor completo', culata: 'Culata', block: 'Block', cigüeñal: 'Cigüeñal', bielas: 'Bielas', árbol: 'Árbol de levas', otra: 'Otra pieza' } as const
-export type Pieza = keyof typeof PIEZAS
+export type PiezaBase = keyof typeof PIEZAS
+/**
+ * Una pieza: una de las de siempre («culata») o una propia del taller (un turbo, una bomba inyectora), que va con su id
+ * («pz_…»). Las propias se trabajan como cualquier pieza suelta: en paralelo, con su propia ruta.
+ */
+export type Pieza = PiezaBase | (string & {})
+/** Una pieza propia de un taller. La inactiva ya no se ofrece, pero se sigue nombrando donde ya está. */
+export type PiezaPropia = { id: string; nombre: string; activa: boolean }
 /** Las piezas que se trabajan por separado después del desarme, en el orden en que se muestran. */
-export const PIEZAS_SUELTAS: Pieza[] = ['culata', 'block', 'cigüeñal', 'bielas', 'árbol', 'otra']
+export const PIEZAS_SUELTAS: PiezaBase[] = ['culata', 'block', 'cigüeñal', 'bielas', 'árbol', 'otra']
+
+export const esPiezaBase = (p: string): p is PiezaBase => Object.hasOwn(PIEZAS, p)
+export const nombreDePieza = (p: Pieza, propias: readonly PiezaPropia[] = []) => (esPiezaBase(p) ? PIEZAS[p] : (propias.find((x) => x.id === p)?.nombre ?? 'Pieza'))
+/** Las piezas sueltas de un taller, en orden: las de siempre, las propias (las activas, o todas) y «otra» al final. */
+export const piezasSueltas = (propias: readonly PiezaPropia[] = [], conInactivas = false): Pieza[] => [
+  ...PIEZAS_SUELTAS.filter((p) => p !== 'otra'),
+  ...propias.filter((p) => conInactivas || p.activa).map((p) => p.id),
+  'otra',
+]
+
+/**
+ * Las pruebas de recepción según lo que llegó: con el motor o el block, desarme, lavado y medición (D-01, D-02); con
+ * piezas sueltas de las de siempre, fisuras (D-03) y, si viene la culata, la hidrostática (D-04). Una pieza propia sola
+ * (un turbo) no pasa por esas pruebas.
+ */
+export function diagnosticoDeRecepcion(piezas: readonly Pieza[]): string[] {
+  if (piezas.includes('motor') || piezas.includes('block')) return ['D-01', 'D-02']
+  if (!piezas.some(esPiezaBase)) return []
+  return ['D-03', ...(piezas.includes('culata') ? ['D-04'] : [])]
+}
 
 export const ESTADOS_OT = {
   received: 'Recibida',
@@ -203,26 +230,33 @@ export function situacionDe(t: TrabajoEnRuta, deLaOt: TrabajoEnRuta[]): Situacio
 
 /** Cómo se agrupan los trabajos de una OT: el diagnóstico, cada pieza, y el armado y control de toda la OT. */
 export type GrupoDeOt = 'diagnostico' | Pieza
-const ORDEN_GRUPOS: GrupoDeOt[] = ['diagnostico', ...PIEZAS_SUELTAS, 'motor']
 export const grupoDe = (t: { diagnostico: boolean; pieza: Pieza }): GrupoDeOt => (t.diagnostico ? 'diagnostico' : t.pieza)
-export const nombreDeGrupo = (g: GrupoDeOt) => (g === 'diagnostico' ? 'Recepción y diagnóstico' : g === 'motor' ? 'Armado y control' : PIEZAS[g])
-export const ordenDeGrupo = (g: GrupoDeOt) => ORDEN_GRUPOS.indexOf(g)
+export const nombreDeGrupo = (g: GrupoDeOt, propias: readonly PiezaPropia[] = []) => (g === 'diagnostico' ? 'Recepción y diagnóstico' : g === 'motor' ? 'Armado y control' : nombreDePieza(g, propias))
+/** El diagnóstico primero; después las piezas de siempre, las propias en su orden y «otra»; el armado y control al final. */
+export function ordenDeGrupo(g: GrupoDeOt, propias: readonly PiezaPropia[] = []) {
+  if (g === 'diagnostico') return 0
+  if (g === 'motor') return 1000
+  if (g === 'otra') return 999
+  if (esPiezaBase(g)) return 1 + PIEZAS_SUELTAS.indexOf(g)
+  const i = propias.findIndex((p) => p.id === g)
+  return i < 0 ? 998 : 100 + i
+}
 
 /**
  * Cómo va cada pieza de una OT: lo que se contesta en el mesón («la culata está lista, el block espera pistones»).
  * La situación de la pieza es la del trabajo que la tiene ocupada: detenido, en proceso, para hacer o esperando
  * repuestos o su turno.
  */
-export function piezasDeOt<T extends TrabajoEnRuta & { diagnostico: boolean; minutos: number; situacion: Situacion }>(tareas: T[]) {
+export function piezasDeOt<T extends TrabajoEnRuta & { diagnostico: boolean; minutos: number; situacion: Situacion }>(tareas: T[], propias: readonly PiezaPropia[] = []) {
   const grupos = new Map<GrupoDeOt, T[]>()
   for (const t of tareas) grupos.set(grupoDe(t), [...(grupos.get(grupoDe(t)) ?? []), t])
-  return ORDEN_GRUPOS.filter((g) => grupos.has(g)).map((g) => {
+  return [...grupos.keys()].sort((a, b) => ordenDeGrupo(a, propias) - ordenDeGrupo(b, propias)).map((g) => {
     const lista = grupos.get(g)!
     const primera = (s: Situacion) => lista.find((t) => t.situacion === s)
     const actual = primera('held') ?? primera('in_progress') ?? primera('available') ?? primera('machine') ?? primera('parts') ?? primera('waiting') ?? null
     return {
       clave: g,
-      nombre: nombreDeGrupo(g),
+      nombre: nombreDeGrupo(g, propias),
       avance: avanceDeOt(lista),
       total: lista.length,
       hechas: lista.filter((t) => t.estado === 'done').length,
@@ -260,12 +294,12 @@ export function cantidadSegun(criterio: Criterio, m: Motor): number {
 }
 
 /** La unidad con que se lee el valor («$22.000 por cilindro»): sale del criterio; si es una vez, de la pieza. */
-export function unidadDe(criterio: Criterio, pieza: Pieza): string {
+export function unidadDe(criterio: Criterio, pieza: Pieza, propias: readonly PiezaPropia[] = []): string {
   if (criterio === 'per_cylinder') return 'cilindro'
   if (criterio === 'per_valve') return 'válvula'
   if (criterio === 'per_rod') return 'biela'
   if (criterio === 'per_head') return 'culata'
-  return pieza === 'bielas' ? 'juego' : pieza === 'otra' ? 'pieza' : PIEZAS[pieza].toLowerCase().replace(' completo', '')
+  return pieza === 'bielas' ? 'juego' : pieza === 'otra' ? 'pieza' : nombreDePieza(pieza, propias).toLowerCase().replace(' completo', '')
 }
 
 const PLURAL: Record<Exclude<Criterio, 'fixed'>, string> = { per_cylinder: 'cilindros', per_valve: 'válvulas', per_rod: 'bielas', per_head: 'culatas' }

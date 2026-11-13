@@ -6,14 +6,14 @@ import { Alert, App, Button, Checkbox, Form, Input, InputNumber, Modal, Select, 
 import { useState } from 'react'
 import { api } from '../../../pantallas/api'
 import { Bloque, Cargando, Problema } from '../../../pantallas/componentes'
-import { plata } from '../../../pantallas/formato'
+import { plata, plural } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
-import { cantidadSegun, type Criterio, CRITERIOS, type Motor, PIEZAS, PIEZAS_SUELTAS, type Pieza, unidadDe } from '../reglas'
+import { cantidadSegun, type Criterio, CRITERIOS, type Motor, type Pieza, unidadDe } from '../reglas'
 import { horas, usePersona } from './comun'
+import { PiezasDelTaller, usePiezas } from './Piezas'
 import { Secciones } from './Secciones'
 import type { Actividad, Catalogo, Persona } from './tipos'
 
-const GRUPOS: Pieza[] = ['motor', ...PIEZAS_SUELTAS]
 /** El motor del ejemplo, para mostrar cómo se cuenta cada criterio. */
 const EJEMPLO: Motor = { cilindros: 6, valvulasPorCilindro: 4, culatas: 1 }
 
@@ -23,6 +23,8 @@ export function Actividades() {
   const { message } = App.useApp()
   const [editar, setEditar] = useState<Actividad | 'nueva' | null>(null)
   const [secciones, setSecciones] = useState(false)
+  const [piezas, setPiezas] = useState(false)
+  const pz = usePiezas()
   const r = useQuery({ queryKey: ['taller', 'catalogo'], queryFn: () => api<Catalogo>('GET', '/servicio/catalogo') })
   const personas = useQuery({ queryKey: ['taller', 'personas'], queryFn: () => api<Persona[]>('GET', '/servicio/personas') })
   const hacen = useMutation({
@@ -47,6 +49,7 @@ export function Actividades() {
         acciones={
           puedeEditar ? (
             <>
+              <Button onClick={() => setPiezas(true)}>Piezas</Button>
               <Button onClick={() => setSecciones(true)}>Secciones</Button>
               <Button type="primary" onClick={() => setEditar('nueva')}>Nueva actividad</Button>
             </>
@@ -58,11 +61,11 @@ export function Actividades() {
         cilindro, válvula, biela o culata), y al aprobarse va sola a uno de quienes la hacen: al que ya tiene esa pieza o, si no, al que tiene menos horas pendientes.
         {!esAdmin && ' Los valores y las actividades los cambia el administrador; quién las hace, también el jefe de taller.'}
       </p>
-      {GRUPOS.map((p) => {
+      {(['motor', ...pz.sueltasConInactivas] as Pieza[]).map((p) => {
         const lista = r.data.trabajos.filter((t) => t.pieza === p).sort((a, b) => a.paso - b.paso || a.codigo.localeCompare(b.codigo))
         if (!lista.length) return null
         return (
-          <Bloque key={p} titulo={PIEZAS[p]} extra={<span className="tenue">{p === 'motor' ? 'Lo de toda la OT: el desarme antes de las piezas; el armado y el control, después' : `${lista.length} actividades`}</span>}>
+          <Bloque key={p} titulo={pz.nombre(p)} extra={<span className="tenue">{p === 'motor' ? 'Lo de toda la OT: el desarme antes de las piezas; el armado y el control, después' : plural(lista.length, 'actividad', 'actividades')}</span>}>
             <Table<Actividad>
               size="small"
               rowKey="id"
@@ -140,6 +143,7 @@ export function Actividades() {
       })}
       {editar && <EditarActividad actividad={editar === 'nueva' ? null : editar} catalogo={r.data} cerrar={() => setEditar(null)} />}
       {secciones && <Secciones catalogo={r.data} cerrar={() => setSecciones(false)} />}
+      {piezas && <PiezasDelTaller catalogo={r.data} cerrar={() => setPiezas(false)} />}
     </>
   )
 }
@@ -154,6 +158,7 @@ function EditarActividad({ actividad, catalogo, cerrar }: { actividad: Actividad
   const criterio = Form.useWatch('criterio', form) ?? actividad?.criterio ?? 'fixed'
   const pieza = Form.useWatch('pieza', form) ?? actividad?.pieza ?? 'culata'
   const precio = Form.useWatch('precio', form)
+  const pz = usePiezas()
   const guardar = useMutation({
     mutationFn: (v: DatosActividad) => {
       const datos = { ...v, precio: v.precio ?? null, paso: v.paso ?? undefined }
@@ -166,7 +171,7 @@ function EditarActividad({ actividad, catalogo, cerrar }: { actividad: Actividad
     },
   })
   const veces = cantidadSegun(criterio, EJEMPLO)
-  const unidad = unidadDe(criterio, pieza)
+  const unidad = unidadDe(criterio, pieza, pz.propias)
   return (
     <Modal
       open
@@ -195,7 +200,7 @@ function EditarActividad({ actividad, catalogo, cerrar }: { actividad: Actividad
         </Form.Item>
         <div className="columnas">
           <Form.Item label="Pieza" name="pieza">
-            <Select options={GRUPOS.map((p) => ({ value: p, label: p === 'motor' ? 'Motor completo (toda la OT)' : PIEZAS[p] }))} />
+            <Select options={(['motor', ...pz.sueltas] as Pieza[]).map((p) => ({ value: p, label: p === 'motor' ? 'Motor completo (toda la OT)' : pz.nombre(p) }))} />
           </Form.Item>
           <Form.Item label="Sección donde se hace" name="seccionId" rules={[{ required: true, message: 'Elige la sección.' }]}>
             <Select options={catalogo.secciones.filter((s) => s.activa).map((s) => ({ value: s.id, label: s.nombre }))} />

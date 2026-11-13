@@ -7,7 +7,8 @@ import { api, consulta } from '../../../pantallas/api'
 import { Problema } from '../../../pantallas/componentes'
 import { cifra, fecha } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
-import { ESTADOS_OT, PIEZAS, type Pieza, PRIORIDADES_OT } from '../reglas'
+import { ESTADOS_OT, type Pieza, PRIORIDADES_OT } from '../reglas'
+import { usePiezas } from './Piezas'
 import { AvanceOt, CamposDelMotor, EstadoOtTag, folioOt, PlazoTag, usePersona, usePortal } from './comun'
 import type { Cliente, FilaOt } from './tipos'
 
@@ -17,6 +18,7 @@ export function OrdenesDeTrabajo() {
   const b = ruta.useSearch()
   const portal = usePortal()
   const { gestiona } = usePersona()
+  const pz = usePiezas()
   const ir = useNavigate({ from: '/c/$portal/ot' })
   const filtros = { estado: b.estado ?? 'abiertas', q: b.q, pagina: b.pagina }
   const r = useQuery({ queryKey: ['taller', 'ots', filtros], queryFn: () => api<{ total: number; filas: FilaOt[] }>('GET', `/servicio/ot${consulta(filtros)}`), placeholderData: keepPreviousData })
@@ -63,7 +65,7 @@ export function OrdenesDeTrabajo() {
             { title: 'OT', key: 'n', width: 92, render: (_, o) => <b>{folioOt(o.numero)}</b> },
             { title: 'Cliente', dataIndex: 'cliente' },
             { title: 'Motor', key: 'm', render: (_, o) => <div className="fila-nombre"><span>{o.motor}</span>{o.equipo && <small>{o.equipo}</small>}</div> },
-            { title: 'Piezas', key: 'p', render: (_, o) => (o.piezas ?? []).map((p) => PIEZAS[p]).join(', ') },
+            { title: 'Piezas', key: 'p', render: (_, o) => (o.piezas ?? []).map(pz.nombre).join(', ') },
             { title: 'Estado', key: 'e', render: (_, o) => <span className="evento-nombre"><EstadoOtTag estado={o.estado} />{o.detenidas ? <span className="estado naranjo" title={`${o.detenidas} ${o.detenidas === 1 ? 'trabajo detenido' : 'trabajos detenidos'}`}>Detenida</span> : null}</span> },
             { title: 'Avance', key: 'a', render: (_, o) => <span title={`${o.hechas} de ${o.total} trabajos`}><AvanceOt estado={o.estado} fraccion={o.avance ?? 0} ancho={60} /></span> },
             { title: 'Recibida', key: 'c', render: (_, o) => fecha(o.creada) },
@@ -85,6 +87,7 @@ function Recepcion({ cerrar }: { cerrar: () => void }) {
   const ir = useNavigate()
   const consultas = useQueryClient()
   const clientes = useQuery({ queryKey: ['taller', 'clientes'], queryFn: () => api<Cliente[]>('GET', '/servicio/clientes') })
+  const pz = usePiezas()
   // La entrega que se puede comprometer, según lo que llegó y la cola de hoy de cada sección.
   const piezas = Form.useWatch('piezas', form) ?? []
   const cilindros = Form.useWatch('cilindros', form)
@@ -120,7 +123,7 @@ function Recepcion({ cerrar }: { cerrar: () => void }) {
           <Input placeholder="Bus Marcopolo · KJ-RT-54" />
         </Form.Item>
         <Form.Item label="Qué llegó" name="piezas" rules={[{ required: true, message: 'Marca qué piezas llegaron.' }]}>
-          <Checkbox.Group options={Object.entries(PIEZAS).map(([value, label]) => ({ value, label }))} />
+          <Checkbox.Group options={pz.opciones} />
         </Form.Item>
         <Form.Item label="Falla que informa el cliente" name="falla">
           <Input.TextArea rows={2} />

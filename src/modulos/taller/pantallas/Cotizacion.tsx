@@ -15,7 +15,8 @@ import { Encabezado } from '../../../pantallas/Marco'
 import { desglose, type Linea, lineaDe, loTraeElCliente, recontar, TIPOS_LINEA, totales, faltasParaEnviar } from '../../comercial/reglas'
 import { SelectorDeProveedor } from '../../compras/pantallas/Proveedores'
 import { QUIEN_COMPRA, type QuienCompra } from '../../compras/reglas'
-import { CILINDROS, PIEZAS, PIEZAS_SUELTAS, type Pieza } from '../reglas'
+import { CILINDROS, type Pieza } from '../reglas'
+import { usePiezas } from './Piezas'
 import { comoSeCuenta, EstadoCotTag, EstadoOtTag, folioCot, folioOt, motorDeDatos, textoMotor, usePersona, usePortal } from './comun'
 import type { Catalogo, Cliente, DetalleCotizacion, DetalleOt } from './tipos'
 
@@ -48,6 +49,7 @@ function Editor({ id, numero, inicial }: { id: string | null; numero: number | n
   const consultas = useQueryClient()
   const { message } = App.useApp()
   const [b, setB] = useState<Borrador>(inicial)
+  const pz = usePiezas()
   const [desglosando, setDesglosando] = useState(false)
   const catalogo = useQuery({ queryKey: ['taller', 'catalogo'], queryFn: () => api<Catalogo>('GET', '/servicio/catalogo') })
   const clientes = useQuery({ queryKey: ['taller', 'clientes'], queryFn: () => api<Cliente[]>('GET', '/servicio/clientes') })
@@ -86,10 +88,10 @@ function Editor({ id, numero, inicial }: { id: string | null; numero: number | n
     if (x) setB({ ...b, lineas: [...b.lineas, lineaDe(x, motor)] })
   }
   const seccion = (sid: string | null) => catalogo.data?.secciones.find((s) => s.id === sid)?.nombre
-  const grupos: Pieza[] = ['motor', ...PIEZAS_SUELTAS]
+  const grupos: Pieza[] = ['motor', ...pz.sueltasConInactivas]
   const opciones = grupos
     .map((p) => ({
-      label: PIEZAS[p],
+      label: pz.nombre(p),
       options: (catalogo.data?.trabajos ?? [])
         .filter((t) => t.pieza === p && t.activo)
         .sort((x, y) => x.paso - y.paso)
@@ -171,7 +173,7 @@ function Editor({ id, numero, inicial }: { id: string | null; numero: number | n
               render: (_, l) =>
                 l.tipo === 'trabajo' ? (
                   <div className="fila-nombre">
-                    <Select size="small" style={{ width: 140 }} value={l.pieza ?? 'motor'} options={Object.entries(PIEZAS).map(([value, label]) => ({ value, label }))} onChange={(v) => cambiar(l.i, { pieza: v as Pieza })} />
+                    <Select size="small" style={{ width: 140 }} value={l.pieza ?? 'motor'} options={pz.opciones} labelRender={() => pz.nombre(l.pieza ?? 'motor')} onChange={(v) => cambiar(l.i, { pieza: v as Pieza })} />
                     <small>{seccion(l.seccionId)}</small>
                   </div>
                 ) : l.tipo === 'repuesto' ? (
@@ -267,7 +269,7 @@ function Editor({ id, numero, inicial }: { id: string | null; numero: number | n
           cerrar={() => setDesglosando(false)}
           agregar={(piezas) => {
             const diagnostico = new Set(catalogo.data.secciones.filter((s) => s.diagnostico).map((s) => s.id))
-            const nuevas = desglose(catalogo.data.trabajos, piezas, motor, b.lineas, diagnostico)
+            const nuevas = desglose(catalogo.data.trabajos, piezas, motor, b.lineas, diagnostico, pz.propias)
             setB({ ...b, lineas: [...b.lineas, ...nuevas] })
             setDesglosando(false)
             if (nuevas.length) message.success(`Se agregaron ${nuevas.length} actividades, contadas para este motor. Quita lo que no corresponda.`)
@@ -281,7 +283,8 @@ function Editor({ id, numero, inicial }: { id: string | null; numero: number | n
 
 /** Elegir las piezas del desglose. Si se sabe qué llegó, parte con eso; un motor completo trae todo. */
 function Desglose({ catalogo, llegaron, textoDelMotor, cerrar, agregar }: { catalogo: Catalogo; llegaron: Pieza[] | null; textoDelMotor: string; cerrar: () => void; agregar: (piezas: Pieza[]) => void }) {
-  const conTipicas = (['motor', ...PIEZAS_SUELTAS] as Pieza[]).filter((p) => catalogo.trabajos.some((t) => t.pieza === p && t.tipico && t.activo))
+  const pz = usePiezas()
+  const conTipicas = (['motor', ...pz.sueltas] as Pieza[]).filter((p) => catalogo.trabajos.some((t) => t.pieza === p && t.tipico && t.activo))
   const inicial = !llegaron || llegaron.includes('motor') ? conTipicas : conTipicas.filter((p) => llegaron.includes(p))
   const [piezas, setPiezas] = useState<Pieza[]>(inicial)
   const cuantas = (p: Pieza) => catalogo.trabajos.filter((t) => t.pieza === p && t.tipico && t.activo).length
@@ -293,7 +296,7 @@ function Desglose({ catalogo, llegaron, textoDelMotor, cerrar, agregar }: { cata
       <Checkbox.Group value={piezas} onChange={(v) => setPiezas(v as Pieza[])} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {conTipicas.map((p) => (
           <Checkbox key={p} value={p}>
-            {p === 'motor' ? 'Motor completo: desarme, medición, armado y control' : PIEZAS[p]} <span className="tenue">({plural(cuantas(p), 'actividad', 'actividades')})</span>
+            {p === 'motor' ? 'Motor completo: desarme, medición, armado y control' : pz.nombre(p)} <span className="tenue">({plural(cuantas(p), 'actividad', 'actividades')})</span>
           </Checkbox>
         ))}
       </Checkbox.Group>
@@ -329,6 +332,7 @@ function Totales({ t, descuento, cambiarDescuento }: { t: ReturnType<typeof tota
 function Documento({ q }: { q: DetalleCotizacion }) {
   const portal = usePortal()
   const { gestiona, suspendida } = usePersona()
+  const pz = usePiezas()
   const ir = useNavigate()
   const consultas = useQueryClient()
   const { message } = App.useApp()
@@ -391,7 +395,7 @@ function Documento({ q }: { q: DetalleCotizacion }) {
           scroll={{ x: 680 }}
           columns={[
             { title: 'Código', dataIndex: 'codigo', width: 80, render: (v: string | null) => v ?? '—' },
-            { title: 'Descripción', key: 'd', render: (_, l) => <div className="fila-nombre"><span>{l.descripcion}</span>{l.tipo === 'trabajo' && l.pieza && <small>{PIEZAS[l.pieza]}</small>}{l.tipo === 'repuesto' && (l.medida || l.marca) && <small>{[l.medida, l.marca].filter(Boolean).join(' · ')}</small>}{loTraeElCliente(l) && <small>Lo trae el cliente</small>}</div> },
+            { title: 'Descripción', key: 'd', render: (_, l) => <div className="fila-nombre"><span>{l.descripcion}</span>{l.tipo === 'trabajo' && l.pieza && <small>{pz.nombre(l.pieza)}</small>}{l.tipo === 'repuesto' && (l.medida || l.marca) && <small>{[l.medida, l.marca].filter(Boolean).join(' · ')}</small>}{loTraeElCliente(l) && <small>Lo trae el cliente</small>}</div> },
             { title: 'Tipo', dataIndex: 'tipo', render: (v: Linea['tipo']) => TIPOS_LINEA[v] },
             { title: 'Cantidad', key: 'c', align: 'right', render: (_, l) => <div className="fila-nombre"><span>{l.cantidad}</span>{comoSeCuenta(l.criterio) && <small>{comoSeCuenta(l.criterio)}</small>}</div> },
             { title: 'Valor por unidad', key: 'p', align: 'right', render: (_, l) => (loTraeElCliente(l) ? <span className="tenue">No se cobra</span> : l.precio ? plata(l.precio) : '—') },

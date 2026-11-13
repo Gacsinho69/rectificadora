@@ -9,7 +9,8 @@ import { api } from '../../../pantallas/api'
 import { Cargando, Hace, Problema } from '../../../pantallas/componentes'
 import { fecha, plural } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
-import { MOTIVOS_DETENCION, PIEZAS } from '../reglas'
+import { MOTIVOS_DETENCION } from '../reglas'
+import { usePiezas } from './Piezas'
 import { dias, folioOt, horas, PlazoTag, SituacionTag, textoEspera, textoFaltan, textoMaquinas, usePersona, usePortal } from './comun'
 import type { TarjetaTaller, Tablero as DatosTablero } from './tipos'
 import { FichaTrabajo } from './FichaTrabajo'
@@ -105,6 +106,7 @@ export function Tablero() {
 
 function Tarjeta({ t, abrir }: { t: TarjetaTaller; abrir: (id: string) => void }) {
   const portal = usePortal()
+  const pz = usePiezas()
   const { persona, gestiona, trabaja, suspendida } = usePersona()
   const accion = useAccionesDeTarea()
   const clase = t.situacion === 'held' || t.situacion === 'machine' ? ' detenida' : t.situacion === 'parts' ? ' sin-repuestos' : t.situacion === 'waiting' ? ' espera' : t.situacion === 'in_progress' ? ' en-proceso' : t.ot.plazo === 'atrasada' ? ' atrasada' : ''
@@ -123,7 +125,7 @@ function Tarjeta({ t, abrir }: { t: TarjetaTaller; abrir: (id: string) => void }
         {t.nombre}
       </b>
       <small>
-        {t.pieza !== 'motor' && `${PIEZAS[t.pieza]} · `}
+        {t.pieza !== 'motor' && `${pz.nombre(t.pieza)} · `}
         {t.ot.motor} · {t.cliente}
       </small>
       <small>

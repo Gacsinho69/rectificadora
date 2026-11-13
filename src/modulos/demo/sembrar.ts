@@ -16,7 +16,7 @@ import type { EstadoIntegracion } from '../integraciones/reglas'
 import { apiKeys, integrations } from '../integraciones/tablas'
 import { customers, quotes } from '../comercial/tablas'
 import { impersonations } from '../soporte/tablas'
-import { services, serviceSpecialists, shopSections, taskHolds, workOrders, workOrderTasks } from '../taller/tablas'
+import { customPieces, services, serviceSpecialists, shopSections, taskHolds, workOrders, workOrderTasks } from '../taller/tablas'
 import { purchaseOrders, suppliers, supplies, supplyMovements, workOrderParts } from '../compras/tablas'
 import { machines, machineServices, machineStops } from '../maquinas/tablas'
 import { type EstadoPago, type EstadoTenant, FUNCIONES_DEL_PLAN, type Funcion, PLANES, type Plan, type Region, type UsoClave } from '../tenants/reglas'
@@ -200,6 +200,7 @@ export async function sembrarDemo(base: Base, ahora = new Date(), semilla = 2026
   const filasOrdenes: (typeof purchaseOrders.$inferInsert)[] = []
   const filasRepuestos: (typeof workOrderParts.$inferInsert)[] = []
   const filasCotizaciones: (typeof quotes.$inferInsert)[] = []
+  const filasPiezas: (typeof customPieces.$inferInsert)[] = []
   const admins = new Map<string, string>()
   const usuariosDe = new Map<string, string[]>()
   let folio = 1
@@ -389,6 +390,14 @@ export async function sembrarDemo(base: Base, ahora = new Date(), semilla = 2026
     filasRepuestos.push(...taller.repuestos)
     filasCotizaciones.push(...taller.cotizaciones)
 
+    // Una pieza propia, para mostrarla: Los Andes también repara turbos (sin sorteos: no cambia el resto de la demostración).
+    const terceros = taller.secciones.find((s) => s.name === 'Servicios de terceros')
+    if (slug === 'los-andes' && terceros) {
+      const turbo = `pz_${tenantId.slice(3)}t`
+      filasPiezas.push({ id: turbo, tenantId, name: 'Turbo', position: 0, active: true, createdAt: creado })
+      filasTrabajos.push({ id: `srv_${tenantId.slice(3)}t`, tenantId, sectionId: terceros.id, code: 'T-04', name: 'Reparación de turbo', unit: 'turbo', criterion: 'fixed', price: 180_000, stdHours: 0, piece: turbo, step: 100, typical: true, active: true })
+    }
+
     // ── Uso diario: las OT, cotizaciones y documentos salen del taller; la API y el almacenamiento, del perfil ──
     const limites = PLANES[p.plan].limites
     const ritmoApi = (limites.api_calls_month / 30) * (0.15 + azar() * 0.35)
@@ -523,6 +532,7 @@ export async function sembrarDemo(base: Base, ahora = new Date(), semilla = 2026
     await enLotes(tx, integrations, filasIntegraciones)
     await enLotes(tx, impersonations, filasImpersonaciones)
     await enLotes(tx, shopSections, filasSecciones)
+    await enLotes(tx, customPieces, filasPiezas)
     await enLotes(tx, services, filasTrabajos)
     await enLotes(tx, customers, filasClientes)
     await enLotes(tx, workOrders, filasOts)

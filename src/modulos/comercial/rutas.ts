@@ -11,6 +11,7 @@ import { claveDeProveedor, trabajoQueLoNecesita } from '../compras/reglas'
 import { suppliers, workOrderParts } from '../compras/tablas'
 import { origenDe, registrar } from '../eventos/registrar'
 import { exigirCupoDeOt, exigirGestion, exigirMontos, recalcularOt, siguienteNumero, sumarUso } from '../taller/comun'
+import { exigirPiezas } from '../taller/piezas'
 import { repartirOt } from '../taller/reparto'
 import { nombreDeTarea, OT_ABIERTAS } from '../taller/reglas'
 import { services, shopSections, workOrders, workOrderTasks } from '../taller/tablas'
@@ -24,6 +25,7 @@ async function revisar(c: C, d: DatosCotizacion) {
   await filaDelTenant(c, customers, d.clienteId, 'customer', 'ese cliente')
   if (d.otId) await filaDelTenant(c, workOrders, d.otId, 'work_order', 'esa orden de trabajo')
   await filasDelTenant(c, services, d.lineas.map((l) => l.trabajoId).filter((t): t is string => Boolean(t)), 'service', 'esa actividad')
+  await exigirPiezas(c, d.lineas.map((l) => l.pieza).filter((p): p is string => Boolean(p)), false)
   const secciones = [...new Set(d.lineas.map((l) => l.seccionId).filter((s): s is string => Boolean(s)))]
   if (secciones.length) {
     const propias = await c.var.base.select({ id: shopSections.id }).from(shopSections).where(and(eq(shopSections.tenantId, c.var.actor.tenantId), inArray(shopSections.id, secciones)))

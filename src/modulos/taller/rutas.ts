@@ -19,10 +19,12 @@ import { origenDe, registrar } from '../eventos/registrar'
 import { diaDe } from '../plataforma/panorama'
 import { users } from '../usuarios/tablas'
 import { exigirCupoDeOt, exigirGestion, gestiona, motorDe, recalcularOt, siguienteNumero, sumarUso, veMontos } from './comun'
+import { exigirPiezas, piezasPropias, rutasPiezas } from './piezas'
 import {
   avanceDeOt,
   cantidadSegun,
   CRITERIOS,
+  diagnosticoDeRecepcion,
   diasParaTerminar,
   ESTADOS_OT,
   type EstadoOt,
@@ -33,8 +35,6 @@ import {
   nombreDeTarea,
   ordenDeGrupo,
   OT_ABIERTAS,
-  type Pieza,
-  PIEZAS,
   piezasDeOt,
   plazoDeOt,
   PRIORIDADES_OT,
@@ -68,7 +68,8 @@ const recepcion = z.object({
   motor: z.string().trim().min(2, 'Escribe el motor (marca y modelo).').max(80),
   numeroMotor: z.string().trim().max(60).optional(),
   equipo: z.string().trim().max(120).optional(),
-  piezas: z.array(z.enum(claves(PIEZAS))).min(1, 'Marca qué piezas llegaron.'),
+  // Las de siempre o las propias del taller (su id); la ruta revisa que sean de la rectificadora.
+  piezas: z.array(z.string().max(40)).min(1, 'Marca qué piezas llegaron.').max(40),
   falla: z.string().trim().max(1000).optional(),
   entrega: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   prioridad: z.enum(claves(PRIORIDADES_OT)).default('normal'),
@@ -122,7 +123,7 @@ async function colasDelTaller(base: Base, tenantId: string, sinOt?: string) {
 const actividad = z.object({
   nombre: z.string().trim().min(3, 'Escribe el nombre de la actividad.').max(120),
   seccionId: z.string().min(1, 'Elige la sección.'),
-  pieza: z.enum(claves(PIEZAS)),
+  pieza: z.string({ error: 'Elige la pieza.' }).min(1, 'Elige la pieza.').max(40),
   criterio: z.enum(claves(CRITERIOS)),
   precio: z.number().int().min(0).max(1_000_000_000).nullable(),
   horas: z.number().min(0).max(1000),
@@ -305,9 +306,11 @@ export const rutasTaller = new Hono<EntornoTenant>()
     const { base, actor, ahora } = c.var
     const d = c.req.valid('json')
     await filaDelTenant(c, customers, d.clienteId, 'customer', 'ese cliente')
+    d.piezas = [...new Set(d.piezas)]
+    await exigirPiezas(c, d.piezas, true)
     await exigirCupoDeOt(base, actor.tenantId, ahora)
-    const codigos = d.piezas.includes('motor') || d.piezas.includes('block') ? ['D-01', 'D-02'] : ['D-03', ...(d.piezas.includes('culata') ? ['D-04'] : [])]
-    const diagnostico = d.diagnostico
+    const codigos = diagnosticoDeRecepcion(d.piezas)
+    const diagnostico = d.diagnostico && codigos.length
       ? await base
           .select({ id: services.id, nombre: services.name, seccion: services.sectionId, horas: services.stdHours, pieza: services.piece, paso: services.step, criterio: services.criterion })
           .from(services)
@@ -363,11 +366,12 @@ export const rutasTaller = new Hono<EntornoTenant>()
     async (c) => {
       const { base, actor, ahora } = c.var
       const f = c.req.valid('query')
-      const piezas = f.piezas.split(',').filter((p): p is Pieza => p in PIEZAS)
+      const piezas = [...new Set(f.piezas.split(',').filter(Boolean))]
       if (!piezas.length) throw rechazo(400, 'Marca qué piezas llegaron.')
+      await exigirPiezas(c, piezas, false)
       const motor = motorDe({ cylinders: f.cilindros ?? null, valvesPerCylinder: f.valvulasPorCilindro ?? null, heads: f.culatas ?? null })
       const completo = piezas.includes('motor')
-      const deDiagnostico = completo || piezas.includes('block') ? ['D-01', 'D-02'] : ['D-03', ...(piezas.includes('culata') ? ['D-04'] : [])]
+      const deDiagnostico = diagnosticoDeRecepcion(piezas)
       const actividades = await base
         .select({ codigo: services.code, seccionId: services.sectionId, pieza: services.piece, criterio: services.criterion, horas: services.stdHours, tipico: services.typical, tipo: shopSections.kind })
         .from(services)
@@ -414,9 +418,10 @@ export const rutasTaller = new Hono<EntornoTenant>()
       .leftJoin(taskHolds, unirDetencion)
       .where(and(eq(workOrderTasks.workOrderId, ot.id), eq(workOrderTasks.tenantId, actor.tenantId)))
     // Por pieza (diagnóstico, cada pieza, armado y control) y, dentro, en el orden de su ruta.
+    const propias = await piezasPropias(base, actor.tenantId)
     const tareas = conSituacion(filas, await bloqueosDe(base, actor.tenantId, [ot.id]))
       .map((f) => ({ ...f, diagnostico: f.tipoSeccion === 'diagnosis', pieza: f.t.piece }))
-      .sort((a, b) => ordenDeGrupo(grupoDe(a)) - ordenDeGrupo(grupoDe(b)) || a.t.step - b.t.step || a.t.position - b.t.position)
+      .sort((a, b) => ordenDeGrupo(grupoDe(a), propias) - ordenDeGrupo(grupoDe(b), propias) || a.t.step - b.t.step || a.t.position - b.t.position)
     const detenciones = await base.select().from(taskHolds).where(and(eq(taskHolds.workOrderId, ot.id), eq(taskHolds.tenantId, actor.tenantId)))
     const repuestos = await base
       .select({ r: workOrderParts, oc: purchaseOrders.number })
@@ -492,6 +497,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
     }))
     const porPieza = piezasDeOt(
       visibles.map((t) => ({ ...t, minutos: t.horas * 60, detenido: Boolean(t.detencion) })),
+      propias,
     ).map((g) => ({ clave: g.clave, nombre: g.nombre, avance: g.avance, total: g.total, hechas: g.hechas, situacion: g.situacion, actual: g.actual ? { nombre: g.actual.nombre, asignado: g.actual.asignado, espera: g.actual.espera, faltan: g.actual.faltan, detencion: g.actual.detencion } : null }))
     return c.json({
       id: ot.id,
@@ -564,11 +570,12 @@ export const rutasTaller = new Hono<EntornoTenant>()
   })
 
   /** Agregar un trabajo de la lista a una OT abierta (una garantía, algo que apareció al armar). Entra en la ruta de su pieza. */
-  .post('/ot/:id/tareas', conDatos(z.object({ trabajoId: z.string(), cantidad: z.number().positive().max(1000).optional(), pieza: z.enum(claves(PIEZAS)).optional() })), async (c) => {
+  .post('/ot/:id/tareas', conDatos(z.object({ trabajoId: z.string(), cantidad: z.number().positive().max(1000).optional(), pieza: z.string().max(40).optional() })), async (c) => {
     exigirGestion(c)
     const ot = await filaDelTenant(c, workOrders, c.req.param('id'), 'work_order', 'esa orden de trabajo')
     if (ot.status === 'delivered' || ot.status === 'cancelled' || ot.status === 'ready') throw rechazo(409, 'A esta OT ya no se le agregan trabajos.')
     const d = c.req.valid('json')
+    if (d.pieza) await exigirPiezas(c, [d.pieza], true)
     const trabajo = await filaDelTenant(c, services, d.trabajoId, 'service', 'ese trabajo')
     const cantidad = d.cantidad ?? cantidadSegun(trabajo.criterion, motorDe(ot))
     await c.var.base.transaction(async (tx) => {
@@ -980,6 +987,8 @@ export const rutasTaller = new Hono<EntornoTenant>()
     const { base, actor } = c.var
     const d = c.req.valid('json')
     const seccion = await filaDelTenant(c, shopSections, d.seccionId, 'section', 'esa sección')
+    await exigirPiezas(c, [d.pieza], true)
+    const propias = await piezasPropias(base, actor.tenantId)
     const id = nuevoId('srv')
     const codigo = await base.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`services:${actor.tenantId}`}))`)
@@ -989,7 +998,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
       const ultimo = Math.max(0, ...lista.map((x) => x.codigo.match(new RegExp(`^${letra}-(\\d+)$`))?.[1]).filter(Boolean).map(Number))
       const codigo = `${letra}-${String(ultimo + 1).padStart(2, '0')}`
       const paso = d.paso ?? Math.max(90, ...lista.filter((x) => x.pieza === d.pieza).map((x) => x.paso)) + 10
-      await tx.insert(services).values({ id, tenantId: actor.tenantId, sectionId: seccion.id, code: codigo, name: d.nombre, unit: unidadDe(d.criterio, d.pieza), criterion: d.criterio, price: d.precio, stdHours: d.horas, piece: d.pieza, step: paso, typical: d.tipico, active: true })
+      await tx.insert(services).values({ id, tenantId: actor.tenantId, sectionId: seccion.id, code: codigo, name: d.nombre, unit: unidadDe(d.criterio, d.pieza, propias), criterion: d.criterio, price: d.precio, stdHours: d.horas, piece: d.pieza, step: paso, typical: d.tipico, active: true })
       return codigo
     })
     return c.json({ id, codigo })
@@ -1001,14 +1010,16 @@ export const rutasTaller = new Hono<EntornoTenant>()
     const t = await filaDelTenant(c, services, c.req.param('id'), 'service', 'esa actividad')
     const d = c.req.valid('json')
     if (d.seccionId) await filaDelTenant(c, shopSections, d.seccionId, 'section', 'esa sección')
+    if (d.pieza !== undefined && d.pieza !== t.piece) await exigirPiezas(c, [d.pieza], true)
     const criterio = d.criterio ?? t.criterion
     const pieza = d.pieza ?? t.piece
+    const propias = await piezasPropias(c.var.base, c.var.actor.tenantId)
     await c.var.base
       .update(services)
       .set({
         ...(d.nombre !== undefined ? { name: d.nombre } : {}),
         ...(d.seccionId !== undefined ? { sectionId: d.seccionId } : {}),
-        ...(d.pieza !== undefined || d.criterio !== undefined ? { piece: pieza, criterion: criterio, unit: unidadDe(criterio, pieza) } : {}),
+        ...(d.pieza !== undefined || d.criterio !== undefined ? { piece: pieza, criterion: criterio, unit: unidadDe(criterio, pieza, propias) } : {}),
         ...(d.precio !== undefined ? { price: d.precio } : {}),
         ...(d.horas !== undefined ? { stdHours: d.horas } : {}),
         ...(d.paso !== undefined ? { step: d.paso } : {}),
@@ -1094,6 +1105,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
     return c.json({ ok: true })
   })
 
+  .route('/', rutasPiezas)
   .route('/', rutasComercial)
   .route('/', rutasCompras)
   .route('/', rutasMaquinas)

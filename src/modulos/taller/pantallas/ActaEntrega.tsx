@@ -7,6 +7,7 @@ import { Cargando, Problema } from '../../../pantallas/componentes'
 import { cifra, fecha } from '../../../pantallas/formato'
 import { referenciaDe } from '../../compras/reglas'
 import { nombreDeGrupo } from '../reglas'
+import { usePiezas } from './Piezas'
 import { folioOt, textoMotor, usePersona, usePortal } from './comun'
 import { DatosDoc, Documento, Firmas } from './Documento'
 import type { DetalleOt } from './tipos'
@@ -17,6 +18,7 @@ export function ActaEntrega() {
   const { id } = ruta.useParams()
   const portal = usePortal()
   const { persona } = usePersona()
+  const pz = usePiezas()
   const r = useQuery({ queryKey: ['taller', 'ot', id], queryFn: () => api<DetalleOt>('GET', `/servicio/ot/${id}`) })
   if (r.isPending) return <Cargando />
   if (r.isError) return <Problema error={r.error} />
@@ -44,7 +46,7 @@ export function ActaEntrega() {
         {grupos.length ? (
           grupos.map(({ g, tareas }) => (
             <div key={g} className="doc-grupo">
-              <b>{nombreDeGrupo(g)}</b>
+              <b>{nombreDeGrupo(g, pz.propias)}</b>
               <ul>
                 {tareas.map((t) => (
                   <li key={t.id}>

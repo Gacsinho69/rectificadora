@@ -11,7 +11,8 @@ import { fecha, fechaHora, plata } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
 import { SelectorDeProveedor } from '../../compras/pantallas/Proveedores'
 import { margenDe, QUIEN_COMPRA, type QuienCompra, referenciaDe } from '../../compras/reglas'
-import { cantidadSegun, MOTIVOS_DETENCION, nombreDeGrupo, PIEZAS, PIEZAS_SUELTAS, type Pieza, PRIORIDADES_OT } from '../reglas'
+import { cantidadSegun, MOTIVOS_DETENCION, nombreDeGrupo, type Pieza, PRIORIDADES_OT } from '../reglas'
+import { usePiezas } from './Piezas'
 import { Avance, CamposDelMotor, comoSeCuenta, enumerar, EstadoCotTag, EstadoOtTag, EstadoRepuestoTag, folioCot, folioOt, horas, motorDeDatos, PlazoTag, SituacionTag, textoEspera, textoFaltan, textoMaquinas, textoMotor, usePersona, usePortal } from './comun'
 import type { Catalogo, DetalleOt, Persona, PiezaDeOt, RepuestoDeOt, Tarea } from './tipos'
 import { FichaTrabajo } from './FichaTrabajo'
@@ -23,6 +24,7 @@ export function OrdenDeTrabajo() {
   const { id } = ruta.useParams()
   const portal = usePortal()
   const { persona, gestiona, veMontos, trabaja, suspendida } = usePersona()
+  const pz = usePiezas()
   const ir = useNavigate()
   const consultas = useQueryClient()
   const { message } = App.useApp()
@@ -114,7 +116,7 @@ export function OrdenDeTrabajo() {
             tono: ot.plazo === 'atrasada' || (sugerida.data && ot.entrega && sugerida.data.fecha > ot.entrega) ? 'rojo' : ot.plazo === 'por_vencer' ? 'naranjo' : undefined,
             nota: sugerida.data ? `con la cola de hoy: ${fecha(`${sugerida.data.fecha}T12:00:00Z`)}${ot.entrega && sugerida.data.fecha > ot.entrega ? ', después de lo comprometido' : ''}` : undefined,
           },
-          { rotulo: 'Llegó', valor: <span style={{ fontSize: 14 }}>{ot.piezas.map((p) => PIEZAS[p]).join(', ')}</span> },
+          { rotulo: 'Llegó', valor: <span style={{ fontSize: 14 }}>{ot.piezas.map(pz.nombre).join(', ')}</span> },
         ]}
       />
       {!soloDiagnostico && abierta && <ComoVaCadaPieza piezas={ot.porPieza} />}
@@ -127,7 +129,7 @@ export function OrdenDeTrabajo() {
           scroll={{ x: 1120 }}
           locale={{ emptyText: 'Sin trabajos todavía.' }}
           columns={[
-            { title: 'Pieza', dataIndex: 'grupo', width: 150, render: (g: Tarea['grupo'], _, i) => (i === 0 || ot.tareas[i - 1].grupo !== g ? <b>{nombreDeGrupo(g)}</b> : null) },
+            { title: 'Pieza', dataIndex: 'grupo', width: 150, render: (g: Tarea['grupo'], _, i) => (i === 0 || ot.tareas[i - 1].grupo !== g ? <b>{nombreDeGrupo(g, pz.propias)}</b> : null) },
             {
               title: 'Trabajo',
               key: 'n',
@@ -338,9 +340,10 @@ function AgregarTrabajo({ ot, cerrar }: { ot: DetalleOt; cerrar: () => void }) {
   const accion = useAccionOt(ot.id, 'tareas', 'Trabajo agregado.', cerrar)
   const trabajoId = Form.useWatch('trabajoId', form)
   const elegida = catalogo.data?.trabajos.find((t) => t.id === trabajoId)
-  const grupos: Pieza[] = [...PIEZAS_SUELTAS, 'motor']
+  const pz = usePiezas()
+  const grupos: Pieza[] = [...pz.sueltas, 'motor']
   const opciones = grupos
-    .map((p) => ({ label: PIEZAS[p], options: (catalogo.data?.trabajos ?? []).filter((t) => t.pieza === p && t.activo).map((t) => ({ value: t.id, label: `${t.codigo} · ${t.nombre}` })) }))
+    .map((p) => ({ label: pz.nombre(p), options: (catalogo.data?.trabajos ?? []).filter((t) => t.pieza === p && t.activo).map((t) => ({ value: t.id, label: `${t.codigo} · ${t.nombre}` })) }))
     .filter((g) => g.options.length)
   return (
     <Modal open title="Agregar un trabajo a la OT" okText="Agregar" cancelText="Cancelar" onCancel={cerrar} confirmLoading={accion.isPending} onOk={() => form.validateFields().then((v) => accion.mutate(v))} destroyOnHidden>
@@ -360,7 +363,7 @@ function AgregarTrabajo({ ot, cerrar }: { ot: DetalleOt; cerrar: () => void }) {
         </Form.Item>
         <div className="columnas">
           <Form.Item label="Pieza" name="pieza">
-            <Select options={Object.entries(PIEZAS).map(([value, label]) => ({ value, label }))} />
+            <Select options={pz.opciones} />
           </Form.Item>
           <Form.Item label="Cantidad" name="cantidad" rules={[{ required: true, message: 'Escribe la cantidad.' }]} extra={elegida && comoSeCuenta(elegida.criterio) ? `Se cuenta ${comoSeCuenta(elegida.criterio)}, con los datos del motor.` : undefined}>
             <InputNumber min={1} max={1000} />
