@@ -278,6 +278,44 @@ details.tablero-grupo { display: block; }
 .ant-table-wrapper .ant-table-tbody > tr.fila-inactiva > td { color: var(--tinta-3); }
 .tarjeta-trabajo.abre:hover { color: var(--marino); text-decoration: underline; }
 
+/* Los documentos para imprimir o guardar en PDF: una hoja blanca. Al imprimir no salen el menú ni los botones. */
+.documento-acciones { display: flex; justify-content: space-between; align-items: center; gap: 12px; max-width: 820px; margin: 0 auto 12px; }
+.documento { max-width: 820px; margin: 0 auto; padding: 36px 40px; background: #fff; border: 1px solid var(--borde); color: #111; font-size: 12.5px; }
+.doc-cabeza { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding-bottom: 14px; margin-bottom: 16px; border-bottom: 2px solid #111; }
+.doc-emisor { font-size: 17px; }
+.doc-folio { text-align: right; display: flex; flex-direction: column; }
+.doc-folio h1 { margin: 0; font-size: 15px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.doc-folio b { font-size: 15px; }
+.doc-datos { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 24px; margin: 0 0 18px; }
+.doc-datos div { display: flex; gap: 8px; }
+.doc-datos dt { min-width: 110px; color: #555; }
+.doc-datos dd { margin: 0; font-weight: 600; }
+.doc-tabla { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
+.doc-tabla th { text-align: left; font-weight: 600; border-bottom: 1px solid #111; padding: 6px 6px; }
+.doc-tabla td { border-bottom: 1px solid #ddd; padding: 6px 6px; vertical-align: top; }
+.doc-tabla small, .doc-grupo small { color: #555; }
+.documento .num { text-align: right; white-space: nowrap; }
+.doc-totales { margin-left: auto; min-width: 260px; border-collapse: collapse; margin-bottom: 18px; }
+.doc-totales td { padding: 3px 6px; }
+.doc-totales tr.total td { border-top: 1px solid #111; font-weight: 700; font-size: 14px; }
+.doc-seccion h3 { margin: 16px 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; }
+.doc-seccion p { margin: 0; white-space: pre-wrap; }
+.doc-grupo { margin-bottom: 8px; }
+.doc-grupo ul { margin: 2px 0 0; padding-left: 18px; }
+.doc-aviso { padding: 6px 10px; border: 1px dashed #b42318; color: #b42318; margin: 0 0 14px; }
+.doc-pie { margin-top: 18px; color: #555; }
+.doc-firmas { display: flex; gap: 48px; margin-top: 56px; }
+.doc-firma { flex: 1; display: flex; flex-direction: column; align-items: center; border-top: 1px solid #111; padding-top: 6px; }
+.doc-firma small { color: #555; }
+@media (max-width: 860px) { .documento { padding: 20px 16px; } .doc-datos { grid-template-columns: 1fr; } .doc-firmas { gap: 24px; } }
+@media print {
+  .marco-lado, .marco-barra, .no-imprimir, .impersonando { display: none !important; }
+  .marco { display: block; }
+  .pagina { padding: 0; max-width: none; }
+  body, .marco-pagina { background: #fff !important; }
+  .documento { border: 0; padding: 0; max-width: none; }
+}
+
 /* Un formulario largo partido en partes: el nombre de cada parte sobre una raya fina. */
 .form-seccion { margin: 6px 0 10px; padding-top: 12px; border-top: 1px solid var(--borde); font-weight: 600; }
 /* Opciones de una en una, cada una con su explicación debajo (las plantillas del taller). */

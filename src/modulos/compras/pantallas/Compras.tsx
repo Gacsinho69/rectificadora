@@ -241,7 +241,7 @@ export function Compras() {
             ),
           }}
           columns={[
-            { title: 'Orden', dataIndex: 'numero', width: 90, render: (v: number) => <b>{folioOc(v)}</b> },
+            { title: 'Orden', dataIndex: 'numero', width: 90, render: (v: number, o) => (veMontos ? <Link to="/c/$portal/compras/ordenes/$id" params={{ portal, id: o.id }} title="Imprimir o guardar en PDF para el proveedor"><b>{folioOc(v)}</b></Link> : <b>{folioOc(v)}</b>) },
             { title: 'Proveedor', dataIndex: 'proveedor' },
             {
               title: 'Chofer',

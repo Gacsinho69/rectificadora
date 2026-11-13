@@ -33,6 +33,9 @@ const Compras = lazyRouteComponent(() => import('../modulos/compras/pantallas/Co
 const Proveedores = lazyRouteComponent(() => import('../modulos/compras/pantallas/Proveedores'), 'Proveedores')
 const Maquinas = lazyRouteComponent(() => import('../modulos/maquinas/pantallas/Maquinas'), 'Maquinas')
 const Bodega = lazyRouteComponent(() => import('../modulos/compras/pantallas/Bodega'), 'Bodega')
+const ImprimirOrden = lazyRouteComponent(() => import('../modulos/compras/pantallas/ImprimirOrden'), 'ImprimirOrden')
+const ImprimirCotizacion = lazyRouteComponent(() => import('../modulos/taller/pantallas/ImprimirCotizacion'), 'ImprimirCotizacion')
+const ActaEntrega = lazyRouteComponent(() => import('../modulos/taller/pantallas/ActaEntrega'), 'ActaEntrega')
 
 const texto = (v: unknown) => (typeof v === 'string' && v ? v : undefined)
 const numero = (v: unknown) => (Number.isInteger(Number(v)) && Number(v) > 0 ? Number(v) : undefined)
@@ -314,6 +317,9 @@ const compras = createRoute({ getParentRoute: () => taller, path: 'compras', com
 const proveedores = createRoute({ getParentRoute: () => taller, path: 'proveedores', component: Proveedores })
 const maquinas = createRoute({ getParentRoute: () => taller, path: 'maquinas', component: Maquinas })
 const bodega = createRoute({ getParentRoute: () => taller, path: 'bodega', component: Bodega })
+const imprimirOrden = createRoute({ getParentRoute: () => taller, path: 'compras/ordenes/$id', component: ImprimirOrden })
+const imprimirCotizacion = createRoute({ getParentRoute: () => taller, path: 'cotizaciones/$id/imprimir', component: ImprimirCotizacion })
+const actaEntrega = createRoute({ getParentRoute: () => taller, path: 'ot/$id/acta', component: ActaEntrega })
 /** La dirección de antes de la lista de precios lleva a las actividades. */
 const precios = createRoute({ getParentRoute: () => taller, path: 'precios', component: () => <Navigate to="/c/$portal/actividades" params={(p) => ({ portal: p.portal ?? '' })} replace /> })
 
@@ -323,7 +329,7 @@ export const router = createRouter({
     entrar,
     plataforma.addChildren([resumen, clientes, cliente, alertas, actividad, auditoria]),
     organizacion.addChildren([panel]),
-    taller.addChildren([tallerInicio, tallerOts, tallerOt, tablero, carga, maquinas, compras, bodega, proveedores, tallerCotizaciones, tallerCotizacion, tallerClientes, actividades, precios]),
+    taller.addChildren([tallerInicio, tallerOts, tallerOt, tablero, carga, maquinas, compras, imprimirOrden, bodega, proveedores, imprimirCotizacion, actaEntrega, tallerCotizaciones, tallerCotizacion, tallerClientes, actividades, precios]),
   ]),
   defaultPreload: 'intent',
 })

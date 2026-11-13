@@ -61,6 +61,17 @@ describe('la bodega de insumos', () => {
     const rep = (await p.pedir('us_a_jefe', 'POST', `/api/servicio/ot/${otId}/repuestos`, { descripcion: 'Bomba de agua', proveedorId: proveedor })).cuerpo.id
     const oc = (await p.pedir('us_a_jefe', 'POST', '/api/servicio/compras/ordenes', { repuestos: [rep], insumos: [{ insumoId: pasta, cantidad: 4 }], proveedorId: proveedor })).cuerpo
     const [orden] = (await compras(p)).ordenes
+    // La orden para imprimir: lo pedido con su referencia, sin el cliente ni la OT. El técnico y otra rectificadora no la ven.
+    await p.pedir('us_a_jefe', 'POST', `/api/servicio/insumos/${pasta}`, { nombre: 'Pasta de esmeril', unidad: 'tarro', minimo: 2, marca: 'Permatex' })
+    const impresa = await p.pedir('us_a_jefe', 'GET', `/api/servicio/compras/ordenes/${oc.id}`)
+    expect(impresa.cuerpo).toMatchObject({ numero: 1, proveedor: { nombre: 'Casa del Repuesto' }, pedidoPor: 'us_a_jefe', neto: 0 })
+    expect(impresa.cuerpo.lineas).toEqual([
+      { descripcion: 'Bomba de agua', medida: null, marca: null, codigo: null, cantidad: 1, unidad: null, costo: null },
+      { descripcion: 'Pasta de esmeril', medida: null, marca: 'Permatex', codigo: null, cantidad: 4, unidad: 'tarro', costo: null },
+    ])
+    expect(JSON.stringify(impresa.cuerpo)).not.toContain('Transportes')
+    expect((await p.pedir('us_a_member', 'GET', `/api/servicio/compras/ordenes/${oc.id}`)).estado).toBe(403)
+    expect((await p.pedir('us_b_admin', 'GET', `/api/servicio/compras/ordenes/${oc.id}`)).estado).toBe(404)
     expect((await p.pedir('us_a_jefe', 'POST', `/api/servicio/compras/ordenes/${oc.id}/recibir`, { insumos: [orden.insumos[0].id] })).cuerpo).toMatchObject({ estado: 'open', recibidos: 1 })
     expect((await insumos(p))[0].stock).toBe(4)
     expect((await p.pedir('us_a_jefe', 'POST', `/api/servicio/compras/ordenes/${oc.id}/anular`, { motivo: 'Ya no' })).estado).toBe(409)

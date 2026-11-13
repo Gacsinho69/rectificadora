@@ -81,7 +81,13 @@ export function OrdenDeTrabajo() {
           </>
         }
         acciones={
-          puede ? (
+          <>
+          {(ot.estado === 'ready' || ot.estado === 'delivered') && (
+            <Link to="/c/$portal/ot/$id/acta" params={{ portal, id: ot.id }}>
+              <Button>Acta de entrega</Button>
+            </Link>
+          )}
+          {puede ? (
             <>
               {veMontos && !cotizacionVigente && <Button type="primary" onClick={() => ir({ to: '/c/$portal/cotizaciones/$id', params: { portal, id: 'nueva' }, search: { ot: ot.id } })}>Cotizar</Button>}
               {ot.estado === 'quality' && <Button type="primary" loading={calidad.isPending} onClick={() => calidad.mutate()}>Aprobar control de calidad</Button>}
@@ -90,7 +96,8 @@ export function OrdenDeTrabajo() {
               <Button onClick={() => setDialogo('editar')}>Editar</Button>
               <Button danger onClick={() => setDialogo('anular')}>Anular</Button>
             </>
-          ) : null
+          ) : null}
+          </>
         }
       />
       {ot.estado === 'cancelled' && <Alert type="warning" showIcon className="problema" title={`Anulada ${fechaHora(ot.anulada)}`} description={ot.motivoAnulacion} />}

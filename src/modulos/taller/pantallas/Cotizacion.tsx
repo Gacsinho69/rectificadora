@@ -367,13 +367,18 @@ function Documento({ q }: { q: DetalleCotizacion }) {
           </>
         }
         acciones={
-          puede && (q.estado === 'sent' || q.estado === 'draft') ? (
+          <>
+            <Link to="/c/$portal/cotizaciones/$id/imprimir" params={{ portal, id: q.id }}>
+              <Button>Imprimir o PDF</Button>
+            </Link>
+            {puede && (q.estado === 'sent' || q.estado === 'draft') ? (
             <>
               {q.estado === 'sent' && <Button type="primary" onClick={() => setDialogo('aceptar')}>El cliente aceptó</Button>}
               {q.estado === 'sent' && <Button onClick={() => setDialogo('rechazar')}>El cliente rechazó</Button>}
               <Button danger onClick={() => setDialogo('anular')}>Anular</Button>
             </>
-          ) : null
+            ) : null}
+          </>
         }
       />
       {q.nota && <Alert type={q.estado === 'accepted' ? 'success' : 'warning'} showIcon className="problema" title={`${q.estado === 'accepted' ? 'Aceptada' : q.estado === 'rejected' ? 'Rechazada' : 'Anulada'} ${fecha(q.decidida)}`} description={q.nota} />}

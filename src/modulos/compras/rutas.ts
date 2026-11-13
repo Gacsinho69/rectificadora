@@ -9,9 +9,10 @@ import { conDatos, rechazo } from '../../http'
 import { nuevoId } from '../../ids'
 import { formatoRut } from '../../rut'
 import { type EntornoTenant, exigirQuePuedaEditar, filaDelTenant, filasDelTenant } from '../acceso/guardias'
+import { IVA } from '../comercial/reglas'
 import { customers } from '../comercial/tablas'
 import { origenDe, registrar } from '../eventos/registrar'
-import { conFuncion, exigirFuncion, exigirGestion, gestiona, siguienteNumero, sumarUso, veMontos } from '../taller/comun'
+import { conFuncion, exigirFuncion, exigirGestion, exigirMontos, gestiona, siguienteNumero, sumarUso, veMontos } from '../taller/comun'
 import { OT_EN_TALLER } from '../taller/reparto'
 import { plazoDeOt } from '../taller/reglas'
 import { diaDe } from '../plataforma/panorama'
@@ -269,6 +270,41 @@ export const rutasCompras = new Hono<EntornoTenant>()
       return numero
     })
     return c.json({ id, numero })
+  })
+
+  /** Una orden de compra completa, para imprimirla y enviarla al proveedor: sin el cliente ni la OT. */
+  .get('/compras/ordenes/:id', async (c) => {
+    exigirMontos(c)
+    const { base, actor } = c.var
+    const oc = await filaDelTenant(c, purchaseOrders, c.req.param('id'), 'purchase_order', 'esa orden de compra')
+    const [proveedor] = oc.supplierId ? await base.select().from(suppliers).where(and(eq(suppliers.id, oc.supplierId), eq(suppliers.tenantId, actor.tenantId))) : []
+    const repuestos = await base.select().from(workOrderParts).where(and(eq(workOrderParts.purchaseOrderId, oc.id), eq(workOrderParts.tenantId, actor.tenantId))).orderBy(asc(workOrderParts.createdAt), asc(workOrderParts.position))
+    const insumos = await base
+      .select({ l: purchaseOrderSupplies, s: supplies })
+      .from(purchaseOrderSupplies)
+      .innerJoin(supplies, eq(supplies.id, purchaseOrderSupplies.supplyId))
+      .where(and(eq(purchaseOrderSupplies.purchaseOrderId, oc.id), eq(purchaseOrderSupplies.tenantId, actor.tenantId)))
+    const nombres = await nombresDe(c)
+    const lineas = [
+      ...repuestos.filter((r) => r.status !== 'cancelled').map((r) => ({ descripcion: r.description, medida: r.size, marca: r.brand, codigo: r.partNumber, cantidad: r.quantity, unidad: null, costo: r.unitCost })),
+      ...insumos.filter(({ l }) => l.status !== 'cancelled').map(({ l, s }) => ({ descripcion: s.name, medida: null, marca: s.brand, codigo: s.partNumber, cantidad: l.quantity, unidad: s.unit, costo: l.unitCost })),
+    ]
+    const neto = lineas.reduce((s, l) => s + Math.round((l.costo ?? 0) * l.cantidad), 0)
+    const iva = Math.round(neto * IVA)
+    return c.json({
+      numero: oc.number,
+      estado: oc.status,
+      creada: oc.createdAt.toISOString(),
+      llega: oc.expectedAt,
+      nota: oc.notes,
+      pedidoPor: oc.createdBy ? (nombres.get(oc.createdBy) ?? null) : null,
+      chofer: oc.driverId ? (nombres.get(oc.driverId) ?? null) : null,
+      proveedor: { nombre: oc.supplier, rut: proveedor?.taxId ?? null, contacto: proveedor?.contact ?? null, telefono: proveedor?.phone ?? null, correo: proveedor?.email ?? null, direccion: proveedor?.address ?? null },
+      lineas,
+      neto,
+      iva,
+      total: neto + iva,
+    })
   })
 
   /** Cambiar el chofer de una orden por retirar. */
