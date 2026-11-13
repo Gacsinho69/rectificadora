@@ -82,6 +82,8 @@ export type Tarea = {
   termino: string | null
   indicaciones: string | null
   resultado: string | null
+  /** Las horas que tomó de verdad, si está terminado (en horario de taller, sin lo detenido). */
+  horasReales: number | null
 }
 
 /** La ficha de un trabajo, como la ve quien lo hace: sin montos. */

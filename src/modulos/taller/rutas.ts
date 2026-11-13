@@ -1,7 +1,7 @@
 // El sistema de cada rectificadora: recepción, órdenes de trabajo, el tablero del taller por sección, la carga y las
 // actividades con su valor y sus especialistas. Todo filtrado por el tenant de quien pide (`c.var.actor.tenantId`); lo nombrado por
 // id pasa por `filaDelTenant`. Cada pedido suma una llamada a la API en el uso del cliente.
-import { and, asc, count, desc, eq, ilike, inArray, isNull, ne, or, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gte, ilike, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm'
 import { type Context, Hono, type MiddlewareHandler } from 'hono'
 import { z } from 'zod'
 import { conDatos, conFiltros, rechazo } from '../../http'
@@ -25,6 +25,7 @@ import {
   ESTADOS_OT,
   type EstadoOt,
   grupoDe,
+  horasReales,
   MOTIVOS_DETENCION,
   nombreDeTarea,
   ordenDeGrupo,
@@ -33,6 +34,7 @@ import {
   piezasDeOt,
   plazoDeOt,
   PRIORIDADES_OT,
+  rendimientoDe,
   type Situacion,
   unidadDe,
 } from './reglas'
@@ -425,6 +427,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
       termino: iso(f.t.finishedAt),
       indicaciones: f.t.instructions,
       resultado: f.t.result,
+      horasReales: f.t.status === 'done' && f.t.startedAt && f.t.finishedAt ? horasReales(f.t.startedAt, f.t.finishedAt, detenciones.filter((d) => d.taskId === f.t.id).map((d) => ({ desde: d.createdAt, hasta: d.resolvedAt }))) : null,
     }))
     const porPieza = piezasDeOt(
       visibles.map((t) => ({ ...t, minutos: t.horas * 60, detenido: Boolean(t.detencion) })),
@@ -804,6 +807,50 @@ export const rutasTaller = new Hono<EntornoTenant>()
         cliente: f.cliente,
       }))
     return c.json({ secciones: secciones.map((s) => ({ ...s, tareas: tarjetas.filter((x) => x.seccionId === s.id) })) })
+  })
+
+  /**
+   * El rendimiento del taller: los trabajos terminados en los últimos días, por actividad y por persona, con sus horas
+   * estándar y las reales (en horario de taller, sin lo detenido). Con la hora real por unidad de cada actividad, para
+   * afinar su hora estándar. Lo ven el jefe de taller y el administrador.
+   */
+  .get('/rendimiento', conFiltros(z.object({ dias: z.coerce.number().int().min(7).max(365).default(90) })), async (c) => {
+    if (!gestiona(c.var.actor.rol)) throw rechazo(403, 'El rendimiento lo ven el jefe de taller y el administrador.')
+    const { base, actor, ahora } = c.var
+    const { dias } = c.req.valid('query')
+    const desde = new Date(ahora.getTime() - dias * 86_400_000)
+    const [hechos, detenciones, actividades, nombres] = await Promise.all([
+      base
+        .select({ id: workOrderTasks.id, servicio: workOrderTasks.serviceId, quien: workOrderTasks.finishedBy, cantidad: workOrderTasks.quantity, minutos: workOrderTasks.stdMinutes, inicio: workOrderTasks.startedAt, termino: workOrderTasks.finishedAt })
+        .from(workOrderTasks)
+        .where(and(eq(workOrderTasks.tenantId, actor.tenantId), eq(workOrderTasks.status, 'done'), gte(workOrderTasks.finishedAt, desde), isNotNull(workOrderTasks.startedAt))),
+      // Las detenciones que pudieron tocar esos trabajos (un trabajo largo pudo detenerse antes del período).
+      base.select({ tarea: taskHolds.taskId, desde: taskHolds.createdAt, hasta: taskHolds.resolvedAt }).from(taskHolds).where(and(eq(taskHolds.tenantId, actor.tenantId), gte(taskHolds.createdAt, new Date(desde.getTime() - 60 * 86_400_000)))),
+      base.select({ id: services.id, codigo: services.code, nombre: services.name, unidad: services.unit, horas: services.stdHours }).from(services).where(eq(services.tenantId, actor.tenantId)),
+      nombresDe(c),
+    ])
+    const detenidas = new Map<string, { desde: Date; hasta: Date | null }[]>()
+    for (const d of detenciones) detenidas.set(d.tarea, [...(detenidas.get(d.tarea) ?? []), { desde: d.desde, hasta: d.hasta }])
+    const medidos = hechos.map((t) => ({ ...t, estandar: t.minutos / 60, real: horasReales(t.inicio!, t.termino!, detenidas.get(t.id)) }))
+    const agrupar = <K,>(clave: (t: (typeof medidos)[number]) => K | null) => {
+      const grupos = new Map<K, typeof medidos>()
+      for (const t of medidos) {
+        const k = clave(t)
+        if (k !== null) grupos.set(k, [...(grupos.get(k) ?? []), t])
+      }
+      return grupos
+    }
+    const porActividad = [...agrupar((t) => t.servicio)].flatMap(([id, lista]) => {
+      const a = actividades.find((x) => x.id === id)
+      return a ? [{ id, codigo: a.codigo, nombre: a.nombre, unidad: a.unidad, horasEstandar: a.horas, ...rendimientoDe(lista) }] : []
+    })
+    const porPersona = [...agrupar((t) => t.quien)].map(([id, lista]) => ({ id, nombre: nombres.get(id) ?? '—', ...rendimientoDe(lista) }))
+    return c.json({
+      dias,
+      total: rendimientoDe(medidos),
+      actividades: porActividad.sort((a, b) => b.trabajos - a.trabajos || a.codigo.localeCompare(b.codigo)),
+      personas: porPersona.sort((a, b) => b.trabajos - a.trabajos || a.nombre.localeCompare(b.nombre, 'es')),
+    })
   })
 
   /** Las personas que pueden tomar trabajos (para asignar), con las actividades que hace cada una. */

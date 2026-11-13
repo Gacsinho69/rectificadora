@@ -278,3 +278,51 @@ export function nombreDeTarea(nombre: string, cantidad: number, criterio: Criter
 
 /** La cola en días de trabajo: las horas por hacer repartidas entre su gente, a 8 horas por persona. */
 export const diasDeCola = (minutos: number, personas: number) => (personas ? minutos / 60 / (personas * 8) : null)
+
+/** El horario del taller: de 8 a 19 h, de lunes a sábado, en hora de Chile (UTC−3). Las horas reales se cuentan dentro de él. */
+export const JORNADA = { desde: 8, hasta: 19, zona: -3 }
+
+const HORA = 3_600_000
+
+/** Las horas de jornada entre dos momentos: las de 8 a 19 de cada día, sin los domingos. */
+export function horasDeJornada(desde: Date, hasta: Date): number {
+  if (hasta <= desde) return 0
+  const local = (d: Date) => new Date(d.getTime() + JORNADA.zona * HORA)
+  let total = 0
+  // Día por día, en hora local: lo que cae dentro del horario de ese día.
+  const primero = local(desde)
+  let dia = Date.UTC(primero.getUTCFullYear(), primero.getUTCMonth(), primero.getUTCDate())
+  const fin = local(hasta).getTime()
+  for (; dia <= fin; dia += 24 * HORA) {
+    if (new Date(dia).getUTCDay() === 0) continue
+    const abre = Math.max(dia + JORNADA.desde * HORA, local(desde).getTime())
+    const cierra = Math.min(dia + JORNADA.hasta * HORA, fin)
+    if (cierra > abre) total += (cierra - abre) / HORA
+  }
+  return total
+}
+
+/**
+ * Las horas reales de un trabajo terminado: las de jornada entre que se empezó y se terminó, sin las que estuvo
+ * detenido. Es una aproximación: si alguien hace dos trabajos a la vez, los dos cuentan.
+ */
+export function horasReales(inicio: Date, termino: Date, detenciones: { desde: Date; hasta: Date | null }[] = []): number {
+  const detenido = detenciones.reduce((s, d) => {
+    const desde = d.desde > inicio ? d.desde : inicio
+    const hasta = d.hasta && d.hasta < termino ? d.hasta : termino
+    return s + horasDeJornada(desde, hasta)
+  }, 0)
+  return Math.max(0, horasDeJornada(inicio, termino) - detenido)
+}
+
+/**
+ * El rendimiento de un grupo de trabajos terminados (de una actividad o de una persona): cuántos, sus horas estándar
+ * y reales, y cuánto toman de verdad contra lo estándar (1,2 = 20 % más). Con su hora real por unidad, para afinar la
+ * hora estándar de una actividad.
+ */
+export function rendimientoDe(trabajos: { estandar: number; real: number; cantidad: number }[]) {
+  const estandar = trabajos.reduce((s, t) => s + t.estandar, 0)
+  const real = trabajos.reduce((s, t) => s + t.real, 0)
+  const unidades = trabajos.reduce((s, t) => s + t.cantidad, 0)
+  return { trabajos: trabajos.length, estandar, real, proporcion: estandar ? real / estandar : null, realPorUnidad: unidades ? real / unidades : null }
+}

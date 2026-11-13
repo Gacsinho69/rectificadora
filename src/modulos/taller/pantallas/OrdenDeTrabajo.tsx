@@ -175,7 +175,7 @@ export function OrdenDeTrabajo() {
                   (t.asignado ?? <span className="tenue">—</span>)
                 ),
             },
-            { title: 'Horas estándar', dataIndex: 'horas', align: 'right', width: 110, render: (v: number) => (v ? horas(v) : '—') },
+            { title: 'Horas', key: 'h', align: 'right', width: 110, render: (_, t) => <div className="fila-nombre"><span>{t.horas ? horas(t.horas) : '—'}</span>{t.horasReales !== null && <small title="En horario de taller, sin lo detenido">real {horas(Math.round(t.horasReales * 10) / 10)}</small>}</div> },
             { title: 'Terminó', dataIndex: 'termino', width: 120, render: (v: string | null) => (v ? fechaHora(v) : <span className="tenue">—</span>) },
             { title: '', key: 'b', width: 1, render: (_, t) => (abierta && ot.estado !== 'ready' && ot.estado !== 'waiting_approval' ? <BotonesDeTarea t={t} yo={persona?.id} gestiona={gestiona} trabaja={trabaja && !suspendida} accion={tarea} /> : null) },
           ]}

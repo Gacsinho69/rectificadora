@@ -33,6 +33,7 @@ const Compras = lazyRouteComponent(() => import('../modulos/compras/pantallas/Co
 const Proveedores = lazyRouteComponent(() => import('../modulos/compras/pantallas/Proveedores'), 'Proveedores')
 const Maquinas = lazyRouteComponent(() => import('../modulos/maquinas/pantallas/Maquinas'), 'Maquinas')
 const Bodega = lazyRouteComponent(() => import('../modulos/compras/pantallas/Bodega'), 'Bodega')
+const Rendimiento = lazyRouteComponent(() => import('../modulos/taller/pantallas/Rendimiento'), 'Rendimiento')
 const ImprimirOrden = lazyRouteComponent(() => import('../modulos/compras/pantallas/ImprimirOrden'), 'ImprimirOrden')
 const ImprimirCotizacion = lazyRouteComponent(() => import('../modulos/taller/pantallas/ImprimirCotizacion'), 'ImprimirCotizacion')
 const ActaEntrega = lazyRouteComponent(() => import('../modulos/taller/pantallas/ActaEntrega'), 'ActaEntrega')
@@ -133,6 +134,7 @@ function MarcoTaller() {
     { a: '/c/$portal/ot', texto: 'Órdenes de trabajo', icono: <UnorderedListOutlined />, activo: en(`${base}/ot`) },
     { a: '/c/$portal/taller', texto: 'Taller', icono: <ToolOutlined />, activo: en(`${base}/taller`) },
     { a: '/c/$portal/carga', texto: 'Carga', icono: <DashboardOutlined />, activo: en(`${base}/carga`) },
+    ...(persona.rol === 'admin' || persona.rol === 'planner' ? [{ a: '/c/$portal/rendimiento', texto: 'Rendimiento', icono: <LineChartOutlined />, activo: en(`${base}/rendimiento`) }] : []),
     ...(persona.funciones.includes('machines') ? [{ a: '/c/$portal/maquinas', texto: 'Máquinas', icono: <ControlOutlined />, activo: en(`${base}/maquinas`) }] : []),
     ...(persona.rol !== 'technician' ? [{ a: '/c/$portal/cotizaciones', texto: 'Cotizaciones', icono: <FileTextOutlined />, activo: en(`${base}/cotizaciones`) }] : []),
     ...(persona.funciones.includes('purchasing') ? [{ a: '/c/$portal/compras', texto: 'Compras', icono: <ShoppingCartOutlined />, activo: en(`${base}/compras`) }] : []),
@@ -317,6 +319,7 @@ const compras = createRoute({ getParentRoute: () => taller, path: 'compras', com
 const proveedores = createRoute({ getParentRoute: () => taller, path: 'proveedores', component: Proveedores })
 const maquinas = createRoute({ getParentRoute: () => taller, path: 'maquinas', component: Maquinas })
 const bodega = createRoute({ getParentRoute: () => taller, path: 'bodega', component: Bodega })
+const rendimiento = createRoute({ getParentRoute: () => taller, path: 'rendimiento', component: Rendimiento })
 const imprimirOrden = createRoute({ getParentRoute: () => taller, path: 'compras/ordenes/$id', component: ImprimirOrden })
 const imprimirCotizacion = createRoute({ getParentRoute: () => taller, path: 'cotizaciones/$id/imprimir', component: ImprimirCotizacion })
 const actaEntrega = createRoute({ getParentRoute: () => taller, path: 'ot/$id/acta', component: ActaEntrega })
@@ -329,7 +332,7 @@ export const router = createRouter({
     entrar,
     plataforma.addChildren([resumen, clientes, cliente, alertas, actividad, auditoria]),
     organizacion.addChildren([panel]),
-    taller.addChildren([tallerInicio, tallerOts, tallerOt, tablero, carga, maquinas, compras, imprimirOrden, bodega, proveedores, imprimirCotizacion, actaEntrega, tallerCotizaciones, tallerCotizacion, tallerClientes, actividades, precios]),
+    taller.addChildren([tallerInicio, tallerOts, tallerOt, tablero, carga, rendimiento, maquinas, compras, imprimirOrden, bodega, proveedores, imprimirCotizacion, actaEntrega, tallerCotizaciones, tallerCotizacion, tallerClientes, actividades, precios]),
   ]),
   defaultPreload: 'intent',
 })
