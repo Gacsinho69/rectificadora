@@ -9,7 +9,7 @@ otro agente Haiku intenta desmentir, reviso en el código, arreglo lo confirmado
 - [x] Acceso: sesiones, claves, invitaciones y guardias (vuelta 1)
 - [x] Taller: reparto, situación y bloqueos (vuelta 2)
 - [x] Cotizaciones y clientes (vuelta 3)
-- [ ] Compras, proveedores y bodega
+- [x] Compras, proveedores y bodega (vuelta 4)
 - [ ] Máquinas
 - [ ] Consola de la plataforma: acciones, panorama, alertas y salud
 - [ ] Panel de la organización y alta de personas
@@ -96,3 +96,26 @@ otro agente Haiku intenta desmentir, reviso en el código, arreglo lo confirmado
 - **Comprobado:** 7 pruebas nuevas en `src/modulos/comercial/noche.test.ts`; las 7 fallan con el código de antes. 176
   pruebas y los tipos pasan. Las dos pantallas cambiadas no las miré en el navegador (ver «Para la mañana»).
 - **Para el dueño:** el proveedor escrito a mano (arriba).
+
+### Vuelta 4 — Compras, proveedores y bodega
+
+- 17 hallazgos; ninguno desmentido. Varios venían repetidos: eran 12 distintos. Arreglé 11; el que dejé es que la
+  comparación de costos solo mira repuestos y no insumos, y eso es lo que dice la pantalla («Repuestos que llegaron»).
+- **Arreglado:**
+  - Dos órdenes de compra emitidas a la vez con el mismo repuesto lo dejaban en las dos, y una quedaba «por retirar»
+    vacía.
+  - Recibir y anular la misma orden a la vez podía dejarla anulada con la mercadería ya en bodega.
+  - Un chofer que después pasó a solo lectura seguía pudiendo recibir y sumar stock.
+  - Recibir con el id de una línea de insumo de otro cliente no dejaba anotado el intento.
+  - Anular una orden de compra no quedaba en el registro; ahora queda con su motivo.
+  - Un insumo que se usa poco aparecía sin movimientos si la bodega tenía más de 500 en total; ahora cada insumo
+    muestra sus 5 últimos.
+  - Lo pagado sin costo cotizado quedaba «por anotar» para siempre en la comparación de costos.
+  - El campo «Factura» podía borrar la que anotó otra persona (lo mismo que ya se arregló en «Costo real»).
+  - Dejar vacío el mínimo de un insumo daba un error; ahora es cero.
+  - Mensajes: el insumo fuera de uso ahora se nombra, y el de recibir dos veces ya no pide «volver a abrir la orden»
+    (no hay ese botón).
+- **Comprobado:** 9 pruebas nuevas en `src/modulos/compras/noche.test.ts`; las 9 fallan con el código de antes. 185
+  pruebas y los tipos pasan. El cambio de pantalla (campo Factura) no lo miré en el navegador, por el servidor de la
+  otra sesión.
+- **Para el dueño:** nada nuevo.

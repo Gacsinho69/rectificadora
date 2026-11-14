@@ -79,8 +79,10 @@ export function comparacionDeCostos(lineas: { proveedor: string | null; cantidad
     const clave = l.proveedor ?? 'Sin proveedor'
     const g = grupos.get(clave) ?? { proveedor: clave, lineas: 0, porAnotar: 0, cotizado: 0, real: 0 }
     g.lineas++
-    if (l.costoReal === null || l.costo === null) g.porAnotar++
-    else {
+    // Por anotar es lo que no tiene su costo real. Lo que no se cotizó no se puede comparar: no suma, pero tampoco queda
+    // «por anotar» para siempre.
+    if (l.costoReal === null) g.porAnotar++
+    else if (l.costo !== null) {
       g.cotizado += Math.round(l.costo * l.cantidad)
       g.real += Math.round(l.costoReal * l.cantidad)
     }
@@ -132,7 +134,8 @@ export const cantidadSugerida = (stock: number, minimo: number, porLlegar = 0) =
 export const insumoSchema = z.object({
   nombre: z.string({ error: 'Escribe el insumo.' }).trim().min(2, 'Escribe el insumo.').max(120),
   unidad: z.string({ error: 'Escribe la unidad.' }).trim().min(1, 'Escribe la unidad.').max(20),
-  minimo: z.number().min(0, 'El mínimo no puede ser negativo.').max(1_000_000).default(0),
+  // Vacío es cero: sin mínimo, nunca se avisa.
+  minimo: z.number().min(0, 'El mínimo no puede ser negativo.').max(1_000_000).nullish().transform((v) => v ?? 0),
   marca: z.string().trim().max(60).optional(),
   codigo: z.string().trim().max(60).optional(),
   proveedorId: z.string().nullable().optional(),

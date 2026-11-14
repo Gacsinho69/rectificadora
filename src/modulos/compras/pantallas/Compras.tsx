@@ -397,6 +397,12 @@ function CostoReal({ valor, cotizado, editable, guardar }: { valor: number | nul
 /** El número de la factura o guía con que llegó la orden. */
 function Factura({ valor, guardar }: { valor: string | null; guardar: (v: string) => void }) {
   const [v, setV] = useState(valor ?? '')
+  // Si otra persona la anotó y la lista se refrescó, la casilla la muestra: salir sin escribir no la borra.
+  const [visto, setVisto] = useState(valor)
+  if (valor !== visto) {
+    setVisto(valor)
+    setV(valor ?? '')
+  }
   return (
     <div className="factura-oc">
       <span className="tenue">Factura o guía</span>

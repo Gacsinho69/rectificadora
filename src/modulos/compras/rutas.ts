@@ -64,6 +64,8 @@ function exigirQuienRecibe(c: C, choferId: string | null) {
   const { actor } = c.var
   if (actor.estadoTenant === 'suspended' || actor.estadoTenant === 'cancelled') throw rechazo(403, 'Tu organización está suspendida: puedes revisar, pero no hacer cambios.')
   if (!gestiona(actor.rol) && choferId !== actor.id) throw rechazo(403, 'Lo recibe el chofer de esa orden o el jefe de taller.')
+  // Un chofer que después pasó a solo lectura mira, pero no recibe ni mueve la bodega.
+  if (actor.rol === 'viewer') throw rechazo(403, 'Tu rol es de solo lectura.')
 }
 
 /** Lo que se guarda de un insumo: lo vacío queda sin dato. */
@@ -262,7 +264,8 @@ export const rutasCompras = new Hono<EntornoTenant>()
     const repuestos = await filasDelTenant(c, workOrderParts, d.repuestos, 'part', 'ese repuesto')
     if (repuestos.some((r) => r.source !== 'shop' || r.status !== 'pending')) throw rechazo(409, 'Solo se piden los repuestos que compra la rectificadora y que están por pedir.')
     const insumos = await filasDelTenant(c, supplies, d.insumos.map((i) => i.insumoId), 'supply', 'ese insumo')
-    if (insumos.some((s) => !s.active)) throw rechazo(409, 'Un insumo de la orden está fuera de uso.')
+    const fueraDeUso = insumos.find((s) => !s.active)
+    if (fueraDeUso) throw rechazo(409, `«${fueraDeUso.name}» está fuera de uso: quítalo de la orden o vuelve a activarlo en Bodega.`)
     const costoDe = new Map(insumos.map((s) => [s.id, s.unitCost]))
     const proveedor = await proveedorDe(c, d.proveedorId)
     if (!proveedor.active) throw rechazo(409, `${proveedor.name} está inactivo: actívalo en Proveedores o elige otro.`)
@@ -271,7 +274,11 @@ export const rutasCompras = new Hono<EntornoTenant>()
     const numero = await c.var.base.transaction(async (tx) => {
       const numero = await siguienteNumero(tx, purchaseOrders, actor.tenantId)
       await tx.insert(purchaseOrders).values({ id, tenantId: actor.tenantId, number: numero, supplierId: proveedor.id, supplier: proveedor.name, driverId: d.choferId ?? null, expectedAt: d.llega ?? null, notes: d.nota || null, status: 'open', createdBy: actor.id, createdAt: ahora })
-      if (repuestos.length) await tx.update(workOrderParts).set({ status: 'ordered', purchaseOrderId: id, supplierId: proveedor.id, supplier: proveedor.name }).where(inArray(workOrderParts.id, repuestos.map((r) => r.id)))
+      if (repuestos.length) {
+        // Solo lo que sigue por pedir: si otra orden lo pidió entretanto, no queda en dos órdenes.
+        const pedidos = await tx.update(workOrderParts).set({ status: 'ordered', purchaseOrderId: id, supplierId: proveedor.id, supplier: proveedor.name }).where(and(inArray(workOrderParts.id, repuestos.map((r) => r.id)), eq(workOrderParts.status, 'pending'), isNull(workOrderParts.purchaseOrderId))).returning({ id: workOrderParts.id })
+        if (pedidos.length !== repuestos.length) throw rechazo(409, 'Parte de esos repuestos ya se pidió en otra orden: actualiza la pantalla.')
+      }
       if (d.insumos.length) await tx.insert(purchaseOrderSupplies).values(d.insumos.map((i) => ({ id: nuevoId('ocl'), tenantId: actor.tenantId, purchaseOrderId: id, supplyId: i.insumoId, quantity: i.cantidad, unitCost: costoDe.get(i.insumoId) ?? null, status: 'ordered' as const })))
       await registrar(tx, origenDe(c), { tenantId: actor.tenantId, eventType: 'purchase_order.created', targetId: id, targetType: 'purchase_order', metadata: { numero: folioOc(numero), proveedor: proveedor.name, repuestos: repuestos.length, insumos: d.insumos.length } })
       await sumarUso(tx, actor.tenantId, ahora, { documents: 1 })
@@ -387,18 +394,22 @@ export const rutasCompras = new Hono<EntornoTenant>()
     // Sin decir qué, es todo lo que falta; diciendo, solo eso.
     const todo = !repuestos && !insumos
     if (repuestos) await filasDelTenant(c, workOrderParts, repuestos, 'part', 'ese repuesto')
+    if (insumos) await filasDelTenant(c, purchaseOrderSupplies, insumos, 'purchase_order_supply', 'ese insumo')
     const pedidos = await c.var.base.select().from(workOrderParts).where(and(eq(workOrderParts.purchaseOrderId, oc.id), eq(workOrderParts.tenantId, actor.tenantId), eq(workOrderParts.status, 'ordered')))
     const lineas = await c.var.base.select().from(purchaseOrderSupplies).where(and(eq(purchaseOrderSupplies.purchaseOrderId, oc.id), eq(purchaseOrderSupplies.tenantId, actor.tenantId), eq(purchaseOrderSupplies.status, 'ordered')))
     const elegidos = todo ? pedidos : pedidos.filter((r) => repuestos?.includes(r.id))
     const lineasElegidas = todo ? lineas : lineas.filter((l) => insumos?.includes(l.id))
     if ((!elegidos.length && !lineasElegidas.length) || (repuestos && elegidos.length !== new Set(repuestos).size) || (insumos && lineasElegidas.length !== new Set(insumos).size)) throw rechazo(409, 'Eso no está pedido en esta orden.')
     const estado = await c.var.base.transaction(async (tx) => {
+      // La orden se toma primero, igual que al anularla: recibir y anular la misma orden van de a uno.
+      const [abierta] = await tx.select({ id: purchaseOrders.id }).from(purchaseOrders).where(and(eq(purchaseOrders.id, oc.id), eq(purchaseOrders.status, 'open'))).for('update')
+      if (!abierta) throw rechazo(409, 'Esa orden de compra ya no está por retirar.')
       // Solo lo que sigue pedido: si otro lo recibió entretanto (un doble clic), no entra dos veces a bodega.
       const recibidos = elegidos.length ? await tx.update(workOrderParts).set({ status: 'received', receivedAt: ahora, receivedBy: actor.id }).where(and(inArray(workOrderParts.id, elegidos.map((r) => r.id)), eq(workOrderParts.status, 'ordered'))).returning({ id: workOrderParts.id }) : []
-      if (recibidos.length !== elegidos.length) throw rechazo(409, 'Parte de eso ya se recibió: vuelve a abrir la orden.')
+      if (recibidos.length !== elegidos.length) throw rechazo(409, 'Parte de eso ya se recibió: actualiza la pantalla.')
       for (const l of lineasElegidas) {
         const [recibida] = await tx.update(purchaseOrderSupplies).set({ status: 'received', receivedAt: ahora, receivedBy: actor.id }).where(and(eq(purchaseOrderSupplies.id, l.id), eq(purchaseOrderSupplies.status, 'ordered'))).returning({ id: purchaseOrderSupplies.id })
-        if (!recibida) throw rechazo(409, 'Parte de eso ya se recibió: vuelve a abrir la orden.')
+        if (!recibida) throw rechazo(409, 'Parte de eso ya se recibió: actualiza la pantalla.')
         await moverInsumo(tx, { tenantId: actor.tenantId, insumoId: l.supplyId, cantidad: l.quantity, tipo: 'purchase', ocId: oc.id, nota: folioOc(oc.number), por: actor.id, ahora })
       }
       const r = await recalcularOc(tx, oc.id, ahora)
@@ -414,14 +425,18 @@ export const rutasCompras = new Hono<EntornoTenant>()
     const { actor, ahora } = c.var
     const oc = await filaDelTenant(c, purchaseOrders, c.req.param('id'), 'purchase_order', 'esa orden de compra')
     if (oc.status !== 'open') throw rechazo(409, 'Esa orden de compra ya no está por retirar.')
-    const recibidos = await c.var.base.select({ id: workOrderParts.id }).from(workOrderParts).where(and(eq(workOrderParts.purchaseOrderId, oc.id), eq(workOrderParts.status, 'received')))
-    const insumosRecibidos = await c.var.base.select({ id: purchaseOrderSupplies.id }).from(purchaseOrderSupplies).where(and(eq(purchaseOrderSupplies.purchaseOrderId, oc.id), eq(purchaseOrderSupplies.status, 'received')))
-    if (recibidos.length || insumosRecibidos.length) throw rechazo(409, 'Ya llegó parte de esta orden: recibe lo que falta o déjala abierta.')
     const { motivo } = c.req.valid('json')
     await c.var.base.transaction(async (tx) => {
+      // La orden se toma primero (si otro la está recibiendo, se espera): lo que llegó se revisa con eso ya resuelto.
+      const [abierta] = await tx.select({ id: purchaseOrders.id }).from(purchaseOrders).where(and(eq(purchaseOrders.id, oc.id), eq(purchaseOrders.status, 'open'))).for('update')
+      if (!abierta) throw rechazo(409, 'Esa orden de compra ya no está por retirar.')
+      const recibidos = await tx.select({ id: workOrderParts.id }).from(workOrderParts).where(and(eq(workOrderParts.purchaseOrderId, oc.id), eq(workOrderParts.status, 'received')))
+      const insumosRecibidos = await tx.select({ id: purchaseOrderSupplies.id }).from(purchaseOrderSupplies).where(and(eq(purchaseOrderSupplies.purchaseOrderId, oc.id), eq(purchaseOrderSupplies.status, 'received')))
+      if (recibidos.length || insumosRecibidos.length) throw rechazo(409, 'Ya llegó parte de esta orden: recibe lo que falta o déjala abierta.')
       await tx.update(workOrderParts).set({ status: 'pending', purchaseOrderId: null }).where(and(eq(workOrderParts.purchaseOrderId, oc.id), eq(workOrderParts.tenantId, actor.tenantId), eq(workOrderParts.status, 'ordered')))
       await tx.update(purchaseOrderSupplies).set({ status: 'cancelled' }).where(and(eq(purchaseOrderSupplies.purchaseOrderId, oc.id), eq(purchaseOrderSupplies.tenantId, actor.tenantId), eq(purchaseOrderSupplies.status, 'ordered')))
       await tx.update(purchaseOrders).set({ status: 'cancelled', cancelledAt: ahora, cancelReason: motivo }).where(eq(purchaseOrders.id, oc.id))
+      await registrar(tx, origenDe(c), { tenantId: actor.tenantId, eventType: 'purchase_order.cancelled', targetId: oc.id, targetType: 'purchase_order', metadata: { numero: folioOc(oc.number), proveedor: oc.supplier, motivo } })
     })
     return c.json({ ok: true })
   })
@@ -441,9 +456,10 @@ export const rutasCompras = new Hono<EntornoTenant>()
         .select({ m: supplyMovements, ot: workOrders.number })
         .from(supplyMovements)
         .leftJoin(workOrders, eq(workOrders.id, supplyMovements.workOrderId))
-        .where(eq(supplyMovements.tenantId, actor.tenantId))
-        .orderBy(desc(supplyMovements.createdAt))
-        .limit(500),
+        // Los 5 últimos de cada insumo (los que se muestran), no los 500 últimos de toda la bodega: uno que se usa poco
+        // también tiene su historia.
+        .where(and(eq(supplyMovements.tenantId, actor.tenantId), sql`${supplyMovements.id} in (select id from (select id, row_number() over (partition by supply_id order by created_at desc, id desc) as n from supply_movements where tenant_id = ${actor.tenantId}) ultimos where n <= 5)`))
+        .orderBy(desc(supplyMovements.createdAt)),
       nombresDe(c),
     ])
     const porLlegar = new Map(enCamino.map((e) => [e.insumo, e.cantidad]))
