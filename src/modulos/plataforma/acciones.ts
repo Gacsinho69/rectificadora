@@ -4,7 +4,7 @@ import { and, eq, isNull } from 'drizzle-orm'
 import { type Context, Hono } from 'hono'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { z } from 'zod'
-import { conDatos, ipDe, rechazo } from '../../http'
+import { conDatos, esHttps, ipDe, rechazo } from '../../http'
 import { nuevoId } from '../../ids'
 import { type EntornoPlataforma, exigirPermiso } from '../acceso/guardias'
 import { origenDe, registrar } from '../eventos/registrar'
@@ -271,7 +271,7 @@ export const accionesPlataforma = new Hono<EntornoPlataforma>()
         metadata: { motivo, vence: vence.toISOString(), admin_nombre: actor.nombre },
       })
     })
-    setCookie(c, 'impersonacion', id, { path: '/', httpOnly: true, sameSite: 'Strict', maxAge: DURACION_IMPERSONACION_MIN * 60 })
+    setCookie(c, 'impersonacion', id, { path: '/', httpOnly: true, sameSite: 'Strict', secure: esHttps(c), maxAge: DURACION_IMPERSONACION_MIN * 60 })
     return c.json({ ok: true, id, vence: vence.toISOString() })
   })
 

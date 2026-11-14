@@ -4,7 +4,7 @@ import { and, eq, gt, isNull } from 'drizzle-orm'
 import type { Context } from 'hono'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import type { Base } from '../../base'
-import { ipDe } from '../../http'
+import { esHttps, ipDe } from '../../http'
 import { nuevoId } from '../../ids'
 import { huellaDe, nuevoSecreto } from './claves'
 import { adminPorId, type Identidad, personaPorId } from './identidad'
@@ -18,7 +18,7 @@ export async function abrirSesion(c: Context, base: Base, quien: { tipo: 'user' 
   const { secreto, huella } = nuevoSecreto()
   const vence = new Date(ahora.getTime() + DIAS_DE_SESION * 86_400_000)
   await base.insert(sessions).values({ id: nuevoId('ses'), tokenHash: huella, actorType: quien.tipo, actorId: quien.id, createdAt: ahora, expiresAt: vence, ip: ipDe(c), userAgent: c.req.header('user-agent') ?? null })
-  setCookie(c, COOKIE, secreto, { path: '/', httpOnly: true, sameSite: 'Lax', secure: new URL(c.req.url).protocol === 'https:', expires: vence })
+  setCookie(c, COOKIE, secreto, { path: '/', httpOnly: true, sameSite: 'Lax', secure: esHttps(c), expires: vence })
 }
 
 /** Cierra la sesión de este navegador. */

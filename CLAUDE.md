@@ -19,7 +19,7 @@ No es programador. Todo en castellano de Chile, simple, con un caso del taller c
 - **Lo que hace una rectificadora suma a su uso** con `sumarUso`, en la misma transacción. Así la consola mide el uso real.
 - **Acciones sensibles de la consola:** `exigirPermiso`, motivo obligatorio, y el cambio y su evento (`registrar`) en la misma transacción, con antes y después.
 - **El técnico no ve montos** (`veMontos`). El sistema y el panel del cliente no reciben nada interno de la plataforma (salud, alertas).
-- **Claves y sesiones.** La clave se guarda solo derivada (`cifrarClave`); de los secretos de sesión e invitación, solo su huella. Bloquear a alguien o cambiar su clave cierra sus sesiones (`cerrarSesionesDe`). «Entrar como» existe solo en `desarrollo.ts`.
+- **Claves y sesiones.** La clave se guarda solo derivada (`cifrarClave`); de los secretos de sesión e invitación, solo su huella. Bloquear a alguien o cambiar su clave cierra sus sesiones (`cerrarSesionesDe`). «Entrar como» existe solo en `desarrollo.ts`. Alguien del equipo de la plataforma entra solo con `agregarAlEquipo` (`npm run equipo`), con su evento.
 - **`events` solo se agrega.** Nada de `update` ni `delete` sobre esa tabla.
 - **Datos en inglés** (`tenant_id`, `work_order.created`), como la especificación; código, comentarios y pantallas, en castellano.
 
@@ -29,5 +29,6 @@ No es programador. Todo en castellano de Chile, simple, con un caso del taller c
 - Cada módulo en `src/modulos/<modulo>/`: `tablas.ts`, `reglas.ts` (puras, sin servidor: las pantallas las importan), `rutas.ts`, `pantallas/`.
 - Pantallas sobrias y densas: un solo azul, letra de 13 px, bloques blancos con borde fino; el color solo en los estados y siempre con su palabra. Todo cambio se mira a 1440 y a 390 de ancho.
 - En una subconsulta escrita con `sql` dentro de un `select`, la columna de la tabla de afuera va con su tabla (`"customers"."id"`): Drizzle la escribe sin ella y `id` a secas sería el de la tabla de adentro.
+- La API se arma en `crearApp` (`servidor.ts`): la montan `desarrollo.ts` y `produccion/app.ts`. Lo de producción (encabezados, pantallas, subdominios) va en `produccion/`; ahí no entra nada de desarrollo. `npm run build` compila las pantallas y el servidor.
 - Cambiar una tabla: editar su `tablas.ts` y `npm run migracion`. Cambiar la siembra: `npm run demo:reiniciar`.
 - `npm test` y `npm run tipos` antes de entregar. Entrega: qué cambió, qué comprobaste y qué falta.

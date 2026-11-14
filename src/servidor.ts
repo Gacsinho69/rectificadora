@@ -4,7 +4,8 @@ import { Hono } from 'hono'
 import { deleteCookie } from 'hono/cookie'
 import { HTTPException } from 'hono/http-exception'
 import type { Base } from './base'
-import type { Entorno } from './http'
+import { bodyLimit } from 'hono/body-limit'
+import { type Entorno, mismoSitio } from './http'
 import { impersonacionVigente, type Identidad } from './modulos/acceso/identidad'
 import { rutasAcceso } from './modulos/acceso/rutas'
 import { cerrarSesion } from './modulos/acceso/sesion'
@@ -18,6 +19,7 @@ export type Reloj = () => Date
 export function crearApp(base: Base, identidad: Identidad, reloj: Reloj = () => new Date()) {
   const app = new Hono<Entorno>()
 
+  app.use('/api/*', mismoSitio, bodyLimit({ maxSize: 1024 * 1024, onError: (c) => c.json({ error: 'Lo enviado es demasiado grande (más de 1 MB).' }, 413) }))
   app.use('/api/*', async (c, next) => {
     c.set('base', base)
     c.set('ahora', reloj())

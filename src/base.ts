@@ -22,9 +22,12 @@ export async function abrirBase(carpeta?: string): Promise<Base> {
   return base
 }
 
-/** PostgreSQL de verdad, en el servidor. Las migraciones pendientes se aplican al abrir. */
-export async function abrirPostgres(url: string): Promise<Base> {
-  const base = drizzlePostgres({ client: new pg.Pool({ connectionString: url }), schema: esquema, casing: 'snake_case' })
+/** PostgreSQL de verdad, en el servidor. Las migraciones pendientes se aplican al abrir; `cerrar` suelta las conexiones al apagar. */
+export async function abrirPostgres(url: string): Promise<{ base: Base; cerrar: () => Promise<void> }> {
+  const conexiones = new pg.Pool({ connectionString: url, max: 10 })
+  // Si la base corta una conexión que estaba quieta (se reinició, por ejemplo), la app sigue: la próxima consulta abre otra.
+  conexiones.on('error', (e) => console.error('Se cortó una conexión con la base:', e.message))
+  const base = drizzlePostgres({ client: conexiones, schema: esquema, casing: 'snake_case' })
   await migrarPostgres(base, { migrationsFolder: migraciones })
-  return base
+  return { base, cerrar: () => conexiones.end() }
 }

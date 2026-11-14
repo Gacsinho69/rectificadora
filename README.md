@@ -2,7 +2,7 @@
 
 Un sistema para rectificadoras de motores, al estilo del ERP de Baufer, que se ofrece a muchas rectificadoras a la vez (multicliente). Cada rectificadora tiene **su propio sistema**: recibe motores, cotiza con sus actividades valorizadas, reparte el trabajo por pieza entre sus especialistas, compra los repuestos y sigue cada orden hasta la entrega. Nadie ve los datos de otra. Por encima, **la consola de la plataforma** deja al equipo interno administrar a todos los clientes: uso, salud, cobros, seguridad y soporte.
 
-Estado (13-11-2026): **MVP completo con datos de demostración e inicio de sesión real** (correo y clave, invitaciones). Falta el cobro real, el correo saliente y el arranque de producción (ver «Qué falta»).
+Estado (14-11-2026): **MVP completo, con inicio de sesión real y listo para montarse en producción** (contenedor Docker y PostgreSQL; ver «Producción»). Falta contratar el servidor y la base, el cobro real y el correo saliente (ver «Qué falta»).
 
 ## Las tres partes
 
@@ -90,6 +90,54 @@ Se abre en http://localhost:5180. Se entra con **correo y clave**: todas las per
 - `npm run tipos`: TypeScript.
 - `npm run demo:reiniciar`: borra la base de desarrollo; al arrancar se siembra de nuevo con fechas al día.
 - `npm run migracion`: genera la migración después de cambiar una tabla.
+- `npm run build` y `npm start`: el servidor de producción en tu computador. Necesita un `.env` con una base PostgreSQL (copia `.env.ejemplo`).
+
+## Producción
+
+Lo que hay que contratar (es decisión del dueño, y cualquiera de estas sirve):
+
+1. **Un servidor que corra Docker** (Fly.io, Railway, Render, Google Cloud Run o uno propio). El contenedor no guarda nada: se puede reemplazar cuando sea.
+2. **Una base PostgreSQL administrada**, con respaldos diarios (la del mismo proveedor, Neon o Supabase). PostgreSQL 15 o superior.
+3. **Un dominio** con HTTPS (rectificadora.cl). Para que cada rectificadora abra también en `<subdominio>.rectificadora.cl`, un registro comodín `*.rectificadora.cl` que apunte al mismo servidor.
+
+El servidor se configura con variables de entorno (están explicadas en `.env.ejemplo`):
+
+| Variable | Qué es |
+|---|---|
+| `DATABASE_URL` | La base: `postgres://usuario:clave@servidor:5432/base` |
+| `DOMINIO_PLATAFORMA` | El dominio, sin https:// ni barras: `rectificadora.cl` |
+| `PORT` | El puerto (3000 si no se dice; el proveedor suele fijarlo) |
+| `DEMOSTRACION` | `si` solo en un servidor de muestra: con la base vacía siembra la demostración (clave `demo1234`) |
+
+Si falta algo, no arranca y dice qué falta. Al arrancar aplica las migraciones pendientes.
+
+```bash
+docker build -t rectificadora .
+docker run -p 3000:3000 -e DATABASE_URL=postgres://… -e DOMINIO_PLATAFORMA=rectificadora.cl rectificadora
+```
+
+Sin Docker: `npm ci`, `npm run build` y `npm start`.
+
+**La primera persona del equipo.** La base parte vacía y no hay nadie que invite, así que la primera persona se crea desde la consola de comandos del servidor (en el contenedor, `node dist-servidor/equipo.js` en vez de `npm run equipo --`):
+
+```bash
+npm run equipo -- agregar --correo ana@empresa.cl --nombre "Ana Pérez"
+```
+
+Muestra una **clave de paso**. Con ella se entra en `https://<dominio>/entrar?portal=plataforma` y se cambia al tiro (abajo a la izquierda, «Cambiar clave»). Desde la consola se dan de alta las rectificadoras, y cada una recibe el enlace de invitación de su administrador. Si alguien del equipo olvida su clave: `npm run equipo -- clave --correo ana@empresa.cl` (le da otra de paso y cierra sus sesiones). Las dos cosas quedan en la auditoría.
+
+El servidor de producción (`src/produccion/`) trae:
+
+- solo la sesión de verdad: «Entrar como» y `/api/desarrollo` no existen;
+- cookies `Secure` también detrás del balanceador (`x-forwarded-proto`);
+- encabezados de seguridad (CSP, HSTS, nadie puede meter el sistema en un marco ajeno);
+- rechazo de pedidos que vienen de otra página (CSRF) y de envíos de más de 1 MB (esto corre también en desarrollo);
+- `/api/salud` para el balanceador, que responde mientras la base conteste;
+- las pantallas: los archivos de `/assets` se guardan un año en el navegador y la página se pide fresca, así una versión nueva llega al tiro;
+- subdominios: `nuble.<dominio>` lleva a `<dominio>/c/nuble`; `plataforma.<dominio>`, a la consola;
+- un apagado ordenado: termina lo que está en curso antes de soltar la base.
+
+Lo prueba `produccion/produccion.test.ts`.
 
 ## La consola de la plataforma
 
@@ -115,7 +163,8 @@ El **uso** que mide la consola (OT del mes contra el límite del plan, cotizacio
 - Cinco intentos fallidos con un correo en 15 minutos **frenan** ese correo por 15 minutos. Cada intento queda en la auditoría (el de un correo de una rectificadora, en la suya). El error no dice si el correo existe.
 - Si el mismo correo y la misma clave sirven en dos rectificadoras (o en la consola), se **elige a cuál** entrar. Entrar desde el portal de una (`/entrar?portal=<cliente>`) prueba solo esa.
 - Quien entra por invitación define su clave: al menos 8 letras o números, y que no sea su correo.
-- Sin clave: «Entrar como», que existe solo en desarrollo (`src/desarrollo.ts` no arranca en producción).
+- Sin clave: «Entrar como», que existe solo en desarrollo (`src/desarrollo.ts` no arranca en producción, y el servidor de producción no lo trae).
+- El equipo de la plataforma no tiene invitación: su primera persona y las claves olvidadas salen de la consola de comandos (`npm run equipo`, ver «Producción»).
 
 Está en `src/modulos/acceso/` (`claves.ts`, `sesion.ts`, `rutas.ts`) y lo prueba `acceso/sesion.test.ts`.
 
@@ -143,15 +192,18 @@ El stack es el mismo de ERP Nuevo: TypeScript, Hono dentro de Vite, React + Ant 
 | `maquinas` | Máquinas, sus actividades, paradas y mantención |
 | `organizacion` | Panel del administrador de cada rectificadora |
 | `plataforma` | Consola |
-| `acceso` | Identidad, claves, sesiones, invitaciones, guardias y permisos |
+| `acceso` | Identidad, claves, sesiones, invitaciones, guardias, permisos y el equipo de la plataforma |
 | `eventos` | Auditoría |
 | `salud` y `alertas` | Reglas de salud y alertas |
 | `demo` | La siembra |
 
+Fuera de los módulos: `src/servidor.ts` arma la API (`crearApp`); la usan `src/desarrollo.ts` (dentro de Vite, con «Entrar como») y `src/produccion/` (el servidor de verdad y la consola de comandos del equipo).
+
 ## Qué falta
 
 - **Cobro real.** Las facturas y los eventos de pago son de demostración; deben venir del procesador de pagos (Flow, Mercado Pago o Stripe), con una cuenta a nombre de la empresa.
-- **Arranque de producción.** Falta el servidor de producción: Postgres en vez de PGlite, `crearApp` con `identidadPorSesion` (sin «Entrar como») y HTTPS (la cookie de sesión sale `secure` sola bajo https).
+- **Contratar dónde corre.** El servidor, la base PostgreSQL y el dominio (ver «Producción»). El contenedor no se ha construido todavía con Docker: el servidor compilado sí se probó contra un PostgreSQL por la red, con solo las dependencias de producción.
+- **El equipo de la plataforma en la consola.** Hoy se suma gente al equipo con `npm run equipo`, con todos los permisos; falta la pantalla para agregar personas, elegir sus permisos y desactivarlas.
 - **Correo saliente.** Hoy el enlace de invitación lo entrega quien invita (copiar o WhatsApp). Con un servicio de correo: mandar la invitación, el enlace para **recuperar la clave** (hoy se pide un enlace nuevo al administrador) y la cotización o la orden de compra en PDF.
 - **Verificación en dos pasos (MFA).** La consola muestra quién la tiene y si la organización la exige, pero todavía no se pide al entrar.
 - **Del taller, para la siguiente vuelta:**
