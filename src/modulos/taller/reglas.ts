@@ -175,7 +175,8 @@ export function estadoDeOt(d: DatosEstadoOt): EstadoOt {
   if (d.entregada) return 'delivered'
   if (d.calidadAprobada) return 'ready'
   const trabajos = d.tareas.filter((t) => !t.diagnostico)
-  if (trabajos.length) return trabajos.every((t) => t.estado === 'done') ? 'quality' : 'in_progress'
+  // A calidad va cuando todo está hecho, también el diagnóstico: un armado adelantado no la manda antes de tiempo.
+  if (trabajos.length) return d.tareas.every((t) => t.estado === 'done') ? 'quality' : 'in_progress'
   if (d.cotizacion === 'sent') return 'waiting_approval'
   if (d.tareas.some((t) => t.estado !== 'pending')) return 'diagnosis'
   return 'received'

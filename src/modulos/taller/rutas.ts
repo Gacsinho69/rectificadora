@@ -118,7 +118,8 @@ const enCola = (a: TrabajoAbierto, b: TrabajoAbierto, hoy: string) =>
 async function colasDelTaller(base: Base, tenantId: string, sinOt?: string) {
   const trabajos = (await trabajosAbiertos(base, tenantId)).filter((f) => f.ot.id !== sinOt)
   const { secciones } = await cargaDelTaller(base, tenantId, trabajos)
-  return new Map(secciones.map((s) => [s.id, { dias: s.dias ?? 0, horasPorDia: Math.max(1, s.gente.length) * 8 }]))
+  // Una sección sin especialistas igual tiene su cola: se cuenta como si la hiciera una persona, no como cero.
+  return new Map(secciones.map((s) => [s.id, { dias: s.dias ?? (s.ahora + s.espera) / 8, horasPorDia: Math.max(1, s.gente.length) * 8 }]))
 }
 
 /** Lo que define una actividad de la lista. */
@@ -602,9 +603,12 @@ export const rutasTaller = new Hono<EntornoTenant>()
     const ot = await filaDelTenant(c, workOrders, c.req.param('id'), 'work_order', 'esa orden de trabajo')
     if (ot.status === 'delivered' || ot.status === 'cancelled' || ot.status === 'ready') throw rechazo(409, 'A esta OT ya no se le agregan trabajos.')
     const d = c.req.valid('json')
-    if (d.pieza) await exigirPiezas(c, [d.pieza], true)
     const trabajo = await filaDelTenant(c, services, d.trabajoId, 'service', 'ese trabajo')
     if (!trabajo.active) throw rechazo(409, 'Esa actividad está fuera de la lista: actívala primero en Actividades.')
+    // La pieza en que queda (la que se pidió o la de la actividad) tiene que estar en uso, y su sección encendida.
+    await exigirPiezas(c, [d.pieza ?? trabajo.piece], true)
+    const [seccion] = await c.var.base.select({ activa: shopSections.active }).from(shopSections).where(and(eq(shopSections.id, trabajo.sectionId), eq(shopSections.tenantId, c.var.actor.tenantId)))
+    if (!seccion?.activa) throw rechazo(409, SECCION_APAGADA)
     const cantidad = d.cantidad ?? cantidadSegun(trabajo.criterion, motorDe(ot))
     await c.var.base.transaction(async (tx) => {
       const [{ ultima }] = await tx.select({ ultima: sql<number>`coalesce(max(${workOrderTasks.position}), -1)`.mapWith(Number) }).from(workOrderTasks).where(eq(workOrderTasks.workOrderId, ot.id))
@@ -633,6 +637,8 @@ export const rutasTaller = new Hono<EntornoTenant>()
   .post('/ot/:id/calidad', async (c) => {
     exigirGestion(c)
     const ot = await filaDelTenant(c, workOrders, c.req.param('id'), 'work_order', 'esa orden de trabajo')
+    if (ot.status === 'ready' || ot.status === 'delivered') throw rechazo(409, ot.status === 'ready' ? 'La calidad de esta OT ya está aprobada.' : 'Esa OT ya se entregó.')
+    if (ot.status === 'cancelled') throw rechazo(409, 'Esa OT está anulada.')
     if (ot.status !== 'quality') throw rechazo(409, 'Primero se terminan todos los trabajos del taller.')
     await c.var.base.transaction(async (tx) => {
       await tx.update(workOrders).set({ qcApprovedAt: c.var.ahora, qcApprovedBy: c.var.actor.id }).where(eq(workOrders.id, ot.id))
@@ -644,6 +650,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
   .post('/ot/:id/entregar', conDatos(z.object({ recibe: z.string().trim().min(2, 'Escribe quién recibe.').max(120) })), async (c) => {
     exigirGestion(c)
     const ot = await filaDelTenant(c, workOrders, c.req.param('id'), 'work_order', 'esa orden de trabajo')
+    if (ot.status === 'delivered') throw rechazo(409, 'Esa OT ya se entregó.')
     if (ot.status !== 'ready') throw rechazo(409, 'Solo se entrega una OT lista (con su control de calidad aprobado).')
     const { recibe } = c.req.valid('json')
     await c.var.base.transaction(async (tx) => {
@@ -681,7 +688,9 @@ export const rutasTaller = new Hono<EntornoTenant>()
     if (t.status !== 'pending') throw rechazo(409, 'Ese trabajo ya se inició.')
     exigirQueSePuedaHacer(await enSuRuta(c, t))
     await c.var.base.transaction(async (tx) => {
-      await tx.update(workOrderTasks).set({ status: 'in_progress', startedAt: ahora, assignedTo: t.assignedTo ?? actor.id }).where(eq(workOrderTasks.id, t.id))
+      // Solo si nadie lo inició entretanto: dos que tocan «Iniciar» a la vez no se lo quitan uno al otro.
+      const [iniciado] = await tx.update(workOrderTasks).set({ status: 'in_progress', startedAt: ahora, assignedTo: t.assignedTo ?? actor.id }).where(and(eq(workOrderTasks.id, t.id), eq(workOrderTasks.status, 'pending'))).returning({ id: workOrderTasks.id })
+      if (!iniciado) throw rechazo(409, 'Ese trabajo ya se inició.')
       await recalcularOt(tx, t.workOrderId)
     })
     return c.json({ ok: true })
@@ -701,7 +710,8 @@ export const rutasTaller = new Hono<EntornoTenant>()
     if (f.faltan.length) throw rechazo(409, `Falta que llegue: ${enumerar(f.faltan)}. Se termina cuando esté.`)
     const { resultado } = c.req.valid('json')
     await c.var.base.transaction(async (tx) => {
-      await tx.update(workOrderTasks).set({ status: 'done', startedAt: t.startedAt ?? ahora, finishedAt: ahora, finishedBy: actor.id, assignedTo: t.assignedTo ?? actor.id, result: resultado || null }).where(eq(workOrderTasks.id, t.id))
+      const [terminado] = await tx.update(workOrderTasks).set({ status: 'done', startedAt: t.startedAt ?? ahora, finishedAt: ahora, finishedBy: actor.id, assignedTo: t.assignedTo ?? actor.id, result: resultado || null }).where(and(eq(workOrderTasks.id, t.id), ne(workOrderTasks.status, 'done'))).returning({ id: workOrderTasks.id })
+      if (!terminado) throw rechazo(409, 'Ese trabajo ya está terminado.')
       await recalcularOt(tx, t.workOrderId)
     })
     return c.json({ ok: true })
@@ -836,6 +846,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
     if (t.status !== 'pending') throw rechazo(409, 'Ese trabajo ya se inició.')
     const f = await enSuRuta(c, t)
     if (f.situacion === 'held') throw rechazo(409, 'Ese trabajo está detenido: reanúdalo primero.')
+    if (f.situacion === 'machine') throw rechazo(409, `La máquina está detenida: ${enumerar(f.maquinas)}. Sin máquina no se adelanta; se puede empezar cuando vuelva a operar.`)
     if (f.situacion !== 'waiting' && f.situacion !== 'parts') throw rechazo(409, 'Ese trabajo ya se puede empezar.')
     await c.var.base.update(workOrderTasks).set({ advancedAt: c.var.ahora, advancedBy: c.var.actor.id }).where(eq(workOrderTasks.id, t.id))
     return c.json({ ok: true })
@@ -1040,7 +1051,12 @@ export const rutasTaller = new Hono<EntornoTenant>()
     exigirAdministrador(c)
     const t = await filaDelTenant(c, services, c.req.param('id'), 'service', 'esa actividad')
     const d = c.req.valid('json')
-    if (d.seccionId && d.seccionId !== t.sectionId && !(await filaDelTenant(c, shopSections, d.seccionId, 'section', 'esa sección')).active) throw rechazo(409, SECCION_APAGADA)
+    // Una actividad que se ofrece no queda en una sección apagada: ni al moverla ni al volver a encenderla.
+    const otraSeccion = d.seccionId && d.seccionId !== t.sectionId ? await filaDelTenant(c, shopSections, d.seccionId, 'section', 'esa sección') : null
+    if (d.activo === true || (otraSeccion && (d.activo ?? t.active))) {
+      const [suya] = otraSeccion ? [otraSeccion] : await c.var.base.select().from(shopSections).where(and(eq(shopSections.id, t.sectionId), eq(shopSections.tenantId, c.var.actor.tenantId)))
+      if (!suya?.active) throw rechazo(409, SECCION_APAGADA)
+    }
     if (d.pieza !== undefined && d.pieza !== t.piece) await exigirPiezas(c, [d.pieza], true)
     const criterio = d.criterio ?? t.criterion
     const pieza = d.pieza ?? t.piece

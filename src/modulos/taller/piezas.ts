@@ -1,7 +1,7 @@
 // Las piezas propias de cada rectificadora, además de las de siempre (motor, culata, block…). Quien rectifica también
 // turbos o bombas inyectoras las agrega aquí: aparecen al recibir, en la lista de actividades, en la cotización y en la
 // ruta de la OT, como una pieza suelta más. Las nombra su id, que es de la rectificadora: el de otra no sirve.
-import { and, asc, count, eq } from 'drizzle-orm'
+import { and, asc, count, eq, sql } from 'drizzle-orm'
 import { type Context, Hono } from 'hono'
 import { z } from 'zod'
 import type { Base } from '../../base'
@@ -41,11 +41,11 @@ function exigirAdministrador(c: C) {
 }
 
 /** Dos piezas no se llaman igual (sin contar mayúsculas), ni como una de las de siempre. */
-async function exigirNombreLibre(c: C, texto: string, salvo?: string) {
+async function exigirNombreLibre(base: Base, tenantId: string, texto: string, salvo?: string) {
   const clave = texto.toLocaleLowerCase('es')
   const deSiempre = Object.values(PIEZAS).find((n) => n.toLocaleLowerCase('es') === clave)
   if (deSiempre) throw rechazo(409, `«${deSiempre}» ya es una de las piezas de siempre.`)
-  const otra = (await piezasPropias(c.var.base, c.var.actor.tenantId)).find((p) => p.id !== salvo && p.nombre.toLocaleLowerCase('es') === clave)
+  const otra = (await piezasPropias(base, tenantId)).find((p) => p.id !== salvo && p.nombre.toLocaleLowerCase('es') === clave)
   if (otra) throw rechazo(409, `Ya hay una pieza «${otra.nombre}».`)
 }
 
@@ -58,11 +58,15 @@ export const rutasPiezas = new Hono<EntornoTenant>()
     exigirAdministrador(c)
     const { base, actor, ahora } = c.var
     const d = c.req.valid('json')
-    await exigirNombreLibre(c, d.nombre)
-    const [{ cuantas }] = await base.select({ cuantas: count() }).from(customPieces).where(eq(customPieces.tenantId, actor.tenantId))
-    if (cuantas >= MAXIMO_DE_PIEZAS) throw rechazo(409, `Ya son ${MAXIMO_DE_PIEZAS} piezas propias: desactiva o renombra una que ya no uses.`)
     const id = nuevoId('pz')
-    await base.insert(customPieces).values({ id, tenantId: actor.tenantId, name: d.nombre, position: cuantas, active: true, createdAt: ahora })
+    // De a una por taller: dos que crean «Turbo» a la vez no dejan dos piezas con el mismo nombre.
+    await base.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`custom_pieces:${actor.tenantId}`}))`)
+      await exigirNombreLibre(tx, actor.tenantId, d.nombre)
+      const [{ cuantas }] = await tx.select({ cuantas: count() }).from(customPieces).where(eq(customPieces.tenantId, actor.tenantId))
+      if (cuantas >= MAXIMO_DE_PIEZAS) throw rechazo(409, `Ya son ${MAXIMO_DE_PIEZAS} piezas propias: desactiva o renombra una que ya no uses.`)
+      await tx.insert(customPieces).values({ id, tenantId: actor.tenantId, name: d.nombre, position: cuantas, active: true, createdAt: ahora })
+    })
     return c.json({ id })
   })
 
@@ -71,7 +75,7 @@ export const rutasPiezas = new Hono<EntornoTenant>()
     exigirAdministrador(c)
     const p = await filaDelTenant(c, customPieces, c.req.param('id'), 'piece', 'esa pieza')
     const d = c.req.valid('json')
-    if (d.nombre !== undefined) await exigirNombreLibre(c, d.nombre, p.id)
+    if (d.nombre !== undefined) await exigirNombreLibre(c.var.base, c.var.actor.tenantId, d.nombre, p.id)
     await c.var.base
       .update(customPieces)
       .set({ ...(d.nombre !== undefined ? { name: d.nombre } : {}), ...(d.activa !== undefined ? { active: d.activa } : {}) })

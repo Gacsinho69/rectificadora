@@ -7,7 +7,7 @@ otro agente Haiku intenta desmentir, reviso en el código, arreglo lo confirmado
 ## Áreas
 
 - [x] Acceso: sesiones, claves, invitaciones y guardias (vuelta 1)
-- [ ] Taller: reparto, situación y bloqueos
+- [x] Taller: reparto, situación y bloqueos (vuelta 2)
 - [ ] Cotizaciones y clientes
 - [ ] Compras, proveedores y bodega
 - [ ] Máquinas
@@ -31,8 +31,8 @@ otro agente Haiku intenta desmentir, reviso en el código, arreglo lo confirmado
 
 ### Vuelta 1 — Acceso: sesiones, claves, invitaciones y guardias
 
-- 12 hallazgos de los agentes; ninguno desmentido. Los revisé en el código: 9 arreglados, 2 para la mañana y 1 que se
-  resuelve con otro arreglo (los mensajes en inglés).
+- 12 hallazgos de los agentes; ninguno desmentido. Los revisé en el código: 10 quedaron arreglados (dos venían
+  repetidos) y 2 son para la mañana.
 - **Arreglado:**
   - El límite de 5 intentos para entrar se saltaba mandando muchos pedidos a la vez; ahora los intentos con un mismo
     correo van de a uno.
@@ -47,3 +47,24 @@ otro agente Haiku intenta desmentir, reviso en el código, arreglo lo confirmado
 - **Comprobado:** 7 pruebas nuevas en `src/modulos/acceso/noche.test.ts` (10 intentos a la vez dejan solo 5, dos
   aceptaciones a la vez dejan entrar a una, etc.). 163 pruebas y los tipos pasan.
 - **Para el dueño:** recuperar la clave olvidada y la IP de la auditoría (arriba).
+
+### Vuelta 2 — Taller: reparto, situación y bloqueos
+
+- 13 hallazgos; los agentes desmintieron 2 y estuve de acuerdo con ellos (el chofer sí debe ver el teléfono del
+  proveedor para retirar, y adelantar un trabajo que espera repuestos es a propósito: se empieza, pero no se termina
+  sin ellos). De los 11 restantes, 3 venían repetidos; arreglé los 8.
+- **Arreglado:**
+  - Si se adelantaba y terminaba el armado con el diagnóstico pendiente, la OT pasaba a control de calidad. Ahora pasa
+    cuando todo está hecho.
+  - Una actividad de una sección apagada se podía volver a encender y agregar a una OT, y el trabajo desaparecía del
+    tablero. Ya no.
+  - Una actividad de una pieza propia que ya no se usa entraba igual a una OT.
+  - Una sección sin especialistas contaba cero días de cola: la entrega sugerida salía días más temprano. Ahora cuenta
+    como si la hiciera una persona.
+  - Dos que tocan «Iniciar» a la vez se quitaban el trabajo uno al otro; lo mismo con «Terminar».
+  - Dos que crean la misma pieza propia a la vez dejaban dos con el mismo nombre.
+  - Mensajes que decían algo falso: adelantar con la máquina detenida respondía «ya se puede empezar», y aprobar
+    calidad o entregar una OT ya entregada decía «primero se terminan los trabajos».
+- **Comprobado:** 6 pruebas nuevas en `src/modulos/taller/noche.test.ts`; las 6 fallan con el código de antes y pasan
+  con el arreglo. 169 pruebas y los tipos pasan.
+- **Para el dueño:** nada nuevo.
