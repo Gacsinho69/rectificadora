@@ -4,7 +4,7 @@ import { and, asc, count, desc, eq, gte, inArray, isNotNull, sql } from 'drizzle
 import type { Base } from '../../base'
 import { conNombres, type EventoVisible } from '../eventos/consulta'
 import { events } from '../eventos/tablas'
-import { CATEGORIAS_DE_AUDITORIA, type TipoEvento, tiposDeCategoria } from '../eventos/tipos'
+import { CATEGORIAS_DE_AUDITORIA, SOLO_PLATAFORMA, type TipoEvento, tiposDeCategoria } from '../eventos/tipos'
 import { invoices } from '../facturacion/tablas'
 import { apiKeys, integrations } from '../integraciones/tablas'
 import { USOS_CLAVE, type UsoClave } from '../tenants/reglas'
@@ -156,7 +156,7 @@ export async function integracionesDelTenant(base: Base, tenantId: string) {
 }
 
 /** Ingresos fallidos, IPs y países, MFA, SSO, claves y eventos sensibles. `completo` decide si las IPs van enteras. */
-export async function seguridadDelTenant(base: Base, ahora: Date, tenantId: string, completo: boolean) {
+export async function seguridadDelTenant(base: Base, ahora: Date, tenantId: string, completo: boolean, delCliente = false) {
   const accesos = and(eq(events.tenantId, tenantId), inArray(events.eventType, ['user.login', 'user.failed_login']), gte(events.createdAt, hace(ahora, 30)))
   const [fallidos] = await base
     .select({
@@ -194,7 +194,7 @@ export async function seguridadDelTenant(base: Base, ahora: Date, tenantId: stri
   const [fallidosRecientes, cambiosDeRol, sensibles, integraciones] = await Promise.all([
     ultimos(base, tenantId, ['user.failed_login'], 20),
     ultimos(base, tenantId, ['user.role_changed'], 20),
-    ultimos(base, tenantId, [...tiposDeCategoria('seguridad'), ...tiposDeCategoria('soporte'), ...tiposDeCategoria('datos')], 30),
+    ultimos(base, tenantId, [...tiposDeCategoria('seguridad'), ...tiposDeCategoria('soporte'), ...tiposDeCategoria('datos')].filter((t) => !delCliente || !SOLO_PLATAFORMA.includes(t)), 30),
     integracionesDelTenant(base, tenantId),
   ])
   const sso = integraciones.integraciones.find((i) => i.tipo === 'sso' && i.estado !== 'disabled')
@@ -202,7 +202,8 @@ export async function seguridadDelTenant(base: Base, ahora: Date, tenantId: stri
     completo,
     fallidos,
     fallidosRecientes: ocultarIps(fallidosRecientes, completo),
-    ips: ips.map((i) => ({ ...i, ip: completo ? i.ip : ocultarIp(i.ip) })),
+    // La ciudad es una ubicación exacta: va con la IP completa, no sin ella.
+    ips: ips.map((i) => ({ ...i, ip: completo ? i.ip : ocultarIp(i.ip), ciudad: completo ? i.ciudad : null })),
     paises,
     mfa,
     sso: sso ? { activo: true, proveedor: sso.destino } : { activo: false, proveedor: null },

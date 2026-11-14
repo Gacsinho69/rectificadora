@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { api } from '../../../pantallas/api'
 import { Bloque, Cargando, Hace, Problema } from '../../../pantallas/componentes'
 import { cifra } from '../../../pantallas/formato'
+import { rutValido } from '../../../rut'
 import { Encabezado } from '../../../pantallas/Marco'
 import { usePersona, usePortal } from './comun'
 import type { Cliente } from './tipos'
@@ -68,7 +69,7 @@ function NuevoCliente({ cerrar }: { cerrar: () => void }) {
           <Input />
         </Form.Item>
         <div className="columnas">
-          <Form.Item label="RUT" name="rut">
+          <Form.Item label="RUT" name="rut" validateTrigger="onBlur" rules={[{ validator: (_, v?: string) => (!v?.trim() || rutValido(v) ? Promise.resolve() : Promise.reject(new Error('El RUT no es válido: revisa el dígito verificador.'))) }]}>
             <Input />
           </Form.Item>
           <Form.Item label="Contacto" name="contacto">

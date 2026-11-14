@@ -41,6 +41,9 @@ const POLITICA = {
   frameAncestors: ["'none'"],
 }
 
+/** El enlace de una invitación es su secreto (quien lo tiene pone la clave): en el registro va tapado. */
+export const sinSecretos = (linea: string) => linea.replace(/\/invitacion\/[^\s/?#]+/g, '/invitacion/…')
+
 export function armarProduccion(base: Base, o: Opciones) {
   const app = new Hono()
 
@@ -54,7 +57,8 @@ export function armarProduccion(base: Base, o: Opciones) {
     }
   })
 
-  app.use(logger(o.anotar))
+  const anotar = o.anotar ?? console.log
+  app.use(logger((linea, ...resto) => anotar([linea, ...resto].map(sinSecretos).join(' '))))
   app.use(secureHeaders({ contentSecurityPolicy: POLITICA, crossOriginEmbedderPolicy: false, referrerPolicy: 'same-origin' }))
   app.use(compress())
 

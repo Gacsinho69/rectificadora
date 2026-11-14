@@ -66,5 +66,11 @@ export type TipoEvento = keyof typeof TIPOS_DE_EVENTO
 export const tiposDeCategoria = (categoria: Categoria) =>
   (Object.keys(TIPOS_DE_EVENTO) as TipoEvento[]).filter((t) => TIPOS_DE_EVENTO[t].categoria === categoria)
 
+/**
+ * Lo que vigila el equipo de la plataforma y el panel del cliente no muestra: el intento de abrir algo de otro cliente
+ * diría que ese id existe y de quién es, justo lo que «no existe» calla.
+ */
+export const SOLO_PLATAFORMA: TipoEvento[] = ['security.cross_tenant_access_attempt']
+
 /** La auditoría muestra lo que alguien hizo o lo que salió mal; los inicios de sesión y la operación diaria van aparte. */
 export const CATEGORIAS_DE_AUDITORIA: Categoria[] = ['usuarios', 'configuracion', 'facturacion', 'seguridad', 'soporte', 'datos', 'sistema']

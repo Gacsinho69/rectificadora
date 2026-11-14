@@ -105,7 +105,8 @@ export const rutasPlataforma = new Hono<EntornoPlataforma>()
       logins,
       mrr: {
         total: pagando.reduce((s, t) => s + t.mrr, 0),
-        enRiesgo: lista.filter((t) => t.estadoPago === 'past_due' || t.estadoPago === 'failed').reduce((s, t) => s + t.mrr, 0),
+        // Lo que se puede perder de lo que hoy paga: un cliente suspendido o cancelado ya no suma al MRR.
+        enRiesgo: pagando.filter((t) => t.estadoPago === 'past_due' || t.estadoPago === 'failed').reduce((s, t) => s + t.mrr, 0),
         clientesPagando: pagando.filter((t) => t.mrr > 0).length,
       },
       pagos: { vencidos: lista.filter((t) => t.estadoPago === 'past_due').length, fallidos: lista.filter((t) => t.estadoPago === 'failed').length },

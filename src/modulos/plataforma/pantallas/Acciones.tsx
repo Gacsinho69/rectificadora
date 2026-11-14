@@ -150,12 +150,12 @@ function AjustarLimites({ tenant, cerrar }: Props) {
 }
 
 function CambiarFuncion({ tenant, cerrar, funcion, activa }: Props & { funcion: Funcion; activa: boolean }) {
-  const [form] = Form.useForm<{ motivo?: string }>()
+  const [form] = Form.useForm<{ motivo: string }>()
   const accion = useAccion(tenant.id, cerrar, '/funciones', activa ? 'Función encendida.' : 'Función apagada.')
   return (
-      <Dialogo cerrar={cerrar} titulo={`${activa ? 'Encender' : 'Apagar'} «${FUNCIONES[funcion]}»`} accion={accion} enviar={() => form.validateFields().then((v) => accion.mutate({ funcion, activa, motivo: v.motivo || undefined }))} textoOk={activa ? 'Encender' : 'Apagar'}>
+      <Dialogo cerrar={cerrar} titulo={`${activa ? 'Encender' : 'Apagar'} «${FUNCIONES[funcion]}»`} accion={accion} enviar={() => form.validateFields().then((v) => accion.mutate({ funcion, activa, motivo: v.motivo }))} textoOk={activa ? 'Encender' : 'Apagar'}>
         <Form form={form} layout="vertical">
-          <Form.Item label="Motivo (opcional)" name="motivo">
+          <Form.Item label="Motivo" name="motivo" rules={MOTIVO}>
             <Input.TextArea rows={2} />
           </Form.Item>
         </Form>

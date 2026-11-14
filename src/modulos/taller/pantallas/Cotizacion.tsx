@@ -7,7 +7,7 @@ import { DeleteOutlined } from '@ant-design/icons'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getRouteApi, Link, useNavigate } from '@tanstack/react-router'
 import { Alert, App, Button, Checkbox, Form, Input, InputNumber, Modal, Select, Table } from 'antd'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../../../pantallas/api'
 import { Bloque, Cargando, Problema } from '../../../pantallas/componentes'
 import { fecha, fechaHora, plata, plural } from '../../../pantallas/formato'
@@ -62,12 +62,15 @@ function Editor({ id, numero, inicial }: { id: string | null; numero: number | n
   const motor = motorDeDatos(b)
   const t = totales(b.lineas, b.descuento)
   const faltas = faltasParaEnviar(b.lineas)
+  // La cotización nueva que ya se creó: si después falla el envío, reintentar la corrige en vez de crear otra.
+  const creada = useRef<string | null>(null)
   const guardar = useMutation({
     mutationFn: async (enviar: boolean) => {
       if (!b.clienteId) throw new Error('Elige el cliente.')
       const datos = { clienteId: b.clienteId, otId: b.otId, motor: b.motor, cilindros: b.cilindros, valvulasPorCilindro: b.valvulasPorCilindro, culatas: b.culatas, lineas: b.lineas, descuento: b.descuento, notas: b.notas }
-      const destino = id ?? (await api<{ id: string }>('POST', '/servicio/cotizaciones', datos)).id
-      if (id) await api('POST', `/servicio/cotizaciones/${id}`, datos)
+      const yaEsta = id ?? creada.current
+      if (yaEsta) await api('POST', `/servicio/cotizaciones/${yaEsta}`, datos)
+      const destino = yaEsta ?? (creada.current = (await api<{ id: string }>('POST', '/servicio/cotizaciones', datos)).id)
       if (enviar) await api('POST', `/servicio/cotizaciones/${destino}/enviar`)
       return { destino, enviar }
     },
@@ -143,7 +146,7 @@ function Editor({ id, numero, inicial }: { id: string | null; numero: number | n
             <Select allowClear placeholder="2" value={b.valvulasPorCilindro ?? undefined} options={[2, 3, 4, 5].map((n) => ({ value: n, label: String(n) }))} onChange={(v) => cambiarMotor({ valvulasPorCilindro: v ?? null })} />
           </Form.Item>
           <Form.Item label="Culatas" layout="vertical">
-            <InputNumber min={1} max={24} placeholder="1" style={{ width: '100%' }} value={b.culatas ?? undefined} onChange={(v) => cambiarMotor({ culatas: v ?? null })} />
+            <InputNumber min={1} max={24} precision={0} placeholder="1" style={{ width: '100%' }} value={b.culatas ?? undefined} onChange={(v) => cambiarMotor({ culatas: v ?? null })} />
           </Form.Item>
         </div>
       </Bloque>
@@ -211,7 +214,7 @@ function Editor({ id, numero, inicial }: { id: string | null; numero: number | n
                           onChange={(id, p) => cambiar(l.i, { proveedorId: id, proveedor: p?.nombre ?? null })}
                         />
                       )}
-                      {!loTraeElCliente(l) && <InputNumber size="small" style={{ width: 130 }} min={0} step={1000} value={l.costo ?? undefined} placeholder="Costo unitario" onChange={(v) => cambiar(l.i, { costo: v ?? null })} />}
+                      {!loTraeElCliente(l) && <InputNumber size="small" style={{ width: 130 }} min={0} step={1000} precision={0} value={l.costo ?? undefined} placeholder="Costo unitario" onChange={(v) => cambiar(l.i, { costo: v ?? null })} />}
                       <Select
                         size="small"
                         style={{ width: 220 }}
@@ -244,7 +247,7 @@ function Editor({ id, numero, inicial }: { id: string | null; numero: number | n
                 loTraeElCliente(l) ? (
                   <span className="tenue">No se cobra</span>
                 ) : (
-                  <InputNumber size="small" min={0} step={1000} value={l.precio ?? undefined} status={l.precio ? undefined : 'warning'} placeholder="Falta" style={{ width: 130 }} onChange={(v) => cambiar(l.i, { precio: v ?? null })} />
+                  <InputNumber size="small" min={0} step={1000} precision={0} value={l.precio ?? undefined} status={l.precio ? undefined : 'warning'} placeholder="Falta" style={{ width: 130 }} onChange={(v) => cambiar(l.i, { precio: v ?? null })} />
                 ),
             },
             { title: 'Total', key: 'tot', align: 'right', width: 120, render: (_, l) => (l.precio && !loTraeElCliente(l) ? plata(Math.round(l.cantidad * l.precio)) : <span className="tenue">—</span>) },
@@ -311,7 +314,7 @@ function Totales({ t, descuento, cambiarDescuento }: { t: ReturnType<typeof tota
       <dd>{plata(t.subtotal)}</dd>
       <dt>Descuento</dt>
       <dd>
-        {cambiarDescuento ? <InputNumber size="small" min={0} max={100} value={descuento} onChange={(v) => cambiarDescuento(v ?? 0)} suffix="%" style={{ width: 90 }} /> : `${descuento} %`}
+        {cambiarDescuento ? <InputNumber size="small" min={0} max={100} precision={0} value={descuento} onChange={(v) => cambiarDescuento(v ?? 0)} suffix="%" style={{ width: 90 }} /> : `${descuento} %`}
         {t.rebaja ? ` · −${plata(t.rebaja)}` : ''}
       </dd>
       <dt>Neto</dt>

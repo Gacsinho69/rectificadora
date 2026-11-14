@@ -436,7 +436,7 @@ function AgregarRepuesto({ ot, veMontos, cerrar }: { ot: DetalleOt; veMontos: bo
             )}
             {veMontos && (
               <Form.Item label="Costo por unidad (sin IVA)" name="costo">
-                <InputNumber min={0} step={1000} style={{ width: '100%' }} />
+                <InputNumber min={0} step={1000} precision={0} style={{ width: '100%' }} />
               </Form.Item>
             )}
           </div>

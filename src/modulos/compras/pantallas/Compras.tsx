@@ -363,9 +363,18 @@ export function Compras() {
   )
 }
 
+const entero = (v: number | null) => (v === null ? null : Math.round(v))
+
 /** Lo que de verdad se pagó por unidad. Quien gestiona lo anota (al salir del campo se guarda); los demás lo leen. */
 function CostoReal({ valor, cotizado, editable, guardar }: { valor: number | null; cotizado: number | null; editable: boolean; guardar: (v: number | null) => void }) {
   const [v, setV] = useState<number | null>(valor)
+  // Si el valor guardado cambió (lo anotó otra persona y la lista se refrescó), la casilla lo muestra: salir de ella sin
+  // escribir no lo borra.
+  const [visto, setVisto] = useState(valor)
+  if (valor !== visto) {
+    setVisto(valor)
+    setV(valor)
+  }
   const distinto = valor !== null && cotizado !== null && valor !== cotizado
   if (!editable) return valor ? <span style={distinto ? { color: valor > (cotizado ?? 0) ? 'var(--naranjo)' : 'var(--verde)' } : undefined}>{plata(valor)}</span> : <span className="tenue">—</span>
   return (
@@ -373,12 +382,14 @@ function CostoReal({ valor, cotizado, editable, guardar }: { valor: number | nul
       size="small"
       min={0}
       step={1000}
+      precision={0}
       value={v ?? undefined}
       placeholder={cotizado ? String(cotizado) : 'Anotar'}
       style={{ width: 120 }}
       onChange={(x) => setV(x ?? null)}
-      onBlur={() => v !== valor && guardar(v)}
-      onPressEnter={() => v !== valor && guardar(v)}
+      // En pesos enteros: lo escrito con decimales se redondea al guardar, como lo muestra la casilla.
+      onBlur={() => entero(v) !== valor && guardar(entero(v))}
+      onPressEnter={() => entero(v) !== valor && guardar(entero(v))}
     />
   )
 }
@@ -509,7 +520,7 @@ function NuevaOrden({ repuestos, insumos, personas, cerrar }: { repuestos: Repue
         ))}
         {insumos.map((x) => (
           <li key={x.id} className="linea-insumo">
-            <InputNumber size="small" min={1} max={1_000_000} value={cantidades[x.id]} onChange={(v) => setCantidades({ ...cantidades, [x.id]: v ?? x.sugerido })} style={{ width: 90 }} /> {x.unidad} × {x.nombre} <span className="tenue">(bodega: hay {cifra(x.stock)}, mínimo {cifra(x.minimo)})</span>
+            <InputNumber size="small" min={0.01} max={1_000_000} value={cantidades[x.id]} onChange={(v) => setCantidades({ ...cantidades, [x.id]: v ?? x.sugerido })} style={{ width: 90 }} /> {x.unidad} × {x.nombre} <span className="tenue">(bodega: hay {cifra(x.stock)}, mínimo {cifra(x.minimo)})</span>
           </li>
         ))}
       </ul>

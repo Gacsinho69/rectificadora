@@ -6,6 +6,7 @@ import { z } from 'zod'
 import type { Base } from '../../base'
 import { conDatos, conFiltros, rechazo } from '../../http'
 import { nuevoId } from '../../ids'
+import { formatoRut } from '../../rut'
 import { type EntornoTenant, filaDelTenant, filasDelTenant } from '../acceso/guardias'
 import { claveDeProveedor, trabajoQueLoNecesita } from '../compras/reglas'
 import { suppliers, workOrderParts } from '../compras/tablas'
@@ -21,9 +22,14 @@ import { customers, quotes } from './tablas'
 type C = Context<EntornoTenant>
 
 /** Lo que llega de la pantalla se revisa contra el tenant: el cliente, la OT, las actividades y las secciones deben ser suyos. */
-async function revisar(c: C, d: DatosCotizacion) {
+/** `antes`: la OT a la que ya estaba ligado el borrador, que pudo cerrarse después; corregir el borrador no la rechaza. */
+async function revisar(c: C, d: DatosCotizacion, antes: string | null = null) {
   await filaDelTenant(c, customers, d.clienteId, 'customer', 'ese cliente')
-  if (d.otId) await filaDelTenant(c, workOrders, d.otId, 'work_order', 'esa orden de trabajo')
+  if (d.otId) {
+    const ot = await filaDelTenant(c, workOrders, d.otId, 'work_order', 'esa orden de trabajo')
+    if (ot.customerId !== d.clienteId) throw rechazo(409, 'Esa OT es de otro cliente: elige una OT de este cliente.')
+    if (d.otId !== antes) exigirOtAbierta(ot)
+  }
   await filasDelTenant(c, services, d.lineas.map((l) => l.trabajoId).filter((t): t is string => Boolean(t)), 'service', 'esa actividad')
   await exigirPiezas(c, d.lineas.map((l) => l.pieza).filter((p): p is string => Boolean(p)), false)
   const secciones = [...new Set(d.lineas.map((l) => l.seccionId).filter((s): s is string => Boolean(s)))]
@@ -36,6 +42,11 @@ async function revisar(c: C, d: DatosCotizacion) {
   const nombre = new Map(proveedores.map((p) => [p.id, p.name]))
   const lineas = d.lineas.map((l) => (l.proveedorId ? { ...l, proveedor: nombre.get(l.proveedorId) ?? null } : l))
   return { ...totales(d.lineas, d.descuento), lineas }
+}
+
+/** Lo cotizado entra a una OT que sigue en el taller: no a una entregada o anulada. */
+function exigirOtAbierta(ot: { status: (typeof workOrders.$inferSelect)['status'] }) {
+  if (!OT_ABIERTAS.includes(ot.status)) throw rechazo(409, 'Esa OT ya está cerrada: cotiza sin OT o con una abierta.')
 }
 
 const motorGuardado = (d: DatosCotizacion) => ({ cylinders: d.cilindros ?? null, valvesPerCylinder: d.valvulasPorCilindro ?? null, heads: d.culatas ?? null })
@@ -56,11 +67,14 @@ async function pasarAlTaller(tx: Base, c: C, q: typeof quotes.$inferSelect) {
   if (!otId) {
     otId = nuevoId('ot')
     const numero = await siguienteNumero(tx, workOrders, actor.tenantId)
+    await exigirCupoDeOt(tx, actor.tenantId, ahora)
     await tx.insert(workOrders).values({ id: otId, tenantId: actor.tenantId, number: numero, customerId: q.customerId, quoteId: q.id, engine: q.engine, ...motor, pieces: ['motor'], status: 'received', createdBy: actor.id, createdAt: ahora })
     await tx.update(quotes).set({ workOrderId: otId }).where(eq(quotes.id, q.id))
     await registrar(tx, origenDe(c), { tenantId: actor.tenantId, eventType: 'work_order.created', targetId: otId, targetType: 'work_order', metadata: { numero, desde: `COT-${q.number}` } })
     await sumarUso(tx, actor.tenantId, ahora, { workOrders: 1, features: { work_orders: 1 } })
   } else {
+    const [ot] = await tx.select({ status: workOrders.status }).from(workOrders).where(eq(workOrders.id, otId))
+    exigirOtAbierta(ot)
     // Lo que dice la cotización aceptada del motor (después del diagnóstico) queda en la OT, si se sabía.
     const sabido = Object.fromEntries(Object.entries(motor).filter(([, v]) => v !== null))
     await tx.update(workOrders).set({ quoteId: q.id, ...sabido }).where(eq(workOrders.id, otId))
@@ -149,6 +163,8 @@ export const rutasComercial = new Hono<EntornoTenant>()
     const { base, actor } = c.var
     const { q } = c.req.valid('query')
     const patron = q ? `%${q.replace(/[%_\\]/g, '\\$&')}%` : null
+    // El RUT va guardado con puntos y guion: «12345678» también encuentra «12.345.678-5».
+    const soloRut = q?.replace(/[^0-9kK]/g, '') ?? ''
     // En las subconsultas el cliente va con el nombre de su tabla: Drizzle escribe las columnas de una consulta a una
     // sola tabla sin él, y «id» a secas sería el de la OT.
     const lista = await base
@@ -164,7 +180,7 @@ export const rutasComercial = new Hono<EntornoTenant>()
         ultima: sql<string | null>`(select max(w.created_at) from work_orders w where w.customer_id = "customers"."id" and w.tenant_id = ${actor.tenantId})`,
       })
       .from(customers)
-      .where(and(eq(customers.tenantId, actor.tenantId), patron ? or(ilike(customers.name, patron), ilike(customers.taxId, patron), ilike(customers.contact, patron)) : undefined))
+      .where(and(eq(customers.tenantId, actor.tenantId), patron ? or(ilike(customers.name, patron), ilike(customers.taxId, patron), soloRut.length >= 3 ? sql`regexp_replace(${customers.taxId}, '[^0-9kK]', '', 'g') ilike ${`%${soloRut}%`}` : undefined, ilike(customers.contact, patron)) : undefined))
       .orderBy(asc(customers.name))
     return c.json(lista.map((x) => ({ ...x, ultima: x.ultima ? new Date(x.ultima).toISOString() : null })))
   })
@@ -173,7 +189,7 @@ export const rutasComercial = new Hono<EntornoTenant>()
     exigirGestion(c)
     const d = c.req.valid('json')
     const id = nuevoId('cl')
-    await c.var.base.insert(customers).values({ id, tenantId: c.var.actor.tenantId, name: d.nombre, taxId: d.rut || null, contact: d.contacto || null, phone: d.telefono || null, email: d.correo || null, createdAt: c.var.ahora })
+    await c.var.base.insert(customers).values({ id, tenantId: c.var.actor.tenantId, name: d.nombre, taxId: d.rut ? formatoRut(d.rut) : null, contact: d.contacto || null, phone: d.telefono || null, email: d.correo || null, createdAt: c.var.ahora })
     return c.json({ id })
   })
 
@@ -256,7 +272,7 @@ export const rutasComercial = new Hono<EntornoTenant>()
     const q = await cotizacionDe(c)
     if (q.status !== 'draft') throw rechazo(409, 'Una cotización enviada no se edita: anúlala y haz otra.')
     const d = c.req.valid('json')
-    const t = await revisar(c, d)
+    const t = await revisar(c, d, q.workOrderId)
     await c.var.base
       .update(quotes)
       .set({ customerId: d.clienteId, workOrderId: d.otId ?? null, engine: d.motor, ...motorGuardado(d), lines: t.lineas, discountPct: d.descuento, net: t.neto, tax: t.iva, total: t.total, notes: d.notas || null })
@@ -287,10 +303,11 @@ export const rutasComercial = new Hono<EntornoTenant>()
     exigirGestion(c)
     const q = await cotizacionDe(c)
     if (q.status !== 'sent') throw rechazo(409, 'Solo se acepta una cotización enviada.')
-    if (!q.workOrderId) await exigirCupoDeOt(c.var.base, c.var.actor.tenantId, c.var.ahora)
     const { nota } = c.req.valid('json')
     const otId = await c.var.base.transaction(async (tx) => {
-      await tx.update(quotes).set({ status: 'accepted', decidedAt: c.var.ahora, decisionNote: nota || null }).where(eq(quotes.id, q.id))
+      // Solo si sigue enviada: dos que aceptan a la vez (un doble clic) no crean dos OT.
+      const [aceptada] = await tx.update(quotes).set({ status: 'accepted', decidedAt: c.var.ahora, decisionNote: nota || null }).where(and(eq(quotes.id, q.id), eq(quotes.status, 'sent'))).returning({ id: quotes.id })
+      if (!aceptada) throw rechazo(409, 'Esa cotización ya se decidió.')
       const otId = await pasarAlTaller(tx, c, { ...q, status: 'accepted' })
       await registrar(tx, origenDe(c), { tenantId: c.var.actor.tenantId, eventType: 'quote.accepted', targetId: q.id, targetType: 'quote', metadata: { numero: q.number, total: q.total, ot: otId } })
       return otId

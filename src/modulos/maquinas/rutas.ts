@@ -7,13 +7,14 @@ import { z } from 'zod'
 import { conDatos, rechazo } from '../../http'
 import { nuevoId } from '../../ids'
 import { type EntornoTenant, exigirQuePuedaEditar, filaDelTenant, filasDelTenant } from '../acceso/guardias'
-import { diaDe } from '../plataforma/panorama'
+import { diaEnChile } from '../taller/reglas'
 import { conFuncion, exigirGestion } from '../taller/comun'
 import { OT_EN_TALLER } from '../taller/reparto'
 import { services, shopSections, workOrders, workOrderTasks } from '../taller/tablas'
 import { users } from '../usuarios/tablas'
 import { mantencionDe, MOTIVOS_PARADA } from './reglas'
 import { machines, machineServices, machineStops } from './tablas'
+import { diaSchema } from '../../fecha'
 
 type C = Context<EntornoTenant>
 const claves = <T extends object>(o: T) => Object.keys(o) as [keyof T & string, ...(keyof T & string)[]]
@@ -23,7 +24,7 @@ const maquinaSchema = z.object({
   seccionId: z.string().nullable().optional(),
   actividades: z.array(z.string()).max(100).default([]),
   cadaDias: z.number().int().min(1, 'La mantención va cada un día o más.').max(3650).nullable().optional(),
-  ultima: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  ultima: diaSchema.nullable().optional(),
   nota: z.string().trim().max(500).optional(),
   activa: z.boolean().optional(),
 })
@@ -42,7 +43,7 @@ export const rutasMaquinas = new Hono<EntornoTenant>()
   /** Las máquinas con su estado, sus actividades, los trabajos que las esperan y su mantención. */
   .get('/maquinas', async (c) => {
     const { base, actor, ahora } = c.var
-    const hoy = diaDe(ahora)
+    const hoy = diaEnChile(ahora)
     const [lista, usos, abiertas, pendientes, gente] = await Promise.all([
       base.select({ m: machines, seccion: shopSections.name }).from(machines).leftJoin(shopSections, eq(shopSections.id, machines.sectionId)).where(eq(machines.tenantId, actor.tenantId)).orderBy(desc(machines.active), asc(machines.name)),
       base.select({ maquina: machineServices.machineId, id: services.id, codigo: services.code, nombre: services.name }).from(machineServices).innerJoin(services, eq(services.id, machineServices.serviceId)).where(eq(machineServices.tenantId, actor.tenantId)).orderBy(asc(services.code)),
@@ -138,7 +139,7 @@ export const rutasMaquinas = new Hono<EntornoTenant>()
         .where(and(eq(machineStops.machineId, m.id), eq(machineStops.tenantId, actor.tenantId), isNull(machineStops.endedAt)))
         .returning()
       if (!p) throw rechazo(409, 'Esa máquina no está detenida.')
-      if (p.reason === 'maintenance') await tx.update(machines).set({ lastMaintenanceAt: diaDe(ahora) }).where(eq(machines.id, m.id))
+      if (p.reason === 'maintenance') await tx.update(machines).set({ lastMaintenanceAt: diaEnChile(ahora) }).where(eq(machines.id, m.id))
     })
     return c.json({ ok: true })
   })
@@ -150,7 +151,7 @@ export const rutasMaquinas = new Hono<EntornoTenant>()
     const { actor, ahora } = c.var
     await c.var.base.transaction(async (tx) => {
       await tx.insert(machineStops).values({ id: nuevoId('par'), tenantId: actor.tenantId, machineId: m.id, reason: 'maintenance', note: c.req.valid('json').nota || null, startedAt: ahora, startedBy: actor.id, endedAt: ahora, endedBy: actor.id })
-      await tx.update(machines).set({ lastMaintenanceAt: diaDe(ahora) }).where(eq(machines.id, m.id))
+      await tx.update(machines).set({ lastMaintenanceAt: diaEnChile(ahora) }).where(eq(machines.id, m.id))
     })
     return c.json({ ok: true })
   })

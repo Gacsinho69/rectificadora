@@ -1,7 +1,8 @@
 // El panel del administrador de cada cliente: solo su organización. El tenant sale del actor (su sesión, o la
 // impersonación de soporte) y de ningún dato del pedido; cada consulta de aquí lo lleva.
 // Nada de lo interno de la plataforma (salud, alertas, MRR de otros, notas del equipo) sale por estas rutas.
-import { and, count, eq, ne } from 'drizzle-orm'
+import { and, count, eq, ne, sql } from 'drizzle-orm'
+import type { Base } from '../../base'
 import { type Context, Hono, type MiddlewareHandler } from 'hono'
 import { z } from 'zod'
 import { conDatos, conFiltros, rechazo } from '../../http'
@@ -30,12 +31,16 @@ import { users } from '../usuarios/tablas'
 type C = Context<EntornoTenant>
 const claves = <T extends object>(o: T) => Object.keys(o) as [keyof T & string, ...(keyof T & string)[]]
 
-/** Que siempre quede al menos un administrador activo: si no, la organización queda sin quien la administre. */
-async function quedaOtroAdmin(c: C, sinEste: string) {
-  const [{ otros }] = await c.var.base
+/**
+ * Que siempre quede al menos un administrador activo: si no, la organización queda sin quien la administre. Se cuenta
+ * dentro de la transacción del cambio y con su cerrojo: dos administradores que se bloquean a la vez no quedan los dos fuera.
+ */
+async function quedaOtroAdmin(tx: Base, tenantId: string, sinEste: string) {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`admins:${tenantId}`}))`)
+  const [{ otros }] = await tx
     .select({ otros: count() })
     .from(users)
-    .where(and(eq(users.tenantId, c.var.actor.tenantId), eq(users.role, 'admin'), eq(users.status, 'active'), ne(users.id, sinEste)))
+    .where(and(eq(users.tenantId, tenantId), eq(users.role, 'admin'), eq(users.status, 'active'), ne(users.id, sinEste)))
   if (otros === 0) throw rechazo(409, 'Debe quedar al menos un administrador activo en la organización.')
 }
 
@@ -69,7 +74,8 @@ export const rutasOrganizacion = new Hono<EntornoTenant>()
         accesoSoporte: t.supportAccess,
       },
       usos: r.usos,
-      usuarios: { ...r.usuarios, administradores: activos.filter((u) => u.rol === 'admin').length, conMfa: activos.filter((u) => u.mfa).length },
+      // Administradores: los que pueden administrar hoy (un bloqueado no cuenta, igual que al bloquear o cambiar un rol).
+      usuarios: { ...r.usuarios, administradores: lista.filter((u) => u.rol === 'admin' && u.estado === 'active').length, conMfa: activos.filter((u) => u.mfa).length },
       ultimosLogins: lista
         .filter((u) => u.ultimoLogin)
         .sort((a, b) => b.ultimoLogin!.localeCompare(a.ultimoLogin!))
@@ -128,8 +134,8 @@ export const rutasOrganizacion = new Hono<EntornoTenant>()
     if (u.id === c.var.actor.id) throw rechazo(409, 'No puedes bloquearte a ti mismo.')
     if (u.status === 'invited') throw rechazo(409, 'Una invitación pendiente no se bloquea.')
     if ((u.status === 'blocked') === bloqueado) throw rechazo(409, bloqueado ? 'Ya estaba bloqueado.' : 'No estaba bloqueado.')
-    if (bloqueado && u.role === 'admin') await quedaOtroAdmin(c, u.id)
     await c.var.base.transaction(async (tx) => {
+      if (bloqueado && u.role === 'admin') await quedaOtroAdmin(tx, c.var.actor.tenantId, u.id)
       await tx
         .update(users)
         .set({ status: bloqueado ? 'blocked' : 'active', blockedAt: bloqueado ? c.var.ahora : null })
@@ -152,8 +158,8 @@ export const rutasOrganizacion = new Hono<EntornoTenant>()
     const u = await usuarioDelTenant(c, c.req.param('id'))
     const { rol } = c.req.valid('json')
     if (u.role === rol) throw rechazo(409, `Ya es ${ROLES_TENANT[rol as RolTenant].toLowerCase()}.`)
-    if (u.role === 'admin') await quedaOtroAdmin(c, u.id)
     await c.var.base.transaction(async (tx) => {
+      if (u.role === 'admin') await quedaOtroAdmin(tx, c.var.actor.tenantId, u.id)
       await tx.update(users).set({ role: rol }).where(and(eq(users.id, u.id), eq(users.tenantId, c.var.actor.tenantId)))
       await registrar(tx, origenDe(c), {
         tenantId: c.var.actor.tenantId,
@@ -189,10 +195,10 @@ export const rutasOrganizacion = new Hono<EntornoTenant>()
   // Son las IPs de su propia gente: el administrador del cliente las ve completas.
   .get('/seguridad', async (c) => {
     const [t] = await c.var.base.select({ mfaRequired: tenants.mfaRequired, supportAccess: tenants.supportAccess }).from(tenants).where(eq(tenants.id, c.var.actor.tenantId))
-    return c.json({ ...(await seguridadDelTenant(c.var.base, c.var.ahora, c.var.actor.tenantId, true)), mfaObligatorio: t.mfaRequired, accesoSoporte: t.supportAccess })
+    return c.json({ ...(await seguridadDelTenant(c.var.base, c.var.ahora, c.var.actor.tenantId, true, true)), mfaObligatorio: t.mfaRequired, accesoSoporte: t.supportAccess })
   })
 
   .get('/eventos', conFiltros(filtrosEventos), async (c) => {
     const f = c.req.valid('query')
-    return c.json(await buscarEventos(c.var.base, { ...f, tenant: undefined }, { tenantId: c.var.actor.tenantId }))
+    return c.json(await buscarEventos(c.var.base, { ...f, tenant: undefined }, { tenantId: c.var.actor.tenantId, delCliente: true }))
   })

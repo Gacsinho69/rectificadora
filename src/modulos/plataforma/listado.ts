@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { ESTADOS_SALUD, type EstadoSalud } from '../salud/reglas'
 import { ESTADOS_PAGO, ESTADOS_TENANT, PLANES } from '../tenants/reglas'
 import type { ResumenTenant } from './panorama'
+import { diaSchema } from '../../fecha'
 
 export const NIVELES_USO = { bajo: 'Menos de 50 %', medio: '50 a 80 %', alto: '80 a 90 %', limite: '90 % o más' } as const
 export type NivelUso = keyof typeof NIVELES_USO
@@ -39,7 +40,7 @@ const varios = <T extends string>(valores: readonly [T, ...T[]]) =>
     .optional()
 
 const claves = <T extends object>(o: T) => Object.keys(o) as [keyof T & string, ...(keyof T & string)[]]
-const fecha = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'La fecha va como AAAA-MM-DD.').optional()
+const fecha = diaSchema.optional()
 
 export const filtrosTenants = z.object({
   q: z.string().trim().max(120).optional(),

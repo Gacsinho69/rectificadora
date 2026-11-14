@@ -16,7 +16,6 @@ import { rutasCompras } from '../compras/rutas'
 import { rutasMaquinas } from '../maquinas/rutas'
 import { purchaseOrders, purchaseOrderSupplies, suppliers, supplies, workOrderParts } from '../compras/tablas'
 import { origenDe, registrar } from '../eventos/registrar'
-import { diaDe } from '../plataforma/panorama'
 import { users } from '../usuarios/tablas'
 import { exigirCupoDeOt, exigirGestion, gestiona, motorDe, recalcularOt, siguienteNumero, sumarUso, veMontos } from './comun'
 import { exigirPiezas, piezasPropias, rutasPiezas } from './piezas'
@@ -24,6 +23,7 @@ import {
   avanceDeOt,
   cantidadSegun,
   CRITERIOS,
+  diaEnChile,
   diagnosticoDeRecepcion,
   diasParaTerminar,
   ESTADOS_OT,
@@ -38,12 +38,14 @@ import {
   piezasDeOt,
   plazoDeOt,
   PRIORIDADES_OT,
+  recontarTarea,
   rendimientoDe,
   type Situacion,
   unidadDe,
 } from './reglas'
 import { bloqueosDe, cargaDelTaller, conSituacion, detencionAbierta, detencionVisible, OT_EN_TALLER, repartirOt, type TrabajoAbierto, trabajosAbiertos, unirDetencion } from './reparto'
 import { services, serviceSpecialists, shopSections, taskHolds, workOrders, workOrderTasks } from './tablas'
+import { diaSchema } from '../../fecha'
 
 type C = Context<EntornoTenant>
 const claves = <T extends object>(o: T) => Object.keys(o) as [keyof T & string, ...(keyof T & string)[]]
@@ -71,7 +73,7 @@ const recepcion = z.object({
   // Las de siempre o las propias del taller (su id); la ruta revisa que sean de la rectificadora.
   piezas: z.array(z.string().max(40)).min(1, 'Marca qué piezas llegaron.').max(40),
   falla: z.string().trim().max(1000).optional(),
-  entrega: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  entrega: diaSchema.nullable().optional(),
   prioridad: z.enum(claves(PRIORIDADES_OT)).default('normal'),
   ...datosDelMotor.shape,
   /** Agregar el diagnóstico: lo normal cuando hay que medir antes de cotizar. */
@@ -177,13 +179,16 @@ function exigirQueSePuedaHacer(f: Awaited<ReturnType<typeof enSuRuta>>) {
   if (f.situacion === 'waiting') throw rechazo(409, `Ese trabajo espera su turno: primero ${enumerar(f.espera)}. El jefe de taller puede adelantarlo.`)
 }
 
+/** Lo de una sección apagada no sale en el tablero ni en la carga: ahí no se ponen actividades. */
+const SECCION_APAGADA = 'Esa sección está apagada: enciéndela primero o elige otra.'
+
 export const rutasTaller = new Hono<EntornoTenant>()
   .use(soloPersonaDelTenant as unknown as MiddlewareHandler<EntornoTenant>)
   .use(contarUso)
 
   .get('/inicio', async (c) => {
     const { base, actor, ahora } = c.var
-    const hoy = diaDe(ahora)
+    const hoy = diaEnChile(ahora)
     const ots = await base
       .select({ id: workOrders.id, numero: workOrders.number, estado: workOrders.status, entrega: workOrders.dueDate, prioridad: workOrders.priority, motor: workOrders.engine, cliente: customers.name, creada: workOrders.createdAt, entregada: workOrders.deliveredAt })
       .from(workOrders)
@@ -289,7 +294,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
         .limit(f.porPagina)
         .offset((f.pagina - 1) * f.porPagina)
       const avances = await avancesDe(c, filas.map((o) => o.id))
-      const hoy = diaDe(ahora)
+      const hoy = diaEnChile(ahora)
       return c.json({
         total,
         filas: filas.map((o) => ({ ...o, creada: o.creada.toISOString(), entregada: o.entregada?.toISOString() ?? null, plazo: plazoDeOt(o.entrega, o.estado, hoy), ...avances.get(o.id) })),
@@ -308,7 +313,6 @@ export const rutasTaller = new Hono<EntornoTenant>()
     await filaDelTenant(c, customers, d.clienteId, 'customer', 'ese cliente')
     d.piezas = [...new Set(d.piezas)]
     await exigirPiezas(c, d.piezas, true)
-    await exigirCupoDeOt(base, actor.tenantId, ahora)
     const codigos = diagnosticoDeRecepcion(d.piezas)
     const diagnostico = d.diagnostico && codigos.length
       ? await base
@@ -321,6 +325,8 @@ export const rutasTaller = new Hono<EntornoTenant>()
     const id = nuevoId('ot')
     const numero = await base.transaction(async (tx) => {
       const numero = await siguienteNumero(tx, workOrders, actor.tenantId)
+      // El cupo se cuenta con el folio tomado: dos recepciones a la vez no pasan las dos con la última OT del mes.
+      await exigirCupoDeOt(tx, actor.tenantId, ahora)
       await tx.insert(workOrders).values({
         id,
         tenantId: actor.tenantId,
@@ -381,7 +387,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
         .filter((a) => (a.tipo === 'diagnosis' ? f.diagnostico === '1' && deDiagnostico.includes(a.codigo) : a.tipico && (completo || piezas.includes(a.pieza))))
         .map((a) => ({ seccionId: a.seccionId, pieza: a.pieza, diagnostico: a.tipo === 'diagnosis', horas: a.horas * cantidadSegun(a.criterio, motor) }))
       const dias = diasParaTerminar(trabajos, await colasDelTaller(base, actor.tenantId), completo ? 2 : 0)
-      return c.json({ dias: Math.round(dias * 10) / 10, fecha: fechaTrasDiasHabiles(diaDe(ahora), dias) })
+      return c.json({ dias: Math.round(dias * 10) / 10, fecha: fechaTrasDiasHabiles(diaEnChile(ahora), dias) })
     },
   )
 
@@ -404,7 +410,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
     // Lo que está en proceso ya va por la mitad.
     const trabajos = filas.map(({ t, tipo }) => ({ seccionId: t.sectionId, pieza: t.piece, diagnostico: tipo === 'diagnosis', horas: ((t.status === 'in_progress' ? 0.5 : 1) * t.stdMinutes) / 60 }))
     const dias = diasParaTerminar(trabajos, await colasDelTaller(base, actor.tenantId, ot.id), diasRepuestos)
-    return c.json({ dias: Math.round(dias * 10) / 10, fecha: fechaTrasDiasHabiles(diaDe(ahora), dias) })
+    return c.json({ dias: Math.round(dias * 10) / 10, fecha: fechaTrasDiasHabiles(diaEnChile(ahora), dias) })
   })
 
   .get('/ot/:id', async (c) => {
@@ -503,7 +509,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
       id: ot.id,
       numero: ot.number,
       estado: ot.status,
-      plazo: plazoDeOt(ot.dueDate, ot.status, diaDe(c.var.ahora)),
+      plazo: plazoDeOt(ot.dueDate, ot.status, diaEnChile(c.var.ahora)),
       avance: avanceDeOt(tareas.map(({ t }) => ({ estado: t.status, minutos: t.stdMinutes }))),
       cliente: { id: cliente.id, nombre: cliente.name, contacto: cliente.contact, telefono: cliente.phone },
       motor: ot.engine,
@@ -548,24 +554,45 @@ export const rutasTaller = new Hono<EntornoTenant>()
     })
   })
 
-  .post('/ot/:id', conDatos(z.object({ entrega: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(), prioridad: z.enum(claves(PRIORIDADES_OT)).optional(), equipo: z.string().trim().max(120).optional(), numeroMotor: z.string().trim().max(60).optional(), falla: z.string().trim().max(1000).optional(), ...datosDelMotor.shape })), async (c) => {
+  .post('/ot/:id', conDatos(z.object({ entrega: diaSchema.nullable().optional(), prioridad: z.enum(claves(PRIORIDADES_OT)).optional(), equipo: z.string().trim().max(120).optional(), numeroMotor: z.string().trim().max(60).optional(), falla: z.string().trim().max(1000).optional(), ...datosDelMotor.shape })), async (c) => {
     exigirGestion(c)
     const ot = await filaDelTenant(c, workOrders, c.req.param('id'), 'work_order', 'esa orden de trabajo')
     if (ot.status === 'delivered' || ot.status === 'cancelled') throw rechazo(409, 'La OT ya está cerrada.')
     const d = c.req.valid('json')
-    await c.var.base
-      .update(workOrders)
-      .set({
-        ...(d.entrega !== undefined ? { dueDate: d.entrega } : {}),
-        ...(d.prioridad ? { priority: d.prioridad } : {}),
-        ...(d.equipo !== undefined ? { equipment: d.equipo || null } : {}),
-        ...(d.numeroMotor !== undefined ? { engineSerial: d.numeroMotor || null } : {}),
-        ...(d.falla !== undefined ? { complaint: d.falla || null } : {}),
-        ...(d.cilindros !== undefined ? { cylinders: d.cilindros } : {}),
-        ...(d.valvulasPorCilindro !== undefined ? { valvesPerCylinder: d.valvulasPorCilindro } : {}),
-        ...(d.culatas !== undefined ? { heads: d.culatas } : {}),
-      })
-      .where(and(eq(workOrders.id, ot.id), eq(workOrders.tenantId, c.var.actor.tenantId)))
+    const { tenantId } = c.var.actor
+    const antes = motorDe(ot)
+    const despues = motorDe({
+      cylinders: d.cilindros !== undefined ? d.cilindros : ot.cylinders,
+      valvesPerCylinder: d.valvulasPorCilindro !== undefined ? d.valvulasPorCilindro : ot.valvesPerCylinder,
+      heads: d.culatas !== undefined ? d.culatas : ot.heads,
+    })
+    await c.var.base.transaction(async (tx) => {
+      await tx
+        .update(workOrders)
+        .set({
+          ...(d.entrega !== undefined ? { dueDate: d.entrega } : {}),
+          ...(d.prioridad ? { priority: d.prioridad } : {}),
+          ...(d.equipo !== undefined ? { equipment: d.equipo || null } : {}),
+          ...(d.numeroMotor !== undefined ? { engineSerial: d.numeroMotor || null } : {}),
+          ...(d.falla !== undefined ? { complaint: d.falla || null } : {}),
+          ...(d.cilindros !== undefined ? { cylinders: d.cilindros } : {}),
+          ...(d.valvulasPorCilindro !== undefined ? { valvesPerCylinder: d.valvulasPorCilindro } : {}),
+          ...(d.culatas !== undefined ? { heads: d.culatas } : {}),
+        })
+        .where(and(eq(workOrders.id, ot.id), eq(workOrders.tenantId, tenantId)))
+      if (JSON.stringify(antes) === JSON.stringify(despues)) return
+      // Otro motor (eran 6 cilindros, no 4): lo que falta hacer y se contaba por el motor se cuenta de nuevo.
+      const pendientes = await tx
+        .select({ t: workOrderTasks, criterio: services.criterion })
+        .from(workOrderTasks)
+        .innerJoin(services, eq(services.id, workOrderTasks.serviceId))
+        .where(and(eq(workOrderTasks.workOrderId, ot.id), eq(workOrderTasks.tenantId, tenantId), eq(workOrderTasks.status, 'pending')))
+      for (const { t, criterio } of pendientes) {
+        const nuevo = recontarTarea({ nombre: t.name, cantidad: t.quantity, minutos: t.stdMinutes, criterio }, antes, despues)
+        if (nuevo) await tx.update(workOrderTasks).set({ quantity: nuevo.cantidad, name: nuevo.nombre, stdMinutes: nuevo.minutos }).where(eq(workOrderTasks.id, t.id))
+      }
+      await recalcularOt(tx, ot.id)
+    })
     return c.json({ ok: true })
   })
 
@@ -577,6 +604,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
     const d = c.req.valid('json')
     if (d.pieza) await exigirPiezas(c, [d.pieza], true)
     const trabajo = await filaDelTenant(c, services, d.trabajoId, 'service', 'ese trabajo')
+    if (!trabajo.active) throw rechazo(409, 'Esa actividad está fuera de la lista: actívala primero en Actividades.')
     const cantidad = d.cantidad ?? cantidadSegun(trabajo.criterion, motorDe(ot))
     await c.var.base.transaction(async (tx) => {
       const [{ ultima }] = await tx.select({ ultima: sql<number>`coalesce(max(${workOrderTasks.position}), -1)`.mapWith(Number) }).from(workOrderTasks).where(eq(workOrderTasks.workOrderId, ot.id))
@@ -619,7 +647,9 @@ export const rutasTaller = new Hono<EntornoTenant>()
     if (ot.status !== 'ready') throw rechazo(409, 'Solo se entrega una OT lista (con su control de calidad aprobado).')
     const { recibe } = c.req.valid('json')
     await c.var.base.transaction(async (tx) => {
-      await tx.update(workOrders).set({ deliveredAt: c.var.ahora, deliveredTo: recibe }).where(eq(workOrders.id, ot.id))
+      // Solo si nadie la entregó entretanto: un doble clic no deja dos entregas ni suma dos veces al uso.
+      const [entregada] = await tx.update(workOrders).set({ deliveredAt: c.var.ahora, deliveredTo: recibe }).where(and(eq(workOrders.id, ot.id), eq(workOrders.status, 'ready'), isNull(workOrders.deliveredAt))).returning({ id: workOrders.id })
+      if (!entregada) throw rechazo(409, 'Esa OT ya se entregó.')
       await recalcularOt(tx, ot.id)
       await registrar(tx, origenDe(c), { tenantId: c.var.actor.tenantId, eventType: 'work_order.closed', targetId: ot.id, targetType: 'work_order', metadata: { numero: ot.number, recibe } })
       await sumarUso(tx, c.var.actor.tenantId, c.var.ahora, { documents: 1 })
@@ -735,7 +765,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
         falla: o.complaint,
         entrega: o.dueDate,
         prioridad: o.priority,
-        plazo: plazoDeOt(o.dueDate, o.status, diaDe(c.var.ahora)),
+        plazo: plazoDeOt(o.dueDate, o.status, diaEnChile(c.var.ahora)),
       },
       anteriores,
       repuestos: repuestos.map((r) => ({ id: r.id, descripcion: r.description, cantidad: r.quantity, medida: r.size, marca: r.brand, codigo: r.partNumber, compra: r.source, estado: r.status, recibido: iso(r.receivedAt) })),
@@ -815,7 +845,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
    * Asignar un trabajo. La pieza no cambia de manos dentro de la sección: lo que sigue de la misma pieza en la misma
    * sección, sin empezar y con la misma persona de antes, pasa también a la nueva.
    */
-  .post('/tareas/:id/asignar', conDatos(z.object({ usuario: z.string().nullable() })), async (c) => {
+  .post('/tareas/:id/asignar', conDatos(z.object({ usuario: z.string().min(1, 'Elige a quién.').nullable() })), async (c) => {
     exigirGestion(c)
     const t = await filaDelTenant(c, workOrderTasks, c.req.param('id'), 'task', 'ese trabajo')
     if (t.status === 'done') throw rechazo(409, 'Ese trabajo ya está terminado.')
@@ -849,7 +879,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
   .get('/taller', conFiltros(z.object({ mias: z.literal('1').optional() })), async (c) => {
     const { base, actor, ahora } = c.var
     const { mias } = c.req.valid('query')
-    const hoy = diaDe(ahora)
+    const hoy = diaEnChile(ahora)
     const trabajos = await trabajosAbiertos(base, actor.tenantId)
     const { secciones } = await cargaDelTaller(base, actor.tenantId, trabajos)
     const nombres = await nombresDe(c)
@@ -987,6 +1017,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
     const { base, actor } = c.var
     const d = c.req.valid('json')
     const seccion = await filaDelTenant(c, shopSections, d.seccionId, 'section', 'esa sección')
+    if (!seccion.active) throw rechazo(409, SECCION_APAGADA)
     await exigirPiezas(c, [d.pieza], true)
     const propias = await piezasPropias(base, actor.tenantId)
     const id = nuevoId('srv')
@@ -1009,7 +1040,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
     exigirAdministrador(c)
     const t = await filaDelTenant(c, services, c.req.param('id'), 'service', 'esa actividad')
     const d = c.req.valid('json')
-    if (d.seccionId) await filaDelTenant(c, shopSections, d.seccionId, 'section', 'esa sección')
+    if (d.seccionId && d.seccionId !== t.sectionId && !(await filaDelTenant(c, shopSections, d.seccionId, 'section', 'esa sección')).active) throw rechazo(409, SECCION_APAGADA)
     if (d.pieza !== undefined && d.pieza !== t.piece) await exigirPiezas(c, [d.pieza], true)
     const criterio = d.criterio ?? t.criterion
     const pieza = d.pieza ?? t.piece

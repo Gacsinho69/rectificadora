@@ -104,7 +104,10 @@ export type TipoArticulo = keyof typeof TIPOS_ARTICULO
  */
 export function candidatosDeBodega<A extends { nombre: string; codigo: string | null; stock: number; tipo: TipoArticulo; activo: boolean }>(articulos: A[], r: { descripcion: string; codigo: string | null; cantidad: number }) {
   const clave = (s: string) => claveDeProveedor(s)
-  const puntos = (a: A) => (r.codigo && a.codigo && clave(a.codigo) === clave(r.codigo) ? 3 : clave(a.nombre).includes(clave(r.descripcion)) || clave(r.descripcion).includes(clave(a.nombre)) ? 2 : a.tipo === 'part' ? 1 : 0)
+  // Un nombre sin letras ni números («..») no se parece a nada: si no, «contiene» a todos.
+  const contiene = (a: string, b: string) => Boolean(a && b) && a.includes(b)
+  const nombre = clave(r.descripcion)
+  const puntos = (a: A) => (r.codigo && a.codigo && clave(a.codigo) && clave(a.codigo) === clave(r.codigo) ? 3 : contiene(clave(a.nombre), nombre) || contiene(nombre, clave(a.nombre)) ? 2 : a.tipo === 'part' ? 1 : 0)
   return articulos
     .filter((a) => a.activo && a.stock >= r.cantidad)
     .map((a) => ({ a, p: puntos(a) }))

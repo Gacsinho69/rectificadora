@@ -3,6 +3,7 @@
 // cilindros de un motor de 6 cilindros va por 6. Cada repuesto dice quién lo compra: la rectificadora (a su proveedor,
 // a un costo) o el cliente, que lo trae y no se le cobra. Sin servidor: la pantalla calcula igual que el servidor.
 import { z } from 'zod'
+import { rutValido } from '../../rut'
 import { QUIEN_COMPRA, type QuienCompra } from '../compras/reglas'
 import { cantidadSegun, type Criterio, CRITERIOS, type Motor, ordenDeGrupo, type Pieza, type PiezaPropia } from '../taller/reglas'
 
@@ -107,7 +108,12 @@ export function faltasParaEnviar(lineas: (Pick<Linea, 'descripcion' | 'precio'> 
 
 export const clienteSchema = z.object({
   nombre: z.string().trim().min(2, 'Escribe el nombre del cliente.').max(120),
-  rut: z.string().trim().max(20).optional(),
+  rut: z
+    .string()
+    .trim()
+    .max(20)
+    .refine((v) => !v || rutValido(v), 'El RUT no es válido: revisa el dígito verificador.')
+    .optional(),
   contacto: z.string().trim().max(120).optional(),
   telefono: z.string().trim().max(40).optional(),
   correo: z.union([z.literal(''), z.email('El correo no es válido.')]).optional(),

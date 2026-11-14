@@ -14,17 +14,17 @@ import { customers } from '../comercial/tablas'
 import { origenDe, registrar } from '../eventos/registrar'
 import { conFuncion, exigirFuncion, exigirGestion, exigirMontos, gestiona, siguienteNumero, sumarUso, veMontos } from '../taller/comun'
 import { OT_EN_TALLER } from '../taller/reparto'
-import { plazoDeOt } from '../taller/reglas'
-import { diaDe } from '../plataforma/panorama'
+import { diaEnChile, plazoDeOt } from '../taller/reglas'
 import { services, shopSections, workOrders, workOrderTasks } from '../taller/tablas'
 import { users } from '../usuarios/tablas'
 import { moverInsumo, recalcularOc } from './comun'
 import { bajoMinimo, cantidadSugerida, claveDeProveedor, comparacionDeCostos, type DatosInsumo, type DatosProveedor, folioOc, insumoSchema, POR_LLEGAR, proveedorSchema, QUIEN_COMPRA, trabajoQueLoNecesita } from './reglas'
 import { purchaseOrders, purchaseOrderSupplies, suppliers, supplies, supplyMovements, workOrderParts } from './tablas'
+import { diaSchema } from '../../fecha'
 
 type C = Context<EntornoTenant>
 const claves = <T extends object>(o: T) => Object.keys(o) as [keyof T & string, ...(keyof T & string)[]]
-const fechaSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+const fechaSchema = diaSchema
 
 const nuevaOrden = z.object({
   repuestos: z.array(z.string()).max(200).default([]),
@@ -206,7 +206,7 @@ export const rutasCompras = new Hono<EntornoTenant>()
       costoReal: montos ? r.realCost : null,
       deBodega: Boolean(r.supplyId),
       estado: r.status,
-      ot: { id: ot.id, numero: ot.numero, motor: ot.motor, entrega: ot.entrega, prioridad: ot.prioridad, plazo: plazoDeOt(ot.entrega, ot.estado, diaDe(c.var.ahora)) },
+      ot: { id: ot.id, numero: ot.numero, motor: ot.motor, entrega: ot.entrega, prioridad: ot.prioridad, plazo: plazoDeOt(ot.entrega, ot.estado, diaEnChile(c.var.ahora)) },
       cliente,
       necesita,
       ocId: r.purchaseOrderId,
@@ -223,6 +223,9 @@ export const rutasCompras = new Hono<EntornoTenant>()
       ordenes: visibles.map((o) => {
         const suyos = filas.filter(({ r }) => r.purchaseOrderId === o.id)
         const insumos = lineasInsumos.filter((l) => l.purchaseOrderId === o.id)
+        // Lo anulado (el repuesto de una OT que se anuló) se muestra, pero no se cobra: igual que en la orden impresa.
+        const vigentes = suyos.filter(({ r }) => r.status !== 'cancelled')
+        const insumosVigentes = insumos.filter((l) => l.status !== 'cancelled')
         return {
           id: o.id,
           numero: o.number,
@@ -238,10 +241,10 @@ export const rutasCompras = new Hono<EntornoTenant>()
           recibida: iso(o.receivedAt),
           anulada: iso(o.cancelledAt),
           motivo: o.cancelReason,
-          costo: montos ? suyos.reduce((s, { r }) => s + Math.round((r.unitCost ?? 0) * r.quantity), 0) + insumos.reduce((s, l) => s + Math.round((l.unitCost ?? 0) * l.quantity), 0) : null,
+          costo: montos ? vigentes.reduce((s, { r }) => s + Math.round((r.unitCost ?? 0) * r.quantity), 0) + insumosVigentes.reduce((s, l) => s + Math.round((l.unitCost ?? 0) * l.quantity), 0) : null,
           factura: montos ? o.invoiceNumber : null,
           // Lo pagado: el costo real donde se anotó, y el cotizado donde todavía no.
-          costoReal: montos ? suyos.reduce((s, { r }) => s + Math.round((r.realCost ?? r.unitCost ?? 0) * r.quantity), 0) + insumos.reduce((s, l) => s + Math.round((l.realCost ?? l.unitCost ?? 0) * l.quantity), 0) : null,
+          costoReal: montos ? vigentes.reduce((s, { r }) => s + Math.round((r.realCost ?? r.unitCost ?? 0) * r.quantity), 0) + insumosVigentes.reduce((s, l) => s + Math.round((l.realCost ?? l.unitCost ?? 0) * l.quantity), 0) : null,
           repuestos: suyos.map(repuesto),
           insumos: insumos.map(lineaInsumo),
         }
@@ -390,9 +393,12 @@ export const rutasCompras = new Hono<EntornoTenant>()
     const lineasElegidas = todo ? lineas : lineas.filter((l) => insumos?.includes(l.id))
     if ((!elegidos.length && !lineasElegidas.length) || (repuestos && elegidos.length !== new Set(repuestos).size) || (insumos && lineasElegidas.length !== new Set(insumos).size)) throw rechazo(409, 'Eso no está pedido en esta orden.')
     const estado = await c.var.base.transaction(async (tx) => {
-      if (elegidos.length) await tx.update(workOrderParts).set({ status: 'received', receivedAt: ahora, receivedBy: actor.id }).where(inArray(workOrderParts.id, elegidos.map((r) => r.id)))
+      // Solo lo que sigue pedido: si otro lo recibió entretanto (un doble clic), no entra dos veces a bodega.
+      const recibidos = elegidos.length ? await tx.update(workOrderParts).set({ status: 'received', receivedAt: ahora, receivedBy: actor.id }).where(and(inArray(workOrderParts.id, elegidos.map((r) => r.id)), eq(workOrderParts.status, 'ordered'))).returning({ id: workOrderParts.id }) : []
+      if (recibidos.length !== elegidos.length) throw rechazo(409, 'Parte de eso ya se recibió: vuelve a abrir la orden.')
       for (const l of lineasElegidas) {
-        await tx.update(purchaseOrderSupplies).set({ status: 'received', receivedAt: ahora, receivedBy: actor.id }).where(eq(purchaseOrderSupplies.id, l.id))
+        const [recibida] = await tx.update(purchaseOrderSupplies).set({ status: 'received', receivedAt: ahora, receivedBy: actor.id }).where(and(eq(purchaseOrderSupplies.id, l.id), eq(purchaseOrderSupplies.status, 'ordered'))).returning({ id: purchaseOrderSupplies.id })
+        if (!recibida) throw rechazo(409, 'Parte de eso ya se recibió: vuelve a abrir la orden.')
         await moverInsumo(tx, { tenantId: actor.tenantId, insumoId: l.supplyId, cantidad: l.quantity, tipo: 'purchase', ocId: oc.id, nota: folioOc(oc.number), por: actor.id, ahora })
       }
       const r = await recalcularOc(tx, oc.id, ahora)
@@ -494,7 +500,12 @@ export const rutasCompras = new Hono<EntornoTenant>()
     if (d.otId) await filaDelTenant(c, workOrders, d.otId, 'work_order', 'esa orden de trabajo')
     if (d.cantidad > s.stock) throw rechazo(409, `Solo quedan ${s.stock} ${s.unit}. Si hay más en bodega, que el jefe de taller ajuste el stock.`)
     const { actor, ahora } = c.var
-    const stock = await c.var.base.transaction((tx) => moverInsumo(tx, { tenantId: actor.tenantId, insumoId: s.id, cantidad: -d.cantidad, tipo: 'use', otId: d.otId ?? null, nota: d.nota || null, por: actor.id, ahora }))
+    const stock = await c.var.base.transaction(async (tx) => {
+      const queda = await moverInsumo(tx, { tenantId: actor.tenantId, insumoId: s.id, cantidad: -d.cantidad, tipo: 'use', otId: d.otId ?? null, nota: d.nota || null, por: actor.id, ahora })
+      // Si otro sacó entretanto, el stock no alcanza: no se deja negativo.
+      if (queda < 0) throw rechazo(409, `Ya no alcanza: alguien sacó de ese insumo recién. Quedan ${queda + d.cantidad} ${s.unit}.`)
+      return queda
+    })
     return c.json({ ok: true, stock })
   })
 
@@ -503,9 +514,13 @@ export const rutasCompras = new Hono<EntornoTenant>()
     exigirGestion(c)
     const s = await filaDelTenant(c, supplies, c.req.param('id'), 'supply', 'ese insumo')
     const d = c.req.valid('json')
-    if (d.stock === s.stock) throw rechazo(409, 'El stock ya es ese.')
     const { actor, ahora } = c.var
-    await c.var.base.transaction((tx) => moverInsumo(tx, { tenantId: actor.tenantId, insumoId: s.id, cantidad: d.stock - s.stock, tipo: 'adjust', nota: d.nota, por: actor.id, ahora }))
+    await c.var.base.transaction(async (tx) => {
+      // Lo contado manda: la diferencia sale del stock de este momento, no del que se leyó antes (alguien pudo sacar entretanto).
+      const [{ stock }] = await tx.select({ stock: supplies.stock }).from(supplies).where(and(eq(supplies.id, s.id), eq(supplies.tenantId, actor.tenantId))).for('update')
+      if (d.stock === stock) throw rechazo(409, 'El stock ya es ese.')
+      await moverInsumo(tx, { tenantId: actor.tenantId, insumoId: s.id, cantidad: d.stock - stock, tipo: 'adjust', nota: d.nota, por: actor.id, ahora })
+    })
     return c.json({ ok: true })
   })
 
@@ -523,8 +538,11 @@ export const rutasCompras = new Hono<EntornoTenant>()
     if (!s.active) throw rechazo(409, 'Ese artículo está fuera de uso.')
     if (s.stock < r.quantity) throw rechazo(409, `En bodega hay ${s.stock} ${s.unit}; este repuesto lleva ${r.quantity}.`)
     await c.var.base.transaction(async (tx) => {
-      await moverInsumo(tx, { tenantId: actor.tenantId, insumoId: s.id, cantidad: -r.quantity, tipo: 'use', otId: r.workOrderId, nota: r.description, por: actor.id, ahora })
-      await tx.update(workOrderParts).set({ status: 'received', receivedAt: ahora, receivedBy: actor.id, supplyId: s.id, realCost: s.unitCost }).where(eq(workOrderParts.id, r.id))
+      // Solo si sigue por pedir, y sin dejar la bodega negativa: si otro se adelantó, no sale dos veces.
+      const [sacado] = await tx.update(workOrderParts).set({ status: 'received', receivedAt: ahora, receivedBy: actor.id, supplyId: s.id, realCost: s.unitCost }).where(and(eq(workOrderParts.id, r.id), eq(workOrderParts.status, 'pending'))).returning({ id: workOrderParts.id })
+      if (!sacado) throw rechazo(409, 'Ese repuesto ya no está por pedir.')
+      const queda = await moverInsumo(tx, { tenantId: actor.tenantId, insumoId: s.id, cantidad: -r.quantity, tipo: 'use', otId: r.workOrderId, nota: r.description, por: actor.id, ahora })
+      if (queda < 0) throw rechazo(409, `Ya no alcanza: en bodega quedan ${queda + r.quantity} ${s.unit}.`)
     })
     return c.json({ ok: true })
   })

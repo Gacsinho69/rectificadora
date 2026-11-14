@@ -23,6 +23,13 @@ import { users } from '../usuarios/tablas'
 
 type C = Context<EntornoPlataforma>
 
+/** El próximo cobro: un mes después. */
+function unMesDespues(ahora: Date) {
+  const d = new Date(ahora)
+  d.setUTCMonth(d.getUTCMonth() + 1)
+  return d
+}
+
 const motivo = z.string().trim().min(10, 'Escribe el motivo (al menos 10 letras): queda en la auditoría.').max(500)
 const claves = <T extends object>(o: T) => Object.keys(o) as [keyof T & string, ...(keyof T & string)[]]
 
@@ -63,8 +70,7 @@ export const accionesPlataforma = new Hono<EntornoPlataforma>()
     const prueba = d.estado === 'trial'
     // En prueba no paga todavía; activo, paga el precio de lista salvo que se haya negociado otro.
     const mrr = prueba ? 0 : (d.mrr ?? PLANES[d.plan].precio)
-    const proximoCobro = new Date(ahora)
-    proximoCobro.setUTCMonth(proximoCobro.getUTCMonth() + 1)
+    const proximoCobro = unMesDespues(ahora)
     const pruebaHasta = prueba ? new Date(ahora.getTime() + d.diasPrueba * 86_400_000) : null
     const { secciones, trabajos } = tallerInicial(id, nuevoId, () => 1, d.plantilla)
     const { maquinas, usos } = maquinasIniciales(id, secciones, trabajos, nuevoId, diaDe(ahora))
@@ -124,14 +130,18 @@ export const accionesPlataforma = new Hono<EntornoPlataforma>()
     if (estado === t.status) throw rechazo(409, `El cliente ya está ${ESTADOS_TENANT[estado].toLowerCase()}.`)
     if (!CAMBIOS_DE_ESTADO[t.status].includes(estado))
       throw rechazo(409, `No se puede pasar de «${ESTADOS_TENANT[t.status]}» a «${ESTADOS_TENANT[estado]}».`)
+    // En prueba no pagaba («el monto mensual queda en cero hasta que se active»): al activarse empieza a pagar su plan.
+    const empiezaAPagar = t.status === 'trial' && estado === 'active' && t.mrr === 0
+    const precio = PLANES[t.plan].precio
+    const cobro = empiezaAPagar ? { mrr: precio, billingStatus: precio ? ('paid' as const) : ('none' as const), nextBillingAt: precio ? unMesDespues(c.var.ahora) : null } : {}
     await c.var.base.transaction(async (tx) => {
-      await tx.update(tenants).set({ status: estado, updatedAt: c.var.ahora }).where(eq(tenants.id, t.id))
+      await tx.update(tenants).set({ status: estado, ...cobro, updatedAt: c.var.ahora }).where(eq(tenants.id, t.id))
       await registrar(tx, origenDe(c), {
         tenantId: t.id,
         eventType: eventoDeEstado(t.status, estado),
         targetId: t.id,
         targetType: 'tenant',
-        metadata: { antes: t.status, despues: estado, motivo },
+        metadata: empiezaAPagar ? { antes: { estado: t.status, mrr: t.mrr }, despues: { estado, mrr: precio }, motivo } : { antes: t.status, despues: estado, motivo },
       })
     })
     return c.json({ ok: true })
@@ -191,7 +201,7 @@ export const accionesPlataforma = new Hono<EntornoPlataforma>()
     },
   )
 
-  .post('/tenants/:id/funciones', conDatos(z.object({ funcion: z.enum(claves(FUNCIONES)), activa: z.boolean(), motivo: z.string().trim().max(500).optional() })), async (c) => {
+  .post('/tenants/:id/funciones', conDatos(z.object({ funcion: z.enum(claves(FUNCIONES)), activa: z.boolean(), motivo })), async (c) => {
     const t = await tenantOError(c, c.req.param('id'))
     await exigirPermiso(c, 'tenants.flags', t.id)
     const { funcion, activa, motivo } = c.req.valid('json')
@@ -203,7 +213,7 @@ export const accionesPlataforma = new Hono<EntornoPlataforma>()
         eventType: 'tenant.feature_flag_changed',
         targetId: t.id,
         targetType: 'tenant',
-        metadata: { funcion, activa, motivo: motivo || null },
+        metadata: { funcion, activa, motivo },
       })
     })
     return c.json({ ok: true })
@@ -254,13 +264,16 @@ export const accionesPlataforma = new Hono<EntornoPlataforma>()
     const vence = new Date(ahora.getTime() + DURACION_IMPERSONACION_MIN * 60_000)
     await base.transaction(async (tx) => {
       // Una impersonación abierta a la vez por persona del equipo: abrir otra cierra la anterior.
-      const abiertas = await tx
-        .update(impersonations)
-        .set({ endedAt: ahora })
-        .where(and(eq(impersonations.adminId, actor.id), isNull(impersonations.endedAt)))
-        .returning()
-      for (const a of abiertas)
-        await registrar(tx, origenDe(c), { tenantId: a.tenantId, eventType: 'support.impersonation_ended', userId: a.userId, targetId: a.id, targetType: 'impersonation', metadata: { motivo_cierre: 'reemplazada' } })
+      // Si ya había vencido, terminó cuando venció (como al terminarla a mano), no ahora.
+      const abiertas = await tx.select().from(impersonations).where(and(eq(impersonations.adminId, actor.id), isNull(impersonations.endedAt)))
+      for (const a of abiertas) {
+        const vencida = a.expiresAt < ahora
+        const fin = vencida ? a.expiresAt : ahora
+        // Solo si sigue abierta: si otro pedido la cerró recién, no queda un segundo término.
+        const [cerrada] = await tx.update(impersonations).set({ endedAt: fin }).where(and(eq(impersonations.id, a.id), isNull(impersonations.endedAt))).returning({ id: impersonations.id })
+        if (!cerrada) continue
+        await registrar(tx, origenDe(c), { tenantId: a.tenantId, eventType: 'support.impersonation_ended', userId: a.userId, targetId: a.id, targetType: 'impersonation', metadata: { motivo_cierre: vencida ? 'vencida' : 'reemplazada', duracion_min: Math.round((fin.getTime() - a.startedAt.getTime()) / 60_000) } })
+      }
       await tx.insert(impersonations).values({ id, adminId: actor.id, tenantId: t.id, userId: u.id, reason: motivo, adminIp: ipDe(c), userAgent: c.req.header('user-agent') ?? null, startedAt: ahora, expiresAt: vence })
       await registrar(tx, origenDe(c), {
         tenantId: t.id,

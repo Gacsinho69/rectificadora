@@ -158,7 +158,11 @@ function Indicaciones({ t, editable }: { t: FichaTarea; editable: boolean }) {
     onError: (e) => message.error((e as Error).message),
   })
   return (
-    <Bloque titulo="Indicaciones del jefe de taller" extra={editable && !editando ? <Button size="small" type="link" onClick={() => setEditando(true)}>{t.indicaciones ? 'Corregir' : 'Escribir'}</Button> : null}>
+    <Bloque titulo="Indicaciones del jefe de taller" extra={editable && !editando ? <Button size="small" type="link" onClick={() => {
+        // Lo que dice ahora (otro jefe pudo cambiarlo desde que se abrió la ficha), no lo de entonces.
+        setTexto(t.indicaciones ?? '')
+        setEditando(true)
+      }}>{t.indicaciones ? 'Corregir' : 'Escribir'}</Button> : null}>
       {editando ? (
         <div className="ficha-acciones">
           <Input.TextArea rows={3} value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Rectificar a 0,50; ojo con el muñón 3" maxLength={1000} autoFocus />

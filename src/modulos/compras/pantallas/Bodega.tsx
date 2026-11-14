@@ -201,7 +201,7 @@ function FichaInsumo({ insumo, veMontos, cerrar }: { insumo: Insumo | null; veMo
           </Form.Item>
           {veMontos && (
             <Form.Item label="Costo por unidad" name="costo">
-              <InputNumber min={0} step={500} style={{ width: '100%' }} prefix="$" />
+              <InputNumber min={0} step={500} precision={0} style={{ width: '100%' }} prefix="$" />
             </Form.Item>
           )}
         </div>

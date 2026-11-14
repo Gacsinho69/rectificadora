@@ -310,18 +310,45 @@ export function nombreDeTarea(nombre: string, cantidad: number, criterio: Criter
   return criterio && criterio !== 'fixed' ? `${nombre} (${cantidad} ${PLURAL[criterio]})` : `${nombre} ×${cantidad}`
 }
 
-/** La cola en días de trabajo: las horas por hacer repartidas entre su gente, a 8 horas por persona. */
+/**
+ * Un trabajo de la OT contado de nuevo cuando se corrige el motor (eran 6 cilindros, no 4). Solo cambia lo que estaba
+ * contado con el motor de antes: una cantidad escrita a mano se respeta. Sin cambio, devuelve null.
+ */
+export function recontarTarea(t: { nombre: string; cantidad: number; minutos: number; criterio: Criterio }, antes: Motor, despues: Motor) {
+  if (t.criterio === 'fixed' || t.cantidad !== cantidadSegun(t.criterio, antes)) return null
+  const cantidad = cantidadSegun(t.criterio, despues)
+  if (cantidad === t.cantidad) return null
+  // «Rectificado de cilindros (4 cilindros)» pasa a «… (6 cilindros)»; un nombre que no lleva su cantidad, la recibe.
+  const sufijo = nombreDeTarea('', t.cantidad, t.criterio)
+  const nombre = !sufijo ? nombreDeTarea(t.nombre, cantidad, t.criterio) : t.nombre.endsWith(sufijo) ? nombreDeTarea(t.nombre.slice(0, -sufijo.length), cantidad, t.criterio) : t.nombre
+  return { cantidad, nombre, minutos: Math.round((t.minutos / t.cantidad) * cantidad) }
+}
+
+/** La cola en días de trabajo:las horas por hacer repartidas entre su gente, a 8 horas por persona. */
 export const diasDeCola = (minutos: number, personas: number) => (personas ? minutos / 60 / (personas * 8) : null)
 
-/** El horario del taller: de 8 a 19 h, de lunes a sábado, en hora de Chile (UTC−3). Las horas reales se cuentan dentro de él. */
-export const JORNADA = { desde: 8, hasta: 19, zona: -3 }
+/** El horario del taller: de 8 a 19 h, de lunes a sábado, en hora de Chile. Las horas reales se cuentan dentro de él. */
+export const JORNADA = { desde: 8, hasta: 19 }
 
 const HORA = 3_600_000
+
+/** La hora de Chile cambia en el año: UTC−3 en verano y UTC−4 en invierno (de abril a septiembre). */
+const RELOJ_DE_CHILE = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santiago', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', hourCycle: 'h23' })
+
+/** El mismo momento con la hora que marca un reloj en Chile (leída con los métodos UTC): para contar días y horas del taller. */
+export function horaDeChile(d: Date): Date {
+  const p = Object.fromEntries(RELOJ_DE_CHILE.formatToParts(d).map((x) => [x.type, Number(x.value)]))
+  return new Date(Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second, d.getUTCMilliseconds()))
+}
+
+/** El día en Chile («2026-11-14»): a las 22:00 del 14 sigue siendo el 14, aunque en UTC ya sea el 15. */
+export const diaEnChile = (d: Date) => horaDeChile(d).toISOString().slice(0, 10)
 
 /** Las horas de jornada entre dos momentos: las de 8 a 19 de cada día, sin los domingos. */
 export function horasDeJornada(desde: Date, hasta: Date): number {
   if (hasta <= desde) return 0
-  const local = (d: Date) => new Date(d.getTime() + JORNADA.zona * HORA)
+  // Chile cambia de hora la noche del sábado al domingo, fuera de la jornada: contar en hora local no pierde nada.
+  const local = horaDeChile
   let total = 0
   // Día por día, en hora local: lo que cae dentro del horario de ese día.
   const primero = local(desde)

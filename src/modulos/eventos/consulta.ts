@@ -1,12 +1,13 @@
 // Buscar en el registro de eventos. El alcance va aparte de los filtros a propósito: el panel de un cliente pasa su
 // tenant como alcance y ningún filtro que venga del pedido puede ampliarlo.
-import { and, count, desc, eq, gte, inArray, lt, type SQL } from 'drizzle-orm'
+import { and, count, desc, eq, gte, inArray, lt, notInArray, type SQL } from 'drizzle-orm'
 import { z } from 'zod'
 import type { Base } from '../../base'
 import { tenants } from '../tenants/tablas'
 import { platformAdmins, users } from '../usuarios/tablas'
 import { events, type Evento } from './tablas'
-import { CATEGORIAS, type Categoria, type Severidad, TIPOS_DE_EVENTO, type TipoEvento, tiposDeCategoria } from './tipos'
+import { CATEGORIAS, type Categoria, type Severidad, SOLO_PLATAFORMA, TIPOS_DE_EVENTO, type TipoEvento, tiposDeCategoria } from './tipos'
+import { diaSchema } from '../../fecha'
 
 const categorias = Object.keys(CATEGORIAS) as [Categoria, ...Categoria[]]
 const tipos = Object.keys(TIPOS_DE_EVENTO) as [TipoEvento, ...TipoEvento[]]
@@ -22,8 +23,8 @@ export const filtrosEventos = z.object({
   tenant: z.string().max(40).optional(),
   usuario: z.string().max(40).optional(),
   actor: z.string().max(40).optional(),
-  desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  hasta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  desde: diaSchema.optional(),
+  hasta: diaSchema.optional(),
   pagina: z.coerce.number().int().min(1).default(1),
   porPagina: z.coerce.number().int().min(10).max(200).default(50),
 })
@@ -59,10 +60,12 @@ export async function conNombres(base: Base, lista: Evento[]): Promise<EventoVis
   }))
 }
 
-export async function buscarEventos(base: Base, f: FiltrosEventos, alcance: { tenantId: string } | 'global') {
+/** `delCliente`: lo pide el panel del propio cliente, que no ve lo que es solo de la plataforma. */
+export async function buscarEventos(base: Base, f: FiltrosEventos, alcance: { tenantId: string; delCliente?: boolean } | 'global') {
   const tiposPedidos = f.categoria?.length ? f.categoria.flatMap(tiposDeCategoria) : null
   const condiciones: (SQL | undefined)[] = [
     alcance === 'global' ? (f.tenant ? eq(events.tenantId, f.tenant) : undefined) : eq(events.tenantId, alcance.tenantId),
+    alcance !== 'global' && alcance.delCliente ? notInArray(events.eventType, SOLO_PLATAFORMA) : undefined,
     tiposPedidos ? inArray(events.eventType, tiposPedidos) : undefined,
     f.tipo ? eq(events.eventType, f.tipo) : undefined,
     f.severidad ? eq(events.severity, f.severidad as Severidad) : undefined,
