@@ -11,9 +11,15 @@ let config: Configuracion
 let base: Awaited<ReturnType<typeof abrirPostgres>>
 try {
   config = leerConfiguracion(process.env)
-  base = await abrirPostgres(config.baseDeDatos)
 } catch (e) {
   console.error((e as Error).message)
+  process.exit(1)
+}
+try {
+  base = await abrirPostgres(config.baseDeDatos)
+} catch (e) {
+  // Que se sepa en qué paso falló: la base no contesta, la clave no sirve o una migración no pasó.
+  console.error(`No se pudo abrir la base ${baseSinClave(config.baseDeDatos)} ni aplicarle las migraciones: ${(e as Error).message}`)
   process.exit(1)
 }
 console.log(`Base lista y al día: ${baseSinClave(config.baseDeDatos)}`)

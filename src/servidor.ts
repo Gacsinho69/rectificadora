@@ -17,6 +17,16 @@ import { rutasTaller } from './modulos/taller/rutas'
 
 export type Reloj = () => Date
 
+/**
+ * Lo que se anota de un error: el motivo, sin la consulta ni sus valores. El error de una consulta trae los parámetros
+ * (un hash de clave, un correo); el de la base que va dentro (`cause`) dice lo mismo sin ellos.
+ */
+export function mensajeDeError(e: unknown): string {
+  const causa = (e as { cause?: { message?: string } })?.cause?.message
+  const texto = causa ?? String((e as Error)?.message ?? e)
+  return texto.replace(/\s*params:[\s\S]*$/i, '').slice(0, 500)
+}
+
 export function crearApp(base: Base, identidad: Identidad, reloj: Reloj = () => new Date()) {
   const app = new Hono<Entorno>()
 
@@ -36,7 +46,7 @@ export function crearApp(base: Base, identidad: Identidad, reloj: Reloj = () => 
     await registrar(base, actor ? origenDe(c, actor) : SISTEMA, {
       tenantId: actor?.tipo === 'tenant' ? actor.tenantId : null,
       eventType: 'system.error',
-      metadata: { ruta: c.req.path, metodo: c.req.method, mensaje: String((e as Error).message ?? e).slice(0, 500) },
+      metadata: { ruta: c.req.path, metodo: c.req.method, mensaje: mensajeDeError(e) },
     }).catch(() => {})
     return c.json({ error: 'Algo falló de nuestro lado. Ya quedó registrado; vuelve a intentar en un momento.' }, 500)
   })

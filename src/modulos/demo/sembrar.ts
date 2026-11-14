@@ -120,8 +120,11 @@ async function enLotes<T extends PgTable>(base: Base, tabla: T, filas: T['$infer
 export const CLAVE_DEMO = 'demo1234'
 
 export async function sembrarDemo(base: Base, ahora = new Date(), semilla = 20261111) {
+  // Solo en una base vacía de verdad: si ya hay una rectificadora o alguien del equipo (el primero se agrega antes que
+  // cualquier cliente), no se siembra nada, aunque DEMOSTRACION=si haya quedado puesta por error.
   const [{ hay }] = await base.select({ hay: count() }).from(tenants)
-  if (hay > 0) return false
+  const [{ delEquipo }] = await base.select({ delEquipo: count() }).from(platformAdmins)
+  if (hay > 0 || delEquipo > 0) return false
   // Una sola derivación para todos: con su sal propia por persona, la siembra tardaría segundos de más.
   const claveDemo = await cifrarClave(CLAVE_DEMO)
 

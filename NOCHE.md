@@ -15,12 +15,12 @@ otro agente Haiku intenta desmentir, reviso en el código, arreglo lo confirmado
 - [x] Panel de la organización y alta de personas (vuelta 7)
 - [x] Pantallas del taller (vuelta 8)
 - [x] Pantallas de compras, organización y consola (vuelta 9, a medias: ver abajo)
-- [ ] Producción: servidor, encabezados y contenedor
+- [x] Producción: servidor, encabezados y contenedor (vuelta 10)
 
-## En pausa
+## Pausa por el cupo (ya terminada)
 
-Las vueltas quedaron en pausa a pedido de la sesión «Monitoreo de sesiones activas», para cuidar el cupo semanal
-(prioridad: el sitio web). Se termina la vuelta 9 y no se lanza la 10 (Producción) hasta que el dueño diga que sigan.
+Las vueltas estuvieron en pausa a pedido de la sesión «Monitoreo de sesiones activas», para cuidar el cupo semanal.
+Esa sesión la retiró después (el dueño consiguió más cupo) y se siguió con la vuelta 10 (Producción).
 
 ## Para la mañana
 
@@ -243,3 +243,27 @@ Las vueltas quedaron en pausa a pedido de la sesión «Monitoreo de sesiones act
   entrar no lo probé en el navegador (la demostración no tiene un correo en dos rectificadoras).
 - **Para el dueño:** el nombre del proveedor para el técnico (arriba). El motivo interno del equipo en la auditoría
   del cliente volvió a salir en esta vuelta; ya estaba anotado.
+
+### Vuelta 10 — Producción
+
+- 9 hallazgos. Dos decían que el contenedor no arranca porque PGlite no se instala en producción; otro agente lo
+  desmintió instalando de verdad (llega por otro camino), y cuadra con que el contenedor ya se probó. Igual era
+  frágil, así que lo endurecí. Dos eran la IP del balanceador (ya anotada). Arreglé los otros 6.
+- **Arreglado:**
+  - El servidor de producción ya no carga PGlite: solo se usa en desarrollo y pruebas (lo comprobé compilando).
+  - Si una consulta fallaba, el registro y la auditoría podían guardar sus valores (el hash de una clave, un correo).
+    Ahora se anota solo el motivo.
+  - Con DEMOSTRACION=si puesta por error en el servidor de verdad, la demostración se sembraba si todavía no había
+    rectificadoras aunque ya hubiera alguien del equipo (con personas que entran con «demo1234»). Ahora no.
+  - Dos servidores que arrancan a la vez ya no chocan aplicando las migraciones: uno espera al otro.
+  - Si la base no abre, el mensaje dice en qué paso falló (y sin la clave).
+  - Si el proveedor responde con su propia página de error, la pantalla dice que el servidor no responde y que se
+    reintenta, en vez de «No se pudo completar.».
+- **Comprobado:** 2 pruebas nuevas en `src/produccion/noche.test.ts`; 209 pruebas y los tipos pasan; `npm run build`
+  compila. El cerrojo de las migraciones no lo probé contra un PostgreSQL de verdad (aquí no hay uno corriendo).
+- **Para el dueño:** nada nuevo.
+
+## Cierre
+
+Las 10 áreas quedaron revisadas (la 9, a medias: lo que quedó sin hacer está en su vuelta). Todo está en la rama
+local `mejoras-nocturnas`, un commit por vuelta, sin subir a GitHub. `main` no se tocó.

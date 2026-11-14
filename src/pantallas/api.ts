@@ -24,7 +24,8 @@ export async function api<T>(metodo: 'GET' | 'POST' | 'DELETE', ruta: string, da
   const cuerpo = await r.json().catch(() => ({}))
   // Sin sesión, a entrar (desde el portal de una rectificadora, a entrar en esa). Entrar e invitación no la piden.
   if (r.status === 401 && !/^\/(entrar|invitacion)(\/|$)/.test(location.pathname)) window.location.assign(portal ? `/entrar?portal=${portal}` : '/entrar')
-  if (!r.ok) throw new Rechazo(cuerpo.error ?? 'No se pudo completar.', r.status)
+  // Sin motivo propio (el proveedor respondió con su página de error): que se sepa que es del servidor y que se reintenta.
+  if (!r.ok) throw new Rechazo(cuerpo.error ?? (r.status >= 500 ? `El servidor no responde ahora (código ${r.status}). Vuelve a intentar en un momento.` : 'No se pudo completar.'), r.status)
   return cuerpo as T
 }
 
