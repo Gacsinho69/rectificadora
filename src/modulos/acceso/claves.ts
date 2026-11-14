@@ -40,6 +40,8 @@ export const huellaDe = (secreto: string) => createHash('sha256').update(secreto
 /** Lo mínimo de una clave: 8 letras o más, y que no sea el correo. */
 export function faltaDeLaClave(clave: string, correo?: string): string | null {
   if (clave.length < 8) return 'La clave debe tener al menos 8 letras o números.'
+  // Ocho espacios o «aaaaaaaa» tienen el largo, pero no son una clave.
+  if (!clave.trim() || /^(.)\1+$/u.test(clave)) return 'La clave no puede ser un solo carácter repetido ni solo espacios.'
   if (correo && clave.toLowerCase() === correo.toLowerCase()) return 'La clave no puede ser el correo.'
   return null
 }

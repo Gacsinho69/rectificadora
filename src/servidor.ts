@@ -1,5 +1,6 @@
 // La API: identifica a quien pide, monta la consola del equipo y el panel del cliente, y responde los errores en
 // castellano. Un error no previsto queda además como `system.error` en el registro: así aparece en «Errores recientes».
+import './zod-es'
 import { Hono } from 'hono'
 import { deleteCookie } from 'hono/cookie'
 import { HTTPException } from 'hono/http-exception'

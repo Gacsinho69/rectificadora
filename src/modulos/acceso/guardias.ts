@@ -73,7 +73,8 @@ async function actorDelTenant(c: Context<Entorno>, sinImpersonar: string): Promi
     await anotarCrossTenant(c, { tenant_pedido: pedido }, { id: pedido, tipo: 'tenant' })
     throw rechazo(403, 'Solo puedes ver los datos de tu organización.')
   }
-  const portal = c.req.header('x-portal')
+  // La dirección puede venir escrita con mayúsculas (/c/Nuble): el subdominio es el mismo.
+  const portal = c.req.header('x-portal')?.trim().toLowerCase()
   if (portal && portal !== actor.tenantSlug) {
     await anotarCrossTenant(c, { portal_pedido: portal, motivo: 'portal_de_otro_cliente' }, { id: portal, tipo: 'portal' })
     throw rechazo(403, 'Este portal es de otra organización.')

@@ -1,3 +1,4 @@
+import '../zod-es'
 import '@fontsource-variable/archivo/wdth.css'
 import 'antd/dist/reset.css'
 import './estilo.css'

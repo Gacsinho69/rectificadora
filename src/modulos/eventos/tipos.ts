@@ -70,7 +70,13 @@ export const tiposDeCategoria = (categoria: Categoria) =>
  * Lo que vigila el equipo de la plataforma y el panel del cliente no muestra: el intento de abrir algo de otro cliente
  * diría que ese id existe y de quién es, justo lo que «no existe» calla.
  */
-export const SOLO_PLATAFORMA: TipoEvento[] = ['security.cross_tenant_access_attempt']
+export const SOLO_PLATAFORMA: TipoEvento[] = [
+  'security.cross_tenant_access_attempt',
+  // Quién del equipo intentó algo sin permiso: es de la plataforma, no del cliente.
+  'security.permission_denied',
+  // El texto crudo de un error del servidor (tablas, restricciones): el cliente solo ve «algo falló de nuestro lado».
+  'system.error',
+]
 
 /** La auditoría muestra lo que alguien hizo o lo que salió mal; los inicios de sesión y la operación diaria van aparte. */
 export const CATEGORIAS_DE_AUDITORIA: Categoria[] = ['usuarios', 'configuracion', 'facturacion', 'seguridad', 'soporte', 'datos', 'sistema']
