@@ -20,7 +20,7 @@ export type Maquina = {
   seccion: string | null
   nota: string | null
   activa: boolean
-  actividades: { id: string; codigo: string; nombre: string }[]
+  actividades: { id: string; codigo: string; nombre: string; activa: boolean; trabajos: number }[]
   trabajos: number
   parada: { motivo: MotivoParada; nota: string | null; desde: string; por: string | null } | null
   mantencion: { cadaDias: number | null; ultima: string | null; proxima: string | null; dias: number | null; vencida: boolean }
@@ -51,9 +51,9 @@ export function Maquinas() {
   const [deteniendo, setDeteniendo] = useState<Maquina | null>(null)
   const r = useQuery({ queryKey: ['taller', 'maquinas'], queryFn: () => api<Maquina[]>('GET', '/servicio/maquinas') })
   const accion = useMutation({
-    mutationFn: ({ id, que }: { id: string; que: 'operar' | 'mantencion' }) => api('POST', `/servicio/maquinas/${id}/${que}`, que === 'mantencion' ? {} : undefined),
-    onSuccess: async (_, { que }) => {
-      message.success(que === 'operar' ? 'Máquina operando: sus trabajos ya pueden seguir.' : 'Mantención anotada: la próxima se cuenta desde hoy.')
+    mutationFn: ({ id, que }: { id: string; que: 'operar' | 'mantencion'; enMantencion?: boolean }) => api('POST', `/servicio/maquinas/${id}/${que}`, que === 'mantencion' ? {} : undefined),
+    onSuccess: async (_, { que, enMantencion }) => {
+      message.success(que === 'mantencion' ? 'Mantención anotada: la próxima se cuenta desde hoy.' : enMantencion ? 'Máquina operando y su mantención quedó hecha hoy: la próxima se cuenta desde hoy.' : 'Máquina operando: sus trabajos ya pueden seguir.')
       await consultas.invalidateQueries({ queryKey: ['taller'] })
     },
     onError: (e) => message.error((e as Error).message),
@@ -62,6 +62,8 @@ export function Maquinas() {
   if (r.isError) return <Problema error={r.error} />
   const activas = r.data.filter((m) => m.activa)
   const detenidas = activas.filter((m) => m.parada)
+  // Lo que espera, sin contar dos veces una actividad que comparten dos máquinas detenidas.
+  const esperan = [...new Map(detenidas.flatMap((m) => m.actividades).map((a) => [a.id, a.trabajos])).values()].reduce((s, n) => s + n, 0)
   const vencidas = activas.filter((m) => m.mantencion.vencida)
   const puede = gestiona && !suspendida
   return (
@@ -70,7 +72,7 @@ export function Maquinas() {
       <Cifras
         cifras={[
           { rotulo: 'Operando', valor: cifra(activas.length - detenidas.length), nota: `de ${plural(activas.length, 'máquina')}` },
-          { rotulo: 'Detenidas', valor: cifra(detenidas.length), nota: detenidas.length ? `${plural(detenidas.reduce((s, m) => s + m.trabajos, 0), 'trabajo')} esperan` : 'ninguna', tono: detenidas.length ? 'naranjo' : undefined },
+          { rotulo: 'Detenidas', valor: cifra(detenidas.length), nota: detenidas.length ? `${plural(esperan, 'trabajo')} ${esperan === 1 ? 'espera' : 'esperan'}` : 'ninguna', tono: detenidas.length ? 'naranjo' : undefined },
           { rotulo: 'Mantención vencida', valor: cifra(vencidas.length), tono: vencidas.length ? 'rojo' : undefined },
         ]}
       />
@@ -118,7 +120,7 @@ export function Maquinas() {
                 m.activa && !suspendida ? (
                   <span className="botones-tarea">
                     {!m.parada && trabaja && <Button size="small" onClick={() => setDeteniendo(m)}>Detener</Button>}
-                    {m.parada && puede && <Button size="small" type="primary" loading={accion.isPending && accion.variables?.id === m.id} onClick={() => accion.mutate({ id: m.id, que: 'operar' })}>Volver a operar</Button>}
+                    {m.parada && puede && <Button size="small" type="primary" loading={accion.isPending && accion.variables?.id === m.id} onClick={() => accion.mutate({ id: m.id, que: 'operar', enMantencion: m.parada?.motivo === 'maintenance' })}>Volver a operar</Button>}
                     {!m.parada && puede && m.mantencion.cadaDias ? <Button size="small" type="text" onClick={() => accion.mutate({ id: m.id, que: 'mantencion' })}>Mantención hecha</Button> : null}
                     {puede && <Button size="small" type="text" onClick={() => setEditar(m)}>Editar</Button>}
                   </span>
@@ -197,7 +199,10 @@ function FichaMaquina({ maquina, cerrar }: { maquina: Maquina | null; cerrar: ()
           </Form.Item>
         </div>
         <Form.Item label="Actividades que la necesitan" name="actividades" extra="Si la máquina para, los trabajos de estas actividades esperan.">
-          <Select mode="multiple" showSearch optionFilterProp="label" placeholder="Rectificado de cilindros…" loading={catalogo.isPending} options={catalogo.data?.trabajos.filter((t) => t.activo).map((t) => ({ value: t.id, label: `${t.codigo} · ${t.nombre}` }))} />
+          <Select mode="multiple" showSearch optionFilterProp="label" placeholder="Rectificado de cilindros…" loading={catalogo.isPending} options={catalogo.data?.trabajos
+              // Las que se ofrecen, y las apagadas que esta máquina ya tiene (con su nombre, no su id).
+              .filter((t) => t.activo || maquina?.actividades.some((a) => a.id === t.id))
+              .map((t) => ({ value: t.id, label: `${t.codigo} · ${t.nombre}${t.activo ? '' : ' (apagada)'}` }))} />
         </Form.Item>
         <div className="columnas">
           <Form.Item label="Mantención cada (días)" name="cadaDias" extra="Vacío: sin mantención fija.">

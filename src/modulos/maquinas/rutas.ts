@@ -35,6 +35,11 @@ async function revisar(c: C, d: z.infer<typeof maquinaSchema>) {
   await filasDelTenant(c, services, d.actividades, 'service', 'esa actividad')
 }
 
+/** La última mantención ya pasó: una fecha futura (un año mal escrito) la dejaría sin vencer nunca. */
+function exigirUltimaPasada(c: C, ultima: string | null | undefined) {
+  if (ultima && ultima > diaEnChile(c.var.ahora)) throw rechazo(400, 'La última mantención no puede ser una fecha futura.')
+}
+
 const maquinaDe = (c: C) => filaDelTenant(c, machines, c.req.param('id') ?? '', 'machine', 'esa máquina')
 
 export const rutasMaquinas = new Hono<EntornoTenant>()
@@ -46,14 +51,15 @@ export const rutasMaquinas = new Hono<EntornoTenant>()
     const hoy = diaEnChile(ahora)
     const [lista, usos, abiertas, pendientes, gente] = await Promise.all([
       base.select({ m: machines, seccion: shopSections.name }).from(machines).leftJoin(shopSections, eq(shopSections.id, machines.sectionId)).where(eq(machines.tenantId, actor.tenantId)).orderBy(desc(machines.active), asc(machines.name)),
-      base.select({ maquina: machineServices.machineId, id: services.id, codigo: services.code, nombre: services.name }).from(machineServices).innerJoin(services, eq(services.id, machineServices.serviceId)).where(eq(machineServices.tenantId, actor.tenantId)).orderBy(asc(services.code)),
+      base.select({ maquina: machineServices.machineId, id: services.id, codigo: services.code, nombre: services.name, activa: services.active }).from(machineServices).innerJoin(services, eq(services.id, machineServices.serviceId)).where(eq(machineServices.tenantId, actor.tenantId)).orderBy(asc(services.code)),
       base.select().from(machineStops).where(and(eq(machineStops.tenantId, actor.tenantId), isNull(machineStops.endedAt))),
-      // Los trabajos por hacer de cada actividad, en OT que siguen en el taller.
+      // Los trabajos por hacer de cada actividad, en OT que siguen en el taller. Lo que ya está en proceso sigue aunque la
+      // máquina pare: no espera.
       base
         .select({ servicio: workOrderTasks.serviceId, n: count() })
         .from(workOrderTasks)
         .innerJoin(workOrders, eq(workOrders.id, workOrderTasks.workOrderId))
-        .where(and(eq(workOrderTasks.tenantId, actor.tenantId), ne(workOrderTasks.status, 'done'), inArray(workOrders.status, OT_EN_TALLER)))
+        .where(and(eq(workOrderTasks.tenantId, actor.tenantId), eq(workOrderTasks.status, 'pending'), inArray(workOrders.status, OT_EN_TALLER)))
         .groupBy(workOrderTasks.serviceId),
       base.select({ id: users.id, nombre: users.name }).from(users).where(eq(users.tenantId, actor.tenantId)),
     ])
@@ -70,7 +76,8 @@ export const rutasMaquinas = new Hono<EntornoTenant>()
           seccion,
           nota: m.notes,
           activa: m.active,
-          actividades: suyas.map(({ id, codigo, nombre }) => ({ id, codigo, nombre })),
+          // Con lo que espera cada actividad: si dos máquinas detenidas comparten una, sus trabajos se cuentan una vez.
+          actividades: suyas.map(({ id, codigo, nombre, activa }) => ({ id, codigo, nombre, activa, trabajos: porHacer.get(id) ?? 0 })),
           trabajos: suyas.reduce((s, u) => s + (porHacer.get(u.id) ?? 0), 0),
           parada: parada ? { motivo: parada.reason, nota: parada.note, desde: parada.startedAt.toISOString(), por: parada.startedBy ? (nombre.get(parada.startedBy) ?? null) : null } : null,
           mantencion: { cadaDias: m.maintenanceEveryDays, ultima: m.lastMaintenanceAt, ...mantencionDe(m.lastMaintenanceAt, m.maintenanceEveryDays, hoy) },
@@ -84,6 +91,7 @@ export const rutasMaquinas = new Hono<EntornoTenant>()
     exigirGestion(c)
     const d = c.req.valid('json')
     await revisar(c, d)
+    exigirUltimaPasada(c, d.ultima)
     const { actor, ahora } = c.var
     const id = nuevoId('maq')
     await c.var.base.transaction(async (tx) => {
@@ -99,8 +107,11 @@ export const rutasMaquinas = new Hono<EntornoTenant>()
     const m = await maquinaDe(c)
     const d = c.req.valid('json')
     await revisar(c, d)
+    exigirUltimaPasada(c, d.ultima)
     const { tenantId } = c.var.actor
     await c.var.base.transaction(async (tx) => {
+      // Sacarla de uso cierra su parada: al volver a usarla no reaparece una falla de hace días.
+      if (m.active && d.activa === false) await tx.update(machineStops).set({ endedAt: c.var.ahora, endedBy: c.var.actor.id }).where(and(eq(machineStops.machineId, m.id), eq(machineStops.tenantId, tenantId), isNull(machineStops.endedAt)))
       await tx
         .update(machines)
         .set({ name: d.nombre, sectionId: d.seccionId ?? null, notes: d.nota || null, maintenanceEveryDays: d.cadaDias ?? null, lastMaintenanceAt: d.ultima === undefined ? m.lastMaintenanceAt : d.ultima, active: d.activa ?? m.active })
@@ -123,7 +134,9 @@ export const rutasMaquinas = new Hono<EntornoTenant>()
     if (motivo === 'breakdown' && (nota ?? '').length < 3) throw rechazo(400, 'Escribe qué le pasa a la máquina.')
     const [abierta] = await c.var.base.select({ id: machineStops.id }).from(machineStops).where(and(eq(machineStops.machineId, m.id), isNull(machineStops.endedAt)))
     if (abierta) throw rechazo(409, 'Esa máquina ya está detenida.')
-    await c.var.base.insert(machineStops).values({ id: nuevoId('par'), tenantId: c.var.actor.tenantId, machineId: m.id, reason: motivo, note: nota || null, startedAt: c.var.ahora, startedBy: c.var.actor.id })
+    // Si otro la detuvo recién, el índice de «una parada abierta por máquina» lo dice: no queda un error del servidor.
+    const [nueva] = await c.var.base.insert(machineStops).values({ id: nuevoId('par'), tenantId: c.var.actor.tenantId, machineId: m.id, reason: motivo, note: nota || null, startedAt: c.var.ahora, startedBy: c.var.actor.id }).onConflictDoNothing().returning({ id: machineStops.id })
+    if (!nueva) throw rechazo(409, 'Esa máquina ya está detenida.')
     return c.json({ ok: true })
   })
 

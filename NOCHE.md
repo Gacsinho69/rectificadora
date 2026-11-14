@@ -10,7 +10,7 @@ otro agente Haiku intenta desmentir, reviso en el código, arreglo lo confirmado
 - [x] Taller: reparto, situación y bloqueos (vuelta 2)
 - [x] Cotizaciones y clientes (vuelta 3)
 - [x] Compras, proveedores y bodega (vuelta 4)
-- [ ] Máquinas
+- [x] Máquinas (vuelta 5)
 - [ ] Consola de la plataforma: acciones, panorama, alertas y salud
 - [ ] Panel de la organización y alta de personas
 - [ ] Pantallas del taller
@@ -33,6 +33,12 @@ otro agente Haiku intenta desmentir, reviso en el código, arreglo lo confirmado
   cotizaciones viejas que lo traen escrito. (Vuelta 3)
 - **Otra sesión usa esta carpeta.** A las 04:40 había un servidor de prueba de otra sesión corriendo aquí (puerto 5182,
   con `.claude/revision.env`). No lo toqué. Por eso en la vuelta 3 no abrí el sistema en el navegador. (Vuelta 3)
+- **Dos máquinas para la misma actividad.** Si el taller tiene dos lineadoras y una se detiene, hoy todos los trabajos
+  de lineado quedan «esperando su máquina», aunque la otra esté operando. ¿Debería bloquear solo cuando estén
+  detenidas todas las máquinas de esa actividad? (Vuelta 5)
+- **El uso de máquinas y bodega en la consola.** La regla dice que lo que hace una rectificadora suma a su uso, pero
+  detener máquinas, anotar mantenciones o mover la bodega no suma nada: la consola no ve si un cliente usa esos
+  módulos. Hay que decidir qué se cuenta (y si «Máquinas» va como uso aparte). (Vuelta 5)
 
 ## Vueltas
 
@@ -119,3 +125,26 @@ otro agente Haiku intenta desmentir, reviso en el código, arreglo lo confirmado
   pruebas y los tipos pasan. El cambio de pantalla (campo Factura) no lo miré en el navegador, por el servidor de la
   otra sesión.
 - **Para el dueño:** nada nuevo.
+
+### Vuelta 5 — Máquinas
+
+- 12 hallazgos; uno desmentido, que en realidad es una pregunta para el dueño (arriba). De los otros 11, 2 venían
+  repetidos: arreglé 8 y dejé uno de lado (ver abajo).
+- **Arreglado:**
+  - «Trabajos por hacer» contaba también los que ya estaban en proceso, que siguen aunque la máquina pare.
+  - Con dos máquinas detenidas que comparten una actividad, «N trabajos esperan» los contaba dos veces.
+  - Sacar de uso una máquina detenida dejaba su parada abierta: al volver a usarla reaparecía «en falla» desde hace
+    días y sus trabajos volvían a esperar.
+  - La última mantención aceptaba una fecha futura (un año mal escrito), y la máquina nunca vencía.
+  - Dos que detienen la misma máquina a la vez: el segundo recibía un error del servidor en vez de «ya está
+    detenida».
+  - Al editar una máquina con una actividad apagada, se veía su id interno en vez del nombre.
+  - «Volver a operar» después de una mantención no avisaba que la mantención quedó hecha.
+  - Faltaba la prueba de aislamiento de «Mantención hecha» (la ruta ya estaba protegida).
+- **Lo que dejé:** iniciar un trabajo justo en el mismo instante en que alguien detiene su máquina puede dejarlo
+  iniciado (milisegundos). Arreglarlo pide repetir la revisión dentro de la transacción; es poco probable y no lo
+  toqué esta noche.
+- **Comprobado:** 5 pruebas nuevas en `src/modulos/maquinas/noche.test.ts`; 4 fallan con el código de antes (la
+  quinta es la de aislamiento, que pasa con los dos). 190 pruebas y los tipos pasan. La pantalla de máquinas no la
+  miré en el navegador, por el servidor de la otra sesión.
+- **Para el dueño:** las dos máquinas para una actividad y el uso de máquinas y bodega (arriba).
