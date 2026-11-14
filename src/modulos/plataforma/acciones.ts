@@ -17,7 +17,7 @@ import { services, shopSections } from '../taller/tablas'
 import { altaTenantSchema, CAMBIOS_DE_ESTADO, ESTADOS_TENANT, type EstadoTenant, FUNCIONES, FUNCIONES_DEL_PLAN, type Funcion, LIMITES, type Limites, PLANES, type Plan } from '../tenants/reglas'
 import { tenants } from '../tenants/tablas'
 import { cerrarSesionesDe } from '../acceso/sesion'
-import { agregarPersona, reenviarInvitacion } from '../usuarios/alta'
+import { agregarPersona, exigirOtroAdmin, reenviarInvitacion } from '../usuarios/alta'
 import { personaSchema, ROLES_TENANT, type RolTenant } from '../usuarios/reglas'
 import { users } from '../usuarios/tablas'
 
@@ -246,6 +246,8 @@ export const accionesPlataforma = new Hono<EntornoPlataforma>()
     if (u.status === 'invited') throw rechazo(409, 'Una invitación pendiente no se bloquea: se anula desde el panel del cliente.')
     if ((u.status === 'blocked') === bloqueado) throw rechazo(409, bloqueado ? 'Ya estaba bloqueado.' : 'No estaba bloqueado.')
     await c.var.base.transaction(async (tx) => {
+      // La consola tampoco deja a un cliente sin administrador activo (después nadie podría entrar como él).
+      if (bloqueado && u.role === 'admin' && u.status === 'active') await exigirOtroAdmin(tx, t.id, u.id)
       await tx.update(users).set({ status: bloqueado ? 'blocked' : 'active', blockedAt: bloqueado ? c.var.ahora : null }).where(eq(users.id, u.id))
       if (bloqueado) await cerrarSesionesDe(tx, u.id, c.var.ahora)
       await registrar(tx, origenDe(c), { tenantId: t.id, eventType: bloqueado ? 'user.blocked' : 'user.unblocked', userId: u.id, targetId: u.id, targetType: 'user', metadata: { antes: u.status, despues: bloqueado ? 'blocked' : 'active', motivo } })
@@ -260,6 +262,7 @@ export const accionesPlataforma = new Hono<EntornoPlataforma>()
     const { rol, motivo } = c.req.valid('json')
     if (u.role === rol) throw rechazo(409, `Ya es ${ROLES_TENANT[rol as RolTenant].toLowerCase()}.`)
     await c.var.base.transaction(async (tx) => {
+      if (u.role === 'admin' && u.status === 'active') await exigirOtroAdmin(tx, t.id, u.id)
       await tx.update(users).set({ role: rol }).where(eq(users.id, u.id))
       await registrar(tx, origenDe(c), { tenantId: t.id, eventType: 'user.role_changed', userId: u.id, targetId: u.id, targetType: 'user', metadata: { antes: u.role, despues: rol, motivo } })
     })

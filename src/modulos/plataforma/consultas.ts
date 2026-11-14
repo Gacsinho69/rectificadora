@@ -2,7 +2,7 @@
 // la llama (la consola, del pedido; el panel del cliente, de su sesión) y filtra todo por él.
 import { and, asc, count, desc, eq, gte, inArray, isNotNull, sql } from 'drizzle-orm'
 import type { Base } from '../../base'
-import { conNombres, type EventoVisible } from '../eventos/consulta'
+import { conNombres, type EventoVisible, sinDatosDelEquipo } from '../eventos/consulta'
 import { events } from '../eventos/tablas'
 import { CATEGORIAS_DE_AUDITORIA, SOLO_PLATAFORMA, type TipoEvento, tiposDeCategoria } from '../eventos/tipos'
 import { invoices } from '../facturacion/tablas'
@@ -198,6 +198,7 @@ export async function seguridadDelTenant(base: Base, ahora: Date, tenantId: stri
     integracionesDelTenant(base, tenantId),
   ])
   const sso = integraciones.integraciones.find((i) => i.tipo === 'sso' && i.estado !== 'disabled')
+  const paraQuien = (lista: EventoVisible[]) => (delCliente ? sinDatosDelEquipo(lista) : lista)
   return {
     completo,
     fallidos,
@@ -208,7 +209,7 @@ export async function seguridadDelTenant(base: Base, ahora: Date, tenantId: stri
     mfa,
     sso: sso ? { activo: true, proveedor: sso.destino } : { activo: false, proveedor: null },
     clavesApi: integraciones.clavesApi,
-    cambiosDeRol: ocultarIps(cambiosDeRol, completo),
-    sensibles: ocultarIps(sensibles, completo),
+    cambiosDeRol: paraQuien(ocultarIps(cambiosDeRol, completo)),
+    sensibles: paraQuien(ocultarIps(sensibles, completo)),
   }
 }

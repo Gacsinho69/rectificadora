@@ -160,10 +160,13 @@ function Usuarios({ yo, suspendida }: { yo?: string; suspendida: boolean }) {
                 {cupo.data.usados} de {cupo.data.limite} usuarios del plan {cupo.data.plan}
               </span>
             )}
+            {/* Un botón deshabilitado no avisa al pasar el mouse: el motivo va en lo que lo envuelve. */}
             <Tooltip title={noSePuede}>
-              <Button size="small" type="primary" disabled={Boolean(noSePuede)} onClick={() => setAgregando(true)}>
-                Agregar persona
-              </Button>
+              <span>
+                <Button size="small" type="primary" disabled={Boolean(noSePuede)} onClick={() => setAgregando(true)}>
+                  Agregar persona
+                </Button>
+              </span>
             </Tooltip>
           </>
         }
@@ -171,7 +174,8 @@ function Usuarios({ yo, suspendida }: { yo?: string; suspendida: boolean }) {
         <TablaUsuarios
           usuarios={r.data}
           acciones={(u) =>
-            u.id === yo ? null : (
+            // Con la organización suspendida se revisa, pero no se cambia: sin menú de acciones.
+            u.id === yo || suspendida ? null : (
               <Dropdown
                 trigger={['click']}
                 menu={{

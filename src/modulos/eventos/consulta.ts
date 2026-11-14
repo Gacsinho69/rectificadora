@@ -60,6 +60,10 @@ export async function conNombres(base: Base, lista: Evento[]): Promise<EventoVis
   }))
 }
 
+/** Para el panel del cliente: de lo que hizo alguien del equipo se ve quién y qué, no su IP ni su navegador. */
+export const sinDatosDelEquipo = <E extends Pick<EventoVisible, 'actorType' | 'ipAddress' | 'userAgent'>>(lista: E[]) =>
+  lista.map((e) => (e.actorType === 'platform_admin' ? { ...e, ipAddress: null, userAgent: null } : e))
+
 /** `delCliente`: lo pide el panel del propio cliente, que no ve lo que es solo de la plataforma. */
 export async function buscarEventos(base: Base, f: FiltrosEventos, alcance: { tenantId: string; delCliente?: boolean } | 'global') {
   const tiposPedidos = f.categoria?.length ? f.categoria.flatMap(tiposDeCategoria) : null
@@ -83,5 +87,6 @@ export async function buscarEventos(base: Base, f: FiltrosEventos, alcance: { te
     .orderBy(desc(events.createdAt), desc(events.id))
     .limit(f.porPagina)
     .offset((f.pagina - 1) * f.porPagina)
-  return { total, filas: await conNombres(base, filas) }
+  const visibles = await conNombres(base, filas)
+  return { total, filas: alcance !== 'global' && alcance.delCliente ? sinDatosDelEquipo(visibles) : visibles }
 }

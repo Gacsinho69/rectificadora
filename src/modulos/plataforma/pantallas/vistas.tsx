@@ -93,7 +93,8 @@ export function CifrasUsuarios({ usuarios }: { usuarios: UsuarioVisible[] }) {
         { rotulo: 'Activos (30 días)', valor: cifra(registrados.filter((u) => u.estado === 'active' && u.ultimoLogin && Date.parse(u.ultimoLogin) > hace30).length) },
         { rotulo: 'Bloqueados', valor: cifra(usuarios.filter((u) => u.estado === 'blocked').length) },
         { rotulo: 'Invitaciones pendientes', valor: cifra(usuarios.filter((u) => u.estado === 'invited').length) },
-        { rotulo: 'Administradores', valor: cifra(registrados.filter((u) => u.rol === 'admin').length) },
+        // Los que pueden administrar hoy: un bloqueado no cuenta (igual que en el resumen).
+        { rotulo: 'Administradores', valor: cifra(registrados.filter((u) => u.rol === 'admin' && u.estado === 'active').length) },
         { rotulo: 'Con MFA', valor: `${cifra(registrados.filter((u) => u.mfa).length)} de ${cifra(registrados.length)}` },
       ]}
     />

@@ -12,7 +12,7 @@ otro agente Haiku intenta desmentir, reviso en el código, arreglo lo confirmado
 - [x] Compras, proveedores y bodega (vuelta 4)
 - [x] Máquinas (vuelta 5)
 - [x] Consola de la plataforma: acciones, panorama, alertas y salud (vuelta 6)
-- [ ] Panel de la organización y alta de personas
+- [x] Panel de la organización y alta de personas (vuelta 7)
 - [ ] Pantallas del taller
 - [ ] Pantallas de compras, organización y consola
 - [ ] Producción: servidor, encabezados y contenedor
@@ -39,6 +39,10 @@ otro agente Haiku intenta desmentir, reviso en el código, arreglo lo confirmado
 - **El uso de máquinas y bodega en la consola.** La regla dice que lo que hace una rectificadora suma a su uso, pero
   detener máquinas, anotar mantenciones o mover la bodega no suma nada: la consola no ve si un cliente usa esos
   módulos. Hay que decidir qué se cuenta (y si «Máquinas» va como uso aparte). (Vuelta 5)
+- **El motivo que escribe el equipo, ¿lo ve el cliente?** Cuando el equipo suspende a un cliente, le cambia el plan o
+  los límites, o bloquea a alguien, el motivo que escribe queda en la auditoría del cliente («Tres cobros fallidos sin
+  respuesta»). La pantalla de «Entrar como» dice a propósito que el cliente ve ese motivo; para lo demás no hay una
+  regla escrita. Si el motivo es interno, hay que separarlo en uno para el cliente y otro solo para el equipo. (Vuelta 7)
 
 ## Vueltas
 
@@ -169,3 +173,26 @@ otro agente Haiku intenta desmentir, reviso en el código, arreglo lo confirmado
 - **Comprobado:** 8 pruebas nuevas en `src/modulos/plataforma/noche.test.ts`; las 8 fallan con el código de antes.
   198 pruebas y los tipos pasan. Las dos pantallas cambiadas (límites y «Entrar como») no las miré en el navegador.
 - **Para el dueño:** nada nuevo.
+
+### Vuelta 7 — Panel de la organización y alta de personas
+
+- 11 hallazgos; ninguno desmentido. Uno era la IP del balanceador (ya anotada) y otro, el motivo del equipo, lo dejé
+  para la mañana. Arreglé los otros 9.
+- **Arreglado:**
+  - La auditoría del cliente mostraba la IP y el navegador de quien del equipo hizo algo. Ahora dice quién y qué, sin
+    eso; la consola lo sigue viendo.
+  - El administrador del cliente podía desbloquear a alguien que bloqueó el equipo de la plataforma (por abuso o una
+    cuenta robada). Ya no: le dice que escriba al equipo.
+  - La consola podía bloquear o quitarle el rol al único administrador activo de un cliente, y después nadie podía
+    entrar como él. Ahora la consola respeta la misma regla que el panel.
+  - Anular una invitación justo cuando la persona la aceptaba podía borrar a alguien que ya había entrado.
+  - Un enlace nuevo dejaba «Enviada» con la fecha del primero.
+  - Agregar a alguien con el correo de una persona ya invitada o bloqueada no decía qué hacer; ahora lo dice.
+  - Con la organización suspendida se podían abrir las acciones de cada persona y llenarlas para recibir un rechazo al
+    final; ahora no aparecen.
+  - «Agregar persona» deshabilitado no explicaba por qué al pasar el mouse.
+  - «Administradores» contaba distinto en el resumen y en Usuarios (uno contaba a los bloqueados).
+- **Comprobado:** 6 pruebas nuevas en `src/modulos/organizacion/noche.test.ts`; 5 fallan con el código de antes (la
+  sexta revisa una carrera que no siempre se da). 204 pruebas y los tipos pasan. Las pantallas no las miré en el
+  navegador.
+- **Para el dueño:** el motivo del equipo en la auditoría del cliente (arriba).

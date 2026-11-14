@@ -1,8 +1,7 @@
 // El panel del administrador de cada cliente: solo su organización. El tenant sale del actor (su sesión, o la
 // impersonación de soporte) y de ningún dato del pedido; cada consulta de aquí lo lleva.
 // Nada de lo interno de la plataforma (salud, alertas, MRR de otros, notas del equipo) sale por estas rutas.
-import { and, count, eq, ne, sql } from 'drizzle-orm'
-import type { Base } from '../../base'
+import { and, eq } from 'drizzle-orm'
 import { type Context, Hono, type MiddlewareHandler } from 'hono'
 import { z } from 'zod'
 import { conDatos, conFiltros, rechazo } from '../../http'
@@ -24,25 +23,12 @@ import { tenants } from '../tenants/tablas'
 import { cerrarSesionesDe } from '../acceso/sesion'
 import { invitations } from '../acceso/tablas'
 import { serviceSpecialists, workOrderTasks } from '../taller/tablas'
-import { agregarPersona, cupoDeUsuarios, reenviarInvitacion } from '../usuarios/alta'
+import { agregarPersona, cupoDeUsuarios, exigirOtroAdmin, laBloqueoLaPlataforma, reenviarInvitacion } from '../usuarios/alta'
 import { personaSchema, ROLES_TENANT, type RolTenant } from '../usuarios/reglas'
 import { users } from '../usuarios/tablas'
 
 type C = Context<EntornoTenant>
 const claves = <T extends object>(o: T) => Object.keys(o) as [keyof T & string, ...(keyof T & string)[]]
-
-/**
- * Que siempre quede al menos un administrador activo: si no, la organización queda sin quien la administre. Se cuenta
- * dentro de la transacción del cambio y con su cerrojo: dos administradores que se bloquean a la vez no quedan los dos fuera.
- */
-async function quedaOtroAdmin(tx: Base, tenantId: string, sinEste: string) {
-  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`admins:${tenantId}`}))`)
-  const [{ otros }] = await tx
-    .select({ otros: count() })
-    .from(users)
-    .where(and(eq(users.tenantId, tenantId), eq(users.role, 'admin'), eq(users.status, 'active'), ne(users.id, sinEste)))
-  if (otros === 0) throw rechazo(409, 'Debe quedar al menos un administrador activo en la organización.')
-}
 
 export const rutasOrganizacion = new Hono<EntornoTenant>()
   .use(soloAdminDelTenant as unknown as MiddlewareHandler<EntornoTenant>)
@@ -121,7 +107,9 @@ export const rutasOrganizacion = new Hono<EntornoTenant>()
       await tx.delete(invitations).where(and(eq(invitations.userId, u.id), eq(invitations.tenantId, tenantId)))
       await tx.delete(serviceSpecialists).where(and(eq(serviceSpecialists.userId, u.id), eq(serviceSpecialists.tenantId, tenantId)))
       await tx.update(workOrderTasks).set({ assignedTo: null }).where(and(eq(workOrderTasks.assignedTo, u.id), eq(workOrderTasks.tenantId, tenantId)))
-      await tx.delete(users).where(and(eq(users.id, u.id), eq(users.tenantId, tenantId)))
+      // Solo si sigue invitada: si aceptó su enlace entretanto, ya es alguien que entra y no se borra.
+      const [borrada] = await tx.delete(users).where(and(eq(users.id, u.id), eq(users.tenantId, tenantId), eq(users.status, 'invited'))).returning({ id: users.id })
+      if (!borrada) throw rechazo(409, 'Esa persona ya entró: en vez de anularla, se bloquea.')
       await registrar(tx, origenDe(c), { tenantId, eventType: 'user.deleted', targetId: u.id, targetType: 'user', metadata: { nombre: u.name, correo: u.email, invitacion_anulada: true } })
     })
     return c.json({ ok: true })
@@ -134,8 +122,9 @@ export const rutasOrganizacion = new Hono<EntornoTenant>()
     if (u.id === c.var.actor.id) throw rechazo(409, 'No puedes bloquearte a ti mismo.')
     if (u.status === 'invited') throw rechazo(409, 'Una invitación pendiente no se bloquea.')
     if ((u.status === 'blocked') === bloqueado) throw rechazo(409, bloqueado ? 'Ya estaba bloqueado.' : 'No estaba bloqueado.')
+    if (!bloqueado && (await laBloqueoLaPlataforma(c.var.base, u.id))) throw rechazo(409, 'A esta persona la bloqueó el equipo de la plataforma: escríbenos para revisarlo.')
     await c.var.base.transaction(async (tx) => {
-      if (bloqueado && u.role === 'admin') await quedaOtroAdmin(tx, c.var.actor.tenantId, u.id)
+      if (bloqueado && u.role === 'admin') await exigirOtroAdmin(tx, c.var.actor.tenantId, u.id)
       await tx
         .update(users)
         .set({ status: bloqueado ? 'blocked' : 'active', blockedAt: bloqueado ? c.var.ahora : null })
@@ -159,7 +148,7 @@ export const rutasOrganizacion = new Hono<EntornoTenant>()
     const { rol } = c.req.valid('json')
     if (u.role === rol) throw rechazo(409, `Ya es ${ROLES_TENANT[rol as RolTenant].toLowerCase()}.`)
     await c.var.base.transaction(async (tx) => {
-      if (u.role === 'admin') await quedaOtroAdmin(tx, c.var.actor.tenantId, u.id)
+      if (u.role === 'admin') await exigirOtroAdmin(tx, c.var.actor.tenantId, u.id)
       await tx.update(users).set({ role: rol }).where(and(eq(users.id, u.id), eq(users.tenantId, c.var.actor.tenantId)))
       await registrar(tx, origenDe(c), {
         tenantId: c.var.actor.tenantId,

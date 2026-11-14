@@ -4,13 +4,14 @@
 //
 // La persona nace invitada: recibe un enlace (por ahora lo entrega quien la agrega, por WhatsApp o correo) y con él
 // define su clave y entra. El enlace vence a los 7 días; se puede pedir uno nuevo, que anula el anterior.
-import { and, count, eq, isNull, sql } from 'drizzle-orm'
+import { and, count, desc, eq, isNull, ne, sql } from 'drizzle-orm'
 import type { Base } from '../../base'
 import { rechazo } from '../../http'
 import { nuevoId } from '../../ids'
 import { nuevoSecreto } from '../acceso/claves'
 import { invitations } from '../acceso/tablas'
 import { type Origen, registrar } from '../eventos/registrar'
+import { events } from '../eventos/tablas'
 import { limitesDe, PLANES } from '../tenants/reglas'
 import { tenants } from '../tenants/tablas'
 import type { DatosPersona } from './reglas'
@@ -49,8 +50,16 @@ export async function agregarPersona(tx: Base, origen: Origen, tenantId: string,
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`users:${tenantId}`}))`)
   const cupo = await cupoDeUsuarios(tx, tenantId)
   if (cupo.usados >= cupo.limite) throw rechazo(409, `Se llegó al límite del plan ${cupo.plan}: ${cupo.limite} usuarios. Para sumar a alguien hay que ampliar el plan.`)
-  const [repetido] = await tx.select({ nombre: users.name }).from(users).where(and(eq(users.tenantId, tenantId), eq(users.email, d.correo)))
-  if (repetido) throw rechazo(409, `Ese correo ya es de ${repetido.nombre}, en esta misma organización.`)
+  const [repetido] = await tx.select({ nombre: users.name, estado: users.status }).from(users).where(and(eq(users.tenantId, tenantId), eq(users.email, d.correo)))
+  if (repetido)
+    throw rechazo(
+      409,
+      repetido.estado === 'invited'
+        ? `${repetido.nombre} ya tiene una invitación con ese correo: si no le llegó o venció, pide un «Enlace nuevo» desde su fila.`
+        : repetido.estado === 'blocked'
+          ? `Ese correo es de ${repetido.nombre}, que tiene la cuenta bloqueada: se desbloquea desde su fila.`
+          : `Ese correo ya es de ${repetido.nombre}, en esta misma organización.`,
+    )
   const id = nuevoId('us')
   await tx.insert(users).values({ id, tenantId, name: d.nombre, email: d.correo, role: d.rol, status: 'invited', invitedAt: ahora, createdAt: ahora })
   const invitacion = await nuevaInvitacion(tx, tenantId, id, origen.actorId, ahora)
@@ -58,10 +67,32 @@ export async function agregarPersona(tx: Base, origen: Origen, tenantId: string,
   return { id, ...invitacion }
 }
 
+/**
+ * Que siempre quede al menos un administrador activo: si no, la organización queda sin quien la administre (y el equipo
+ * no puede entrar como él). Se cuenta dentro de la transacción del cambio y con su cerrojo: dos que bloquean a la vez no
+ * dejan a los dos fuera. Vale para el panel del cliente y para la consola.
+ */
+export async function exigirOtroAdmin(tx: Base, tenantId: string, sinEste: string) {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`admins:${tenantId}`}))`)
+  const [{ otros }] = await tx
+    .select({ otros: count() })
+    .from(users)
+    .where(and(eq(users.tenantId, tenantId), eq(users.role, 'admin'), eq(users.status, 'active'), ne(users.id, sinEste)))
+  if (otros === 0) throw rechazo(409, 'Debe quedar al menos un administrador activo en la organización.')
+}
+
+/** Si a esa persona la bloqueó el equipo de la plataforma (por abuso, una cuenta robada): el cliente no la desbloquea. */
+export async function laBloqueoLaPlataforma(base: Base, userId: string) {
+  const [ultimo] = await base.select({ actor: events.actorType }).from(events).where(and(eq(events.eventType, 'user.blocked'), eq(events.userId, userId))).orderBy(desc(events.createdAt)).limit(1)
+  return ultimo?.actor === 'platform_admin'
+}
+
 /** Un enlace nuevo para quien no alcanzó a usar el suyo (venció, se perdió). Solo para invitaciones pendientes. */
 export async function reenviarInvitacion(tx: Base, origen: Origen, tenantId: string, u: { id: string; status: string }, ahora: Date, metadata: Record<string, unknown> = {}) {
   if (u.status !== 'invited') throw rechazo(409, 'Esa persona ya aceptó su invitación: entra con su correo y su clave.')
   const invitacion = await nuevaInvitacion(tx, tenantId, u.id, origen.actorId, ahora)
+  // «Enviada» dice cuándo salió el enlace que sirve, no el primero.
+  await tx.update(users).set({ invitedAt: ahora }).where(eq(users.id, u.id))
   await registrar(tx, origen, { tenantId, eventType: 'user.invited', userId: u.id, targetId: u.id, targetType: 'user', metadata: { enlace_nuevo: true, ...metadata } })
   return invitacion
 }
