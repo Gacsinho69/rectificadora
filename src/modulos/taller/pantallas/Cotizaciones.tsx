@@ -56,7 +56,7 @@ export function Cotizaciones() {
             { title: 'OT', dataIndex: 'ot', render: (v: number | null) => (v ? folioOt(v) : <span className="tenue">—</span>) },
             { title: 'Estado', dataIndex: 'estado', render: (v) => <EstadoCotTag estado={v} /> },
             { title: 'Total', dataIndex: 'total', align: 'right', render: (v: number) => plata(v) },
-            { title: 'Enviada', dataIndex: 'enviada', render: (v: string | null, q) => fecha(v ?? q.creada) },
+            { title: 'Enviada', dataIndex: 'enviada', render: (v: string | null, q) => (v ? fecha(v) : <span className="tenue" title={`Creada el ${fecha(q.creada)}`}>—</span>) },
           ]}
         />
       </div>

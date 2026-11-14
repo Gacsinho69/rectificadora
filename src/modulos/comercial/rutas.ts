@@ -201,6 +201,7 @@ export const rutasComercial = new Hono<EntornoTenant>()
       const { base, actor } = c.var
       const f = c.req.valid('query')
       const estados = f.estado ? (f.estado.split(',').filter((e) => e in ESTADOS_COTIZACION) as EstadoCotizacion[]) : null
+      if (estados && !estados.length) throw rechazo(400, 'Ese estado de cotización no existe.')
       const patron = f.q ? `%${f.q.replace(/[%_\\]/g, '\\$&')}%` : null
       const numero = f.q && /^\d+$/.test(f.q.replace(/^COT-?/i, '')) ? Number(f.q.replace(/^COT-?/i, '')) : null
       const donde = and(
@@ -273,10 +274,13 @@ export const rutasComercial = new Hono<EntornoTenant>()
     if (q.status !== 'draft') throw rechazo(409, 'Una cotización enviada no se edita: anúlala y haz otra.')
     const d = c.req.valid('json')
     const t = await revisar(c, d, q.workOrderId)
-    await c.var.base
+    // Solo si sigue en borrador: si otro la envió entretanto, lo que recibió el cliente no cambia.
+    const [editada] = await c.var.base
       .update(quotes)
       .set({ customerId: d.clienteId, workOrderId: d.otId ?? null, engine: d.motor, ...motorGuardado(d), lines: t.lineas, discountPct: d.descuento, net: t.neto, tax: t.iva, total: t.total, notes: d.notas || null })
-      .where(and(eq(quotes.id, q.id), eq(quotes.tenantId, c.var.actor.tenantId)))
+      .where(and(eq(quotes.id, q.id), eq(quotes.tenantId, c.var.actor.tenantId), eq(quotes.status, 'draft')))
+      .returning({ id: quotes.id })
+    if (!editada) throw rechazo(409, 'Esa cotización ya se envió o se anuló: no se edita.')
     return c.json({ ok: true })
   })
 
@@ -286,9 +290,15 @@ export const rutasComercial = new Hono<EntornoTenant>()
     if (q.status !== 'draft') throw rechazo(409, 'Solo se envía un borrador.')
     const faltas = faltasParaEnviar(q.lines)
     if (faltas.length) throw rechazo(409, faltas.join(' '))
+    // Su OT se pudo cerrar mientras era borrador: enviada así, no se podría aceptar.
+    if (q.workOrderId) {
+      const [ot] = await c.var.base.select({ status: workOrders.status }).from(workOrders).where(eq(workOrders.id, q.workOrderId))
+      if (!OT_ABIERTAS.includes(ot.status)) throw rechazo(409, 'La OT de esta cotización ya se cerró: quítala (o elige una abierta) y vuelve a enviarla.')
+    }
     const { actor, ahora } = c.var
     await c.var.base.transaction(async (tx) => {
-      await tx.update(quotes).set({ status: 'sent', sentAt: ahora }).where(eq(quotes.id, q.id))
+      const [enviada] = await tx.update(quotes).set({ status: 'sent', sentAt: ahora }).where(and(eq(quotes.id, q.id), eq(quotes.status, 'draft'))).returning({ id: quotes.id })
+      if (!enviada) throw rechazo(409, 'Esa cotización ya se envió.')
       if (q.workOrderId) {
         await tx.update(workOrders).set({ quoteId: q.id }).where(eq(workOrders.id, q.workOrderId))
         await recalcularOt(tx, q.workOrderId)
@@ -321,7 +331,9 @@ export const rutasComercial = new Hono<EntornoTenant>()
     if (q.status !== 'sent') throw rechazo(409, 'Solo se rechaza una cotización enviada.')
     const { nota } = c.req.valid('json')
     await c.var.base.transaction(async (tx) => {
-      await tx.update(quotes).set({ status: 'rejected', decidedAt: c.var.ahora, decisionNote: nota }).where(eq(quotes.id, q.id))
+      // Solo si sigue enviada: si otro la aceptó entretanto, no se pisa la aceptación (ni su OT).
+      const [rechazada] = await tx.update(quotes).set({ status: 'rejected', decidedAt: c.var.ahora, decisionNote: nota }).where(and(eq(quotes.id, q.id), eq(quotes.status, 'sent'))).returning({ id: quotes.id })
+      if (!rechazada) throw rechazo(409, 'Esa cotización ya se decidió.')
       if (q.workOrderId) await recalcularOt(tx, q.workOrderId)
       await registrar(tx, origenDe(c), { tenantId: c.var.actor.tenantId, eventType: 'quote.rejected', targetId: q.id, targetType: 'quote', metadata: { numero: q.number, motivo: nota } })
     })
@@ -334,8 +346,10 @@ export const rutasComercial = new Hono<EntornoTenant>()
     if (q.status !== 'draft' && q.status !== 'sent') throw rechazo(409, 'Solo se anula un borrador o una enviada.')
     const { nota } = c.req.valid('json')
     await c.var.base.transaction(async (tx) => {
-      await tx.update(quotes).set({ status: 'cancelled', decidedAt: c.var.ahora, decisionNote: nota }).where(eq(quotes.id, q.id))
+      const [anulada] = await tx.update(quotes).set({ status: 'cancelled', decidedAt: c.var.ahora, decisionNote: nota }).where(and(eq(quotes.id, q.id), inArray(quotes.status, ['draft', 'sent']))).returning({ id: quotes.id })
+      if (!anulada) throw rechazo(409, 'Esa cotización ya se decidió.')
       if (q.workOrderId) await recalcularOt(tx, q.workOrderId)
+      await registrar(tx, origenDe(c), { tenantId: c.var.actor.tenantId, eventType: 'quote.cancelled', targetId: q.id, targetType: 'quote', metadata: { numero: q.number, estado_anterior: q.status, motivo: nota } })
     })
     return c.json({ ok: true })
   })
@@ -344,7 +358,7 @@ export const rutasComercial = new Hono<EntornoTenant>()
   .get('/clientes/:id/ot', async (c) => {
     const cl = await filaDelTenant(c, customers, c.req.param('id'), 'customer', 'ese cliente')
     const lista = await c.var.base
-      .select({ id: workOrders.id, numero: workOrders.number, motor: workOrders.engine, estado: workOrders.status })
+      .select({ id: workOrders.id, numero: workOrders.number, motor: workOrders.engine, estado: workOrders.status, cilindros: workOrders.cylinders, valvulasPorCilindro: workOrders.valvesPerCylinder, culatas: workOrders.heads })
       .from(workOrders)
       .where(and(eq(workOrders.tenantId, c.var.actor.tenantId), eq(workOrders.customerId, cl.id), inArray(workOrders.status, OT_ABIERTAS)))
       .orderBy(desc(workOrders.number))

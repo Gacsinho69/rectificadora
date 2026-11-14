@@ -58,6 +58,7 @@ export const TIPOS_DE_EVENTO = {
   'quote.sent': { nombre: 'Cotización enviada', categoria: 'operacion', severidad: 'info' },
   'quote.accepted': { nombre: 'Cotización aceptada', categoria: 'operacion', severidad: 'info' },
   'quote.rejected': { nombre: 'Cotización rechazada', categoria: 'operacion', severidad: 'info' },
+  'quote.cancelled': { nombre: 'Cotización anulada', categoria: 'operacion', severidad: 'info' },
   'purchase_order.created': { nombre: 'Orden de compra emitida', categoria: 'operacion', severidad: 'info' },
   'purchase_order.received': { nombre: 'Orden de compra recibida', categoria: 'operacion', severidad: 'info' },
 } as const satisfies Record<string, Definicion>

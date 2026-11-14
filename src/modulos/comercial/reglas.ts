@@ -101,6 +101,9 @@ export function totales(lineas: (Pick<Linea, 'cantidad' | 'precio'> & Partial<Pi
 export function faltasParaEnviar(lineas: (Pick<Linea, 'descripcion' | 'precio'> & Partial<Pick<Linea, 'tipo' | 'compra'>>)[]): string[] {
   const faltas: string[] = []
   if (!lineas.length) faltas.push('Agrega al menos una línea.')
+  // Que la pantalla avise antes de enviar, y diga cuál: con 15 líneas no hay que buscarla una por una.
+  const sinNombre = lineas.flatMap((l, i) => (l.descripcion.trim().length < 2 ? [i + 1] : []))
+  if (sinNombre.length) faltas.push(`Falta la descripción de la línea ${sinNombre.join(', ')}.`)
   const sinPrecio = lineas.filter((l) => !loTraeElCliente(l) && (l.precio === null || l.precio === 0))
   if (sinPrecio.length) faltas.push(`Falta el precio de: ${sinPrecio.map((l) => l.descripcion.trim() || 'una línea sin nombre').join(', ')}.`)
   return faltas

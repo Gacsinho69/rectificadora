@@ -13,8 +13,15 @@ export const rechazo = (estado: 400 | 401 | 403 | 404 | 409 | 413 | 429, mensaje
 /** Revisa lo que llega con un esquema Zod; si no sirve, responde 400 con el primer motivo. */
 export const conDatos = <T extends z.ZodType>(esquema: T) =>
   zValidator('json', esquema, (r) => {
-    if (!r.success) throw rechazo(400, r.error.issues[0]?.message ?? 'Los datos no son válidos.')
+    if (!r.success) throw rechazo(400, conLinea(r.error.issues[0]) ?? 'Los datos no son válidos.')
   })
+
+/** El motivo, y si es de una línea de la lista (una cotización con 15), cuál: «… (línea 3)». */
+function conLinea(problema: z.core.$ZodIssue | undefined) {
+  if (!problema) return null
+  const [lista, posicion] = problema.path
+  return lista === 'lineas' && typeof posicion === 'number' ? `${problema.message} (línea ${posicion + 1})` : problema.message
+}
 
 export const conFiltros = <T extends z.ZodType>(esquema: T) =>
   zValidator('query', esquema, (r) => {

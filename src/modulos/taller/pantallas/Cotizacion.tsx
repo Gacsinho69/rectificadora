@@ -55,7 +55,7 @@ function Editor({ id, numero, inicial }: { id: string | null; numero: number | n
   const clientes = useQuery({ queryKey: ['taller', 'clientes'], queryFn: () => api<Cliente[]>('GET', '/servicio/clientes') })
   const otsDelCliente = useQuery({
     queryKey: ['taller', 'ots-cliente', b.clienteId],
-    queryFn: () => api<{ id: string; numero: number; motor: string; estado: DetalleOt['estado'] }[]>('GET', `/servicio/clientes/${b.clienteId}/ot`),
+    queryFn: () => api<{ id: string; numero: number; motor: string; estado: DetalleOt['estado']; cilindros: number | null; valvulasPorCilindro: number | null; culatas: number | null }[]>('GET', `/servicio/clientes/${b.clienteId}/ot`),
     enabled: Boolean(b.clienteId),
   })
   const laOt = useQuery({ queryKey: ['taller', 'ot', b.otId], queryFn: () => api<DetalleOt>('GET', `/servicio/ot/${b.otId}`), enabled: Boolean(b.otId) })
@@ -127,10 +127,16 @@ function Editor({ id, numero, inicial }: { id: string | null; numero: number | n
               allowClear
               value={b.otId ?? undefined}
               disabled={!b.clienteId}
-              options={otsDelCliente.data?.map((o) => ({ value: o.id, label: `${folioOt(o.numero)} · ${o.motor}` }))}
+              options={[
+                ...(otsDelCliente.data?.map((o) => ({ value: o.id, label: `${folioOt(o.numero)} · ${o.motor}` })) ?? []),
+                // Un borrador ligado a una OT que ya se cerró: que se vea su folio y no su id interno.
+                ...(b.otId && laOt.data && !otsDelCliente.data?.some((o) => o.id === b.otId) ? [{ value: b.otId, label: `${folioOt(laOt.data.numero)} · cerrada` }] : []),
+              ]}
               onChange={(v) => {
                 const o = otsDelCliente.data?.find((x) => x.id === v)
-                setB({ ...b, otId: v ?? null, motor: o?.motor ?? b.motor })
+                // La OT ya sabe su motor (después del diagnóstico): lo que dice se copia y las líneas se cuentan de nuevo.
+                const nuevo = { ...b, otId: v ?? null, motor: o?.motor ?? b.motor, cilindros: o?.cilindros ?? b.cilindros, valvulasPorCilindro: o?.valvulasPorCilindro ?? b.valvulasPorCilindro, culatas: o?.culatas ?? b.culatas }
+                setB({ ...nuevo, lineas: recontar(nuevo.lineas, motorDeDatos(nuevo)) })
               }}
             />
           </Form.Item>

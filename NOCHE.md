@@ -8,7 +8,7 @@ otro agente Haiku intenta desmentir, reviso en el código, arreglo lo confirmado
 
 - [x] Acceso: sesiones, claves, invitaciones y guardias (vuelta 1)
 - [x] Taller: reparto, situación y bloqueos (vuelta 2)
-- [ ] Cotizaciones y clientes
+- [x] Cotizaciones y clientes (vuelta 3)
 - [ ] Compras, proveedores y bodega
 - [ ] Máquinas
 - [ ] Consola de la plataforma: acciones, panorama, alertas y salud
@@ -26,6 +26,13 @@ otro agente Haiku intenta desmentir, reviso en el código, arreglo lo confirmado
 - **La IP que queda en la auditoría.** Se toma la primera del encabezado `x-forwarded-for`. Si el proveedor donde se
   publique agrega la IP al final en vez de reemplazar el encabezado, alguien puede inventar la suya. Depende de dónde
   se publique: cuando se elija el proveedor, se ajusta a cómo lo manda. (Vuelta 1)
+
+- **Proveedor escrito a mano en una cotización.** El servidor todavía acepta un repuesto cotizado con el proveedor
+  escrito como texto, sin elegirlo de la lista (así venían las cotizaciones de antes de la lista). La pantalla siempre
+  lo elige de la lista, así que hoy no pasa. Si se quiere cerrar del todo, hay que decidir qué hacer con las
+  cotizaciones viejas que lo traen escrito. (Vuelta 3)
+- **Otra sesión usa esta carpeta.** A las 04:40 había un servidor de prueba de otra sesión corriendo aquí (puerto 5182,
+  con `.claude/revision.env`). No lo toqué. Por eso en la vuelta 3 no abrí el sistema en el navegador. (Vuelta 3)
 
 ## Vueltas
 
@@ -68,3 +75,24 @@ otro agente Haiku intenta desmentir, reviso en el código, arreglo lo confirmado
 - **Comprobado:** 6 pruebas nuevas en `src/modulos/taller/noche.test.ts`; las 6 fallan con el código de antes y pasan
   con el arreglo. 169 pruebas y los tipos pasan.
 - **Para el dueño:** nada nuevo.
+
+### Vuelta 3 — Cotizaciones y clientes
+
+- 16 hallazgos; los agentes desmintieron 3 y estuve de acuerdo (la cantidad de una línea se puede escribir a mano a
+  propósito, el aviso de OT cerrada al aceptar es correcto, y un proveedor desactivado no rompe nada). De los 13
+  restantes, 3 venían repetidos: arreglé 9 y dejé 1 para la mañana.
+- **Arreglado:**
+  - Aceptar y rechazar (o anular) la misma cotización a la vez: la segunda pisaba a la primera y podía dejar una OT
+    viva con su cotización «rechazada». Ahora gana una y la otra avisa «ya se decidió».
+  - Guardar un borrador mientras otro lo enviaba cambiaba lo que el cliente ya recibió. Ya no.
+  - Se podía enviar una cotización cuya OT ya se había cerrado, y después no había cómo aceptarla. Ahora avisa antes.
+  - Anular una cotización no dejaba rastro en el registro; ahora queda con su motivo.
+  - Una línea sin descripción: el error no decía cuál era y el botón Enviar no avisaba. Ahora dice «línea 2».
+  - Al elegir la OT en una cotización nueva no se copiaban sus cilindros, válvulas ni culatas, y el rectificado
+    salía contado para 4. Ahora se copian y las líneas se cuentan de nuevo.
+  - Un borrador ligado a una OT cerrada mostraba su id interno en vez del folio.
+  - La lista mostraba la fecha de creación de los borradores en la columna «Enviada».
+  - Un estado de cotización mal escrito en la dirección devolvía todas.
+- **Comprobado:** 7 pruebas nuevas en `src/modulos/comercial/noche.test.ts`; las 7 fallan con el código de antes. 176
+  pruebas y los tipos pasan. Las dos pantallas cambiadas no las miré en el navegador (ver «Para la mañana»).
+- **Para el dueño:** el proveedor escrito a mano (arriba).
