@@ -306,7 +306,7 @@ const tallerOts = createRoute({
   component: OrdenesDeTrabajo,
 })
 const tallerOt = createRoute({ getParentRoute: () => taller, path: 'ot/$id', component: OrdenDeTrabajo })
-const tablero = createRoute({ getParentRoute: () => taller, path: 'taller', validateSearch: (s: Record<string, unknown>): { mias?: string } => ({ mias: texto(s.mias) }), component: Tablero })
+const tablero = createRoute({ getParentRoute: () => taller, path: 'taller', validateSearch: (s: Record<string, unknown>): { mias?: '1' | '0' } => ({ mias: s.mias === undefined ? undefined : String(s.mias) === '0' ? '0' : '1' }), component: Tablero })
 const tallerCotizaciones = createRoute({
   getParentRoute: () => taller,
   path: 'cotizaciones',

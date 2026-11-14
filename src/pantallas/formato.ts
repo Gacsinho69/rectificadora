@@ -3,14 +3,27 @@ const pesos = new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP
 const numero = new Intl.NumberFormat('es-CL')
 const compacto = new Intl.NumberFormat('es-CL', { notation: 'compact', maximumFractionDigits: 1 })
 const corta = new Intl.DateTimeFormat('es-CL', { day: '2-digit', month: 'short', year: 'numeric' })
-const conHora = new Intl.DateTimeFormat('es-CL', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
-const soloHora = new Intl.DateTimeFormat('es-CL', { hour: '2-digit', minute: '2-digit' })
+// La hora como se dice en el taller: «15:13», no «03:13 p. m.».
+const conHora = new Intl.DateTimeFormat('es-CL', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+const soloHora = new Intl.DateTimeFormat('es-CL', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
 
-export const plata = (n: number) => pesos.format(n)
+/** «$57.800»; lo negativo con el signo adelante, «-$57.800» (Intl lo pone después del peso). */
+export const plata = (n: number) => (n < 0 ? `-${pesos.format(-n)}` : pesos.format(n))
 export const cifra = (n: number) => numero.format(n)
 export const cifraCorta = (n: number) => (Math.abs(n) >= 10_000 ? compacto.format(n) : numero.format(n))
 /** «1 cliente», «3 clientes». */
 export const plural = (n: number, palabra: string, plural = `${palabra}s`) => `${cifra(n)} ${n === 1 ? palabra : plural}`
+/**
+ * Una cantidad con su unidad, en plural cuando corresponde: «1 litro», «27 litros», «2 unidades», «0,5 litros». Una
+ * unidad abreviada o de varias palabras («kg», «caja de 12») queda como está.
+ */
+export const cantidad = (n: number, unidad: string) => `${cifra(n)} ${unidadPara(n, unidad)}`.trim()
+/** Solo la unidad, en singular o plural según la cantidad (para cuando la cifra va aparte, en negrita). */
+export function unidadPara(n: number, unidad: string) {
+  const u = unidad.trim()
+  if (Math.abs(n) === 1 || !u || u.includes(' ') || u.length <= 3 || /[sx]$/i.test(u)) return u
+  return /[aeiouáéó]$/i.test(u) ? `${u}s` : `${u}es`
+}
 export const porcentaje = (f: number) => `${Math.round(f * 100)} %`
 export const fecha = (iso: string | null | undefined) => (iso ? corta.format(new Date(iso)) : '—')
 export const fechaHora = (iso: string | null | undefined) => (iso ? conHora.format(new Date(iso)) : '—')

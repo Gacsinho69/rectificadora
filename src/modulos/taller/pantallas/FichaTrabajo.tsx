@@ -129,8 +129,10 @@ function Contenido({ t }: { t: FichaTarea }) {
           <small className="tenue">{t.termino ? `Terminado ${fechaHora(t.termino)}` : ''}</small>
         </Bloque>
       ) : (
-        puedeTrabajar && (
-          <div className="ficha-acciones">
+        puedeTrabajar &&
+        // Sin nada que hacer todavía (espera repuestos, su máquina o su turno), no hay barra de botones vacía.
+        (['available', 'in_progress', 'held'].includes(t.situacion) || (t.situacion === 'waiting' && gestiona)) && (
+          <div className="ficha-acciones fijas">
             {t.situacion === 'in_progress' && (
               <Input.TextArea rows={2} value={resultado} onChange={(e) => setResultado(e.target.value)} placeholder="Al terminar: la medida final o lo que encontraste (opcional)" maxLength={1000} />
             )}

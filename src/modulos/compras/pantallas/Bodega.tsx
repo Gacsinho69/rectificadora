@@ -6,7 +6,7 @@ import { Alert, App, AutoComplete, Button, Checkbox, Form, Input, InputNumber, M
 import { useState } from 'react'
 import { api } from '../../../pantallas/api'
 import { Cargando, Cifras, Estado, Hace, Problema } from '../../../pantallas/componentes'
-import { cifra, plata } from '../../../pantallas/formato'
+import { cantidad, cifra, plata, unidadPara } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
 import { folioOt, usePersona } from '../../taller/pantallas/comun'
 import type { FilaOt, Insumo } from '../../taller/pantallas/tipos'
@@ -54,7 +54,7 @@ export function Bodega() {
                 {x.movimientos.map((m) => (
                   <li key={m.id}>
                     <b>{MOVIMIENTOS_INSUMO[m.tipo]}</b> {m.cantidad > 0 ? '+' : ''}
-                    {cifra(m.cantidad)} {x.unidad}
+                    {cantidad(m.cantidad, x.unidad)}
                     {m.ot ? ` · ${folioOt(m.ot)}` : ''}
                     {m.nota ? ` · ${m.nota}` : ''}
                     <small className="tenue">
@@ -76,12 +76,12 @@ export function Bodega() {
               render: (_, x) => (
                 <span className="evento-nombre" style={{ justifyContent: 'flex-end' }}>
                   {x.bajo && x.activo && <Estado tono="rojo">En su mínimo</Estado>}
-                  <b>{cifra(x.stock)}</b> {x.unidad}
+                  <b>{cifra(x.stock)}</b> {unidadPara(x.stock, x.unidad)}
                 </span>
               ),
             },
-            { title: 'Mínimo', key: 'm', align: 'right', width: 100, render: (_, x) => (x.minimo ? `${cifra(x.minimo)} ${x.unidad}` : <span className="tenue">—</span>) },
-            { title: 'Viene', key: 'v', align: 'right', width: 100, render: (_, x) => (x.porLlegar ? `${cifra(x.porLlegar)} ${x.unidad}` : <span className="tenue">—</span>) },
+            { title: 'Mínimo', key: 'm', align: 'right', width: 100, render: (_, x) => (x.minimo ? cantidad(x.minimo, x.unidad) : <span className="tenue">—</span>) },
+            { title: 'Viene', key: 'v', align: 'right', width: 100, render: (_, x) => (x.porLlegar ? cantidad(x.porLlegar, x.unidad) : <span className="tenue">—</span>) },
             ...(veMontos
               ? [
                   { title: 'Proveedor', key: 'p', width: 190, render: (_: unknown, x: Insumo) => x.proveedor ?? <span className="tenue">—</span> },
@@ -136,7 +136,7 @@ function Sacar({ insumo, cerrar }: { insumo: Insumo; cerrar: () => void }) {
   return (
     <Modal open title={`Sacar ${insumo.nombre}`} okText="Sacar" cancelText="Cancelar" onCancel={cerrar} confirmLoading={sacar.isPending} onOk={() => form.validateFields().then((v) => sacar.mutate({ ...v, otId: v.otId ?? null }))} destroyOnHidden>
       {sacar.isError && <Alert type="error" showIcon title={(sacar.error as Error).message} style={{ marginBottom: 12 }} />}
-      <p className="tenue" style={{ marginTop: 0 }}>Hay {cifra(insumo.stock)} {insumo.unidad}.</p>
+      <p className="tenue" style={{ marginTop: 0 }}>Hay {cantidad(insumo.stock, insumo.unidad)}.</p>
       <Form form={form} layout="vertical" requiredMark={false} initialValues={{ cantidad: 1 }}>
         <div className="columnas">
           <Form.Item label={`Cantidad (${insumo.unidad})`} name="cantidad" rules={[{ required: true, message: 'Escribe la cantidad.' }]}>

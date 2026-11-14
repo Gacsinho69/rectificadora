@@ -1,10 +1,10 @@
 // Las órdenes de trabajo y la recepción de un motor. Por omisión, las abiertas, de la más nueva a la más antigua.
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getRouteApi, useNavigate } from '@tanstack/react-router'
-import { Alert, Button, Checkbox, DatePicker, Form, Input, Modal, Select, Table } from 'antd'
+import { Alert, Button, Checkbox, DatePicker, Form, Input, Modal, Pagination, Select, Table } from 'antd'
 import dayjs from 'dayjs'
 import { api, consulta } from '../../../pantallas/api'
-import { Problema } from '../../../pantallas/componentes'
+import { Cargando, Problema, useAngosto } from '../../../pantallas/componentes'
 import { cifra, fecha } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
 import { ESTADOS_OT, type Pieza, PRIORIDADES_OT } from '../reglas'
@@ -23,6 +23,21 @@ export function OrdenesDeTrabajo() {
   const filtros = { estado: b.estado ?? 'abiertas', q: b.q, pagina: b.pagina }
   const r = useQuery({ queryKey: ['taller', 'ots', filtros], queryFn: () => api<{ total: number; filas: FilaOt[] }>('GET', `/servicio/ot${consulta(filtros)}`), placeholderData: keepPreviousData })
   const estados = filtros.estado === 'abiertas' || filtros.estado === 'todas' ? [] : filtros.estado.split(',')
+  const angosto = useAngosto()
+  const abrir = (o: FilaOt) => ir({ to: '/c/$portal/ot/$id', params: { portal, id: o.id } })
+  const entrega = (o: FilaOt) => (
+    <span className="evento-nombre">
+      {o.entrega ? fecha(`${o.entrega}T12:00:00Z`) : '—'} <PlazoTag plazo={o.plazo} />
+      {o.prioridad === 'urgent' && <span className="estado rojo">Urgente</span>}
+    </span>
+  )
+  const estado = (o: FilaOt) => (
+    <span className="evento-nombre">
+      <EstadoOtTag estado={o.estado} />
+      {o.detenidas ? <span className="estado naranjo" title={`${o.detenidas} ${o.detenidas === 1 ? 'trabajo detenido' : 'trabajos detenidos'}`}>Detenida</span> : null}
+    </span>
+  )
+  const paginas = { total: r.data?.total, current: b.pagina ?? 1, pageSize: 50, showSizeChanger: false, onChange: (p: number) => ir({ search: { ...b, pagina: p === 1 ? undefined : p }, replace: true }) }
   return (
     <>
       <Encabezado
@@ -51,6 +66,37 @@ export function OrdenesDeTrabajo() {
         />
       </div>
       {r.isError && <Problema error={r.error} />}
+      {angosto ? (
+        // En el celular, una tarjeta por OT: lo que se pregunta en el mesón, sin una tabla que no cabe.
+        r.isPending ? (
+          <Cargando />
+        ) : (
+          <div className={`bloque${r.isPlaceholderData ? ' actualizando' : ''}`}>
+            <div className="lista-tarjetas">
+              {!r.data?.filas.length && <p className="tenue">No hay OT con estos filtros.</p>}
+              {r.data?.filas.map((o) => (
+                <article key={o.id} className={`tarjeta abre${o.plazo === 'atrasada' ? ' atrasada' : ''}`} onClick={() => abrir(o)}>
+                  <div className="tarjeta-cabeza">
+                    <b>{folioOt(o.numero)}</b>
+                    {estado(o)}
+                  </div>
+                  <b className="tarjeta-trabajo">{o.cliente}</b>
+                  <small>
+                    {o.motor}
+                    {o.equipo ? ` · ${o.equipo}` : ''}
+                  </small>
+                  <small>{(o.piezas ?? []).map(pz.nombre).join(', ')}</small>
+                  <div className="tarjeta-pie">
+                    <AvanceOt estado={o.estado} fraccion={o.avance ?? 0} ancho={60} />
+                    {entrega(o)}
+                  </div>
+                </article>
+              ))}
+            </div>
+            {(r.data?.total ?? 0) > 50 && <Pagination className="paginas" simple {...paginas} />}
+          </div>
+        )
+      ) : (
       <div className="bloque">
         <Table<FilaOt>
           size="small"
@@ -59,20 +105,21 @@ export function OrdenesDeTrabajo() {
           dataSource={r.data?.filas}
           scroll={{ x: 980 }}
           rowClassName={() => 'fila-abre'}
-          onRow={(o) => ({ onClick: () => ir({ to: '/c/$portal/ot/$id', params: { portal, id: o.id } }) })}
-          pagination={{ total: r.data?.total, current: b.pagina ?? 1, pageSize: 50, showSizeChanger: false, onChange: (p) => ir({ search: { ...b, pagina: p === 1 ? undefined : p }, replace: true }) }}
+          onRow={(o) => ({ onClick: () => abrir(o) })}
+          pagination={paginas}
           columns={[
             { title: 'OT', key: 'n', width: 92, render: (_, o) => <b>{folioOt(o.numero)}</b> },
             { title: 'Cliente', dataIndex: 'cliente' },
             { title: 'Motor', key: 'm', render: (_, o) => <div className="fila-nombre"><span>{o.motor}</span>{o.equipo && <small>{o.equipo}</small>}</div> },
             { title: 'Piezas', key: 'p', render: (_, o) => (o.piezas ?? []).map(pz.nombre).join(', ') },
-            { title: 'Estado', key: 'e', render: (_, o) => <span className="evento-nombre"><EstadoOtTag estado={o.estado} />{o.detenidas ? <span className="estado naranjo" title={`${o.detenidas} ${o.detenidas === 1 ? 'trabajo detenido' : 'trabajos detenidos'}`}>Detenida</span> : null}</span> },
+            { title: 'Estado', key: 'e', render: (_, o) => estado(o) },
             { title: 'Avance', key: 'a', render: (_, o) => <span title={`${o.hechas} de ${o.total} trabajos`}><AvanceOt estado={o.estado} fraccion={o.avance ?? 0} ancho={60} /></span> },
             { title: 'Recibida', key: 'c', render: (_, o) => fecha(o.creada) },
-            { title: 'Entrega', key: 'en', render: (_, o) => <span className="evento-nombre">{o.entrega ? fecha(`${o.entrega}T12:00:00Z`) : '—'} <PlazoTag plazo={o.plazo} />{o.prioridad === 'urgent' && <span className="estado rojo">Urgente</span>}</span> },
+            { title: 'Entrega', key: 'en', render: (_, o) => entrega(o) },
           ]}
         />
       </div>
+      )}
       {b.recibir && <Recepcion cerrar={() => ir({ search: { ...b, recibir: undefined }, replace: true })} />}
     </>
   )

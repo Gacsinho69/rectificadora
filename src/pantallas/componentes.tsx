@@ -2,7 +2,7 @@
 // tabla de eventos. El color va solo en los estados y siempre junto a su texto, nunca solo.
 import { Alert, Button, Modal, Skeleton, Table, Tooltip, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { useState } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 import type { Prioridad } from '../modulos/alertas/reglas'
 import { PRIORIDADES } from '../modulos/alertas/reglas'
 import type { EventoVisible } from '../modulos/eventos/consulta'
@@ -83,15 +83,28 @@ export function Bloque({ titulo, extra, children, id }: { titulo?: React.ReactNo
   )
 }
 
+/** El ancho donde el menú pasa a un cajón (el mismo de estilo.css): ahí las tablas se muestran como tarjetas. */
+const ANGOSTO = '(max-width: 860px)'
+const escucharAncho = (avisar: () => void) => {
+  const m = window.matchMedia(ANGOSTO)
+  m.addEventListener('change', avisar)
+  return () => m.removeEventListener('change', avisar)
+}
+/** Si la pantalla es la de un celular: para mostrar tarjetas en vez de tablas. */
+export const useAngosto = () => useSyncExternalStore(escucharAncho, () => window.matchMedia(ANGOSTO).matches)
+
 export type Cifra = { rotulo: React.ReactNode; valor: React.ReactNode; nota?: React.ReactNode; tono?: Tono; enlace?: () => void }
 
-/** Cifras a lo ancho y en fila: el rótulo arriba, el valor grande, una nota chica abajo. */
+/**
+ * Cifras a lo ancho y en fila: el rótulo arriba, el valor grande, una nota chica abajo. Si no caben en una fila, se
+ * reparten en filas parejas (10 van de a 5, no 7 y 3 sueltas).
+ */
 export function Cifras({ cifras }: { cifras: (Cifra | false | null | undefined)[] }) {
+  const lista = cifras.filter((c): c is Cifra => Boolean(c))
+  const columnas = lista.length ? Math.ceil(lista.length / Math.ceil(lista.length / 6)) : 1
   return (
-    <dl className="cifras">
-      {cifras
-        .filter((c): c is Cifra => Boolean(c))
-        .map((c, i) => (
+    <dl className="cifras parejas" style={{ '--columnas': columnas } as React.CSSProperties}>
+      {lista.map((c, i) => (
           <div key={i} className={`${c.tono ? `tono-${c.tono}` : ''}${c.enlace ? ' con-enlace' : ''}`} onClick={c.enlace} role={c.enlace ? 'link' : undefined} tabIndex={c.enlace ? 0 : undefined} onKeyDown={(e) => c.enlace && e.key === 'Enter' && c.enlace()}>
             <dt>{c.rotulo}</dt>
             <dd>{c.valor}</dd>

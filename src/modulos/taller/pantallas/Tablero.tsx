@@ -1,7 +1,7 @@
 // El tablero del taller: una columna por sección. Arriba, lo que se puede hacer ahora (primero lo que está en proceso,
 // después lo atrasado, lo urgente y lo que vence antes); abajo, lo detenido con su motivo, lo que espera repuestos y lo
 // que espera su turno en la ruta de su pieza. Cada columna dice su gente y su cola en días. Con «Solo mis trabajos», cada uno ve lo suyo.
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { getRouteApi, Link, useNavigate } from '@tanstack/react-router'
 import { Segmented } from 'antd'
 import { useState } from 'react'
@@ -17,12 +17,17 @@ import { FichaTrabajo } from './FichaTrabajo'
 import { BotonesDeTarea, useAccionesDeTarea } from './Trabajo'
 
 const ruta = getRouteApi('/c/$portal/taller')
+/** «1 espera», «3 esperan». */
+const esperan = (n: number) => `${n} ${n === 1 ? 'espera' : 'esperan'}`
 
 export function Tablero() {
-  const { mias } = ruta.useSearch()
+  const busqueda = ruta.useSearch()
+  const { gestiona } = usePersona()
+  // El técnico abre en lo suyo; el jefe de taller, en todo el taller. Cada uno puede cambiar.
+  const mias = busqueda.mias === undefined ? !gestiona : busqueda.mias === '1'
   const ir = useNavigate({ from: '/c/$portal/taller' })
   const [ficha, setFicha] = useState<string | null>(null)
-  const r = useQuery({ queryKey: ['taller', 'tablero', mias], queryFn: () => api<DatosTablero>('GET', `/servicio/taller${mias ? '?mias=1' : ''}`), refetchInterval: 60_000 })
+  const r = useQuery({ queryKey: ['taller', 'tablero', mias], queryFn: () => api<DatosTablero>('GET', `/servicio/taller${mias ? '?mias=1' : ''}`), refetchInterval: 60_000, placeholderData: keepPreviousData })
   if (r.isPending) return <Cargando />
   if (r.isError) return <Problema error={r.error} />
   // En «Solo mis trabajos», las secciones donde no hay nada mío sobran.
@@ -33,11 +38,11 @@ export function Tablero() {
     <>
       <Encabezado
         titulo="Taller"
-        sub={`${plural(cuantas('in_progress', 'available'), 'trabajo')} para hacer ahora · ${cuantas('parts')} esperan repuestos · ${cuantas('machine') ? `${cuantas('machine')} esperan su máquina · ` : ''} ${cuantas('waiting')} esperan su turno · ${plural(cuantas('held'), 'detenido')}`}
-        acciones={<Segmented value={mias ? 'mias' : 'todas'} onChange={(v) => ir({ search: { mias: v === 'mias' ? '1' : undefined }, replace: true })} options={[{ value: 'todas', label: 'Todo el taller' }, { value: 'mias', label: 'Solo mis trabajos' }]} />}
+        sub={`${plural(cuantas('in_progress', 'available'), 'trabajo')} para hacer ahora · ${esperan(cuantas('parts'))} repuestos · ${cuantas('machine') ? `${esperan(cuantas('machine'))} su máquina · ` : ''}${esperan(cuantas('waiting'))} su turno · ${plural(cuantas('held'), 'detenido')}`}
+        acciones={<Segmented value={mias ? 'mias' : 'todas'} onChange={(v) => ir({ search: { mias: v === 'mias' ? '1' : '0' }, replace: true })} options={[{ value: 'todas', label: 'Todo el taller' }, { value: 'mias', label: 'Solo mis trabajos' }]} />}
       />
-      {mias && !todas.length && <p className="tenue">No tienes trabajos asignados. Te llegan solos si eres especialista de una actividad, o te los asigna el jefe de taller.</p>}
-      <div className="tablero">
+      {mias && !todas.length && !r.isPlaceholderData && <p className="tenue">No tienes trabajos asignados. Te llegan solos si eres especialista de una actividad, o te los asigna el jefe de taller.</p>}
+      <div className={`tablero${r.isPlaceholderData ? ' actualizando' : ''}`}>
         {secciones.map((s) => {
           const ahora = s.tareas.filter((t) => t.situacion === 'in_progress' || t.situacion === 'available')
           const esperan = s.tareas.filter((t) => t.situacion === 'waiting')
@@ -111,9 +116,9 @@ function Tarjeta({ t, abrir }: { t: TarjetaTaller; abrir: (id: string) => void }
   const accion = useAccionesDeTarea()
   const clase = t.situacion === 'held' || t.situacion === 'machine' ? ' detenida' : t.situacion === 'parts' ? ' sin-repuestos' : t.situacion === 'waiting' ? ' espera' : t.situacion === 'in_progress' ? ' en-proceso' : t.ot.plazo === 'atrasada' ? ' atrasada' : ''
   return (
-    <article className={`tarjeta${clase}`}>
+    <article className={`tarjeta abre${clase}`} onClick={() => abrir(t.id)}>
       <div className="tarjeta-cabeza">
-        <Link to="/c/$portal/ot/$id" params={{ portal, id: t.ot.id }}>
+        <Link to="/c/$portal/ot/$id" params={{ portal, id: t.ot.id }} onClick={(e) => e.stopPropagation()}>
           {folioOt(t.ot.numero)}
         </Link>
         <span className="evento-nombre">
@@ -121,7 +126,7 @@ function Tarjeta({ t, abrir }: { t: TarjetaTaller; abrir: (id: string) => void }
           {t.ot.prioridad === 'urgent' && <span className="estado rojo">Urgente</span>}
         </span>
       </div>
-      <b className="tarjeta-trabajo abre" role="button" tabIndex={0} title="Abrir la ficha del trabajo" onClick={() => abrir(t.id)} onKeyDown={(e) => e.key === 'Enter' && abrir(t.id)}>
+      <b className="tarjeta-trabajo abre" role="button" tabIndex={0} title="Abrir la ficha del trabajo" onKeyDown={(e) => e.key === 'Enter' && abrir(t.id)}>
         {t.nombre}
       </b>
       <small>

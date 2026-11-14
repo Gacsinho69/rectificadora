@@ -52,7 +52,8 @@ export function BotonesDeTarea({ t, yo, gestiona, trabaja, accion, resultado }: 
     </Button>
   )
   return (
-    <span className="botones-tarea">
+    // Dentro de una tarjeta o fila que abre la ficha: un clic aquí (o en el diálogo de detener) no la abre.
+    <span className="botones-tarea" onClick={(e) => e.stopPropagation()}>
       {t.situacion === 'available' && (
         <>
           {detener}

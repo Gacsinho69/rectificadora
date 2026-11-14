@@ -34,7 +34,7 @@ button.enlace:hover { text-decoration: underline; }
   position: sticky; top: 0; align-self: flex-start; display: flex; flex-direction: column; flex: none;
   width: 212px; height: 100vh; box-sizing: border-box; background: var(--pizarra); color: #fff;
 }
-.marco-marca { display: flex; flex-direction: column; justify-content: center; height: 54px; padding: 0 18px; border-bottom: 1px solid var(--pizarra-raya); }
+.marco-marca { display: flex; flex-direction: column; justify-content: center; gap: 1px; min-height: 54px; padding: 10px 18px; box-sizing: border-box; border-bottom: 1px solid var(--pizarra-raya); }
 .marco-marca b { font-size: 14px; letter-spacing: 0.01em; }
 .marco-marca span { font-size: 11px; color: rgba(255, 255, 255, 0.55); }
 .marco-nav { display: flex; flex-direction: column; flex: 1; padding: 8px 0; overflow-y: auto; }
@@ -102,6 +102,10 @@ button.enlace:hover { text-decoration: underline; }
 .cifras dt { color: var(--tinta-2); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cifras dd { margin: 2px 0 0; font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.2; }
 .cifras small { display: block; margin-top: 2px; color: var(--tinta-3); font-size: 11.5px; }
+.cifras.parejas { grid-template-columns: repeat(var(--columnas), minmax(0, 1fr)); }
+@media (max-width: 960px) { .cifras.parejas { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); } }
+/* En el celular el rótulo baja de línea en vez de cortarse («Recibidas y en diagnóstico»). */
+@media (max-width: 860px) { .cifras dt { white-space: normal; } }
 .cifras .con-enlace { cursor: pointer; }
 .cifras .con-enlace:hover { background: #f7f8fa; }
 .cifras .con-enlace:hover dt { color: var(--marino); text-decoration: underline; }
@@ -151,6 +155,10 @@ button.enlace:hover { text-decoration: underline; }
 .fila-nombre { display: flex; flex-direction: column; min-width: 0; }
 .fila-nombre a, .fila-nombre b { font-weight: 600; }
 .fila-nombre small { color: var(--tinta-3); font-size: 11.5px; }
+/* Un nombre que abre algo (la ficha de un trabajo): alineado como el texto, no centrado como un botón. */
+.fila-nombre button.enlace { align-self: flex-start; text-align: left; font-weight: 600; }
+/* En una tabla, los botones de un trabajo van en una línea. */
+.ant-table-wrapper td .botones-tarea { flex-wrap: nowrap; }
 .detalle { color: var(--tinta-2); }
 .evento-nombre { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .metadatos { margin: 0; padding: 8px 12px; background: #f7f8fa; border: 1px solid var(--borde); font-size: 11.5px; max-height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
@@ -335,3 +343,26 @@ details.tablero-grupo { display: block; }
 /* Lo por pedir, de a un proveedor: su nombre, cuánto es y el botón para pedirle todo. */
 .grupo-compra + .grupo-compra { border-top: 1px solid var(--borde); }
 .grupo-compra-cabeza { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 14px 6px; }
+
+/* ── Inicio del taller: lo atrasado necesita más ancho que la carga ── */
+.columnas.tres-dos { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
+@media (max-width: 1100px) { .columnas.tres-dos { grid-template-columns: 1fr; } }
+
+/* Mientras llega lo nuevo (otro filtro), lo de antes queda a la vista pero apagado: se nota que está cambiando. */
+.actualizando { opacity: 0.55; transition: opacity 0.15s; pointer-events: none; }
+
+/* ── En el celular, una tarjeta por fila en vez de una tabla que no cabe ── */
+.lista-tarjetas { display: flex; flex-direction: column; gap: 8px; padding: 10px; }
+.bloque-cuerpo > .lista-tarjetas { margin: -12px -14px; }
+.lista-tarjetas > .tenue { margin: 4px 2px; }
+.tarjeta.abre { cursor: pointer; }
+.tarjeta.abre:hover { border-color: #c9d0d9; }
+.tarjeta .botones-tarea .ant-btn { min-height: 32px; }
+.paginas { display: flex; justify-content: center; padding: 6px 0 12px; }
+
+/* La ficha de un trabajo: sus botones quedan fijos abajo, al alcance del pulgar, aunque la ficha sea larga. */
+.ficha-acciones.fijas {
+  position: sticky; bottom: -24px; z-index: 2; margin: 0 -24px -24px; padding: 12px 24px 16px;
+  background: #fff; border-top: 1px solid var(--borde); box-shadow: 0 -4px 10px rgba(27, 36, 48, 0.06);
+}
+.ficha-acciones.fijas .ant-btn { height: 36px; padding: 0 16px; }

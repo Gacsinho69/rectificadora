@@ -11,6 +11,15 @@
       "port": 5180
     },
     {
+      "name": "consola-aparte",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set BASE_DESARROLLO=.datos/revision&& npm run dev -- --port 5182 --strictPort"
+      ],
+      "port": 5182
+    },
+    {
       "name": "produccion",
       "runtimeExecutable": "npm",
       "runtimeArgs": [

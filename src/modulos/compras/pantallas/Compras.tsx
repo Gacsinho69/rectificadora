@@ -8,7 +8,7 @@ import type dayjs from 'dayjs'
 import { useState } from 'react'
 import { api } from '../../../pantallas/api'
 import { Bloque, Cargando, Cifras, Estado, Hace, Problema } from '../../../pantallas/componentes'
-import { cifra, fecha, plata, plural } from '../../../pantallas/formato'
+import { cantidad, cifra, fecha, plata, plural, unidadPara } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
 import { DondeRetirar, EstadoOcTag, EstadoRepuestoTag, folioOt, PlazoTag, usePersona, usePortal } from '../../taller/pantallas/comun'
 import type { Compras as DatosCompras, Insumo, InsumoBajo, LineaInsumoOc, OrdenDeCompra, Persona, RepuestoEnCompras } from '../../taller/pantallas/tipos'
@@ -100,7 +100,7 @@ export function Compras() {
                     .filter((x) => x.estado === 'ordered')
                     .map((x) => (
                       <li key={x.id}>
-                        {cifra(x.cantidad)} {x.unidad} × {x.nombre} <span className="tenue">(bodega)</span>
+                        {cantidad(x.cantidad, x.unidad)} × {x.nombre} <span className="tenue">(bodega)</span>
                       </li>
                     ))}
                 </ul>
@@ -176,9 +176,9 @@ export function Compras() {
             rowSelection={puede ? { selectedRowKeys: insumosElegidos, onChange: (k) => setInsumosElegidos(k as string[]) } : undefined}
             columns={[
               { title: 'Insumo', key: 'n', render: (_, x) => <div className="fila-nombre"><b>{x.nombre}</b>{referenciaDe(x) && <small>{referenciaDe(x)}</small>}</div> },
-              { title: 'Hay', key: 'h', align: 'right', width: 130, render: (_, x) => <span><b style={{ color: 'var(--rojo)' }}>{cifra(x.stock)}</b> <span className="tenue">/ mín. {cifra(x.minimo)} {x.unidad}</span></span> },
+              { title: 'Hay', key: 'h', align: 'right', width: 130, render: (_, x) => <span><b style={{ color: 'var(--rojo)' }}>{cifra(x.stock)}</b> <span className="tenue">/ mín. {cantidad(x.minimo, x.unidad)}</span></span> },
               { title: 'Viene', dataIndex: 'porLlegar', align: 'right', width: 90, render: (v: number) => (v ? cifra(v) : <span className="tenue">—</span>) },
-              { title: 'Conviene pedir', key: 's', align: 'right', width: 130, render: (_, x) => `${cifra(x.sugerido)} ${x.unidad}` },
+              { title: 'Conviene pedir', key: 's', align: 'right', width: 130, render: (_, x) => cantidad(x.sugerido, x.unidad) },
               ...(veMontos ? [{ title: 'Proveedor', dataIndex: 'proveedor', width: 190, render: (v: string | null) => v ?? <span className="tenue">Sin proveedor</span> }] : []),
             ]}
           />
@@ -206,7 +206,7 @@ export function Compras() {
                   dataSource={o.insumos}
                   columns={[
                     { title: 'Insumo de bodega', key: 'n', render: (_, x) => x.nombre },
-                    { title: 'Cantidad', key: 'c', align: 'right', width: 120, render: (_, x) => `${cifra(x.cantidad)} ${x.unidad}` },
+                    { title: 'Cantidad', key: 'c', align: 'right', width: 120, render: (_, x) => cantidad(x.cantidad, x.unidad) },
                     { title: 'Estado', key: 'e', width: 130, render: (_, x) => <EstadoRepuestoTag compra="shop" estado={x.estado} /> },
                     { title: 'Llegó', dataIndex: 'recibido', width: 120, render: (v: string | null) => (v ? fecha(v) : <span className="tenue">—</span>) },
                     ...(veMontos
@@ -475,7 +475,7 @@ function DeBodega({ repuesto, cerrar }: { repuesto: RepuestoEnCompras; cerrar: (
         <Radio.Group className="lista-opciones" value={elegido} onChange={(e) => setElegido(e.target.value)}>
           {lista.map((a) => (
             <Radio key={a.id} value={a.id}>
-              <b>{a.nombre}</b> <span className="tenue">· hay {cifra(a.stock)} {a.unidad}</span> {a.parecido && <Estado tono="azul">Parecido</Estado>}
+              <b>{a.nombre}</b> <span className="tenue">· hay {cantidad(a.stock, a.unidad)}</span> {a.parecido && <Estado tono="azul">Parecido</Estado>}
               {referenciaDe(a) && <small className="tenue">{referenciaDe(a)}</small>}
             </Radio>
           ))}
@@ -520,7 +520,7 @@ function NuevaOrden({ repuestos, insumos, personas, cerrar }: { repuestos: Repue
         ))}
         {insumos.map((x) => (
           <li key={x.id} className="linea-insumo">
-            <InputNumber size="small" min={0.01} max={1_000_000} value={cantidades[x.id]} onChange={(v) => setCantidades({ ...cantidades, [x.id]: v ?? x.sugerido })} style={{ width: 90 }} /> {x.unidad} × {x.nombre} <span className="tenue">(bodega: hay {cifra(x.stock)}, mínimo {cifra(x.minimo)})</span>
+            <InputNumber size="small" min={0.01} max={1_000_000} value={cantidades[x.id]} onChange={(v) => setCantidades({ ...cantidades, [x.id]: v ?? x.sugerido })} style={{ width: 90 }} /> {unidadPara(cantidades[x.id] ?? x.sugerido, x.unidad)} × {x.nombre} <span className="tenue">(bodega: hay {cifra(x.stock)}, mínimo {cifra(x.minimo)})</span>
           </li>
         ))}
       </ul>
