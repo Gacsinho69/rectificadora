@@ -202,7 +202,7 @@ Fuera de los módulos: `src/servidor.ts` arma la API (`crearApp`); la usan `src/
 ## Qué falta
 
 - **Cobro real.** Las facturas y los eventos de pago son de demostración; deben venir del procesador de pagos (Flow, Mercado Pago o Stripe), con una cuenta a nombre de la empresa.
-- **Contratar dónde corre.** El servidor, la base PostgreSQL y el dominio (ver «Producción»). El contenedor no se ha construido todavía con Docker: el servidor compilado sí se probó contra un PostgreSQL por la red, con solo las dependencias de producción.
+- **Contratar dónde corre.** El servidor, la base PostgreSQL y el dominio (ver «Producción»). El contenedor ya se construyó y se probó con PostgreSQL 17: arranca, crea sus tablas, responde la salud, entra el equipo y se apaga ordenado.
 - **El equipo de la plataforma en la consola.** Hoy se suma gente al equipo con `npm run equipo`, con todos los permisos; falta la pantalla para agregar personas, elegir sus permisos y desactivarlas.
 - **Correo saliente.** Hoy el enlace de invitación lo entrega quien invita (copiar o WhatsApp). Con un servicio de correo: mandar la invitación, el enlace para **recuperar la clave** (hoy se pide un enlace nuevo al administrador) y la cotización o la orden de compra en PDF.
 - **Verificación en dos pasos (MFA).** La consola muestra quién la tiene y si la organización la exige, pero todavía no se pide al entrar.
