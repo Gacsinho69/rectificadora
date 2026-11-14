@@ -8,6 +8,7 @@ import { platformAdmins, users } from '../usuarios/tablas'
 import { events, type Evento } from './tablas'
 import { CATEGORIAS, type Categoria, type Severidad, SOLO_PLATAFORMA, TIPOS_DE_EVENTO, type TipoEvento, tiposDeCategoria } from './tipos'
 import { diaSchema } from '../../fecha'
+import { inicioDelDiaEnChile } from '../taller/reglas'
 
 const categorias = Object.keys(CATEGORIAS) as [Categoria, ...Categoria[]]
 const tipos = Object.keys(TIPOS_DE_EVENTO) as [TipoEvento, ...TipoEvento[]]
@@ -75,8 +76,9 @@ export async function buscarEventos(base: Base, f: FiltrosEventos, alcance: { te
     f.severidad ? eq(events.severity, f.severidad as Severidad) : undefined,
     f.usuario ? eq(events.userId, f.usuario) : undefined,
     f.actor ? eq(events.actorId, f.actor) : undefined,
-    f.desde ? gte(events.createdAt, new Date(`${f.desde}T00:00:00Z`)) : undefined,
-    f.hasta ? lt(events.createdAt, new Date(new Date(`${f.hasta}T00:00:00Z`).getTime() + 86_400_000)) : undefined,
+    // Los días de Chile, como se ven en la tabla: «hasta el 14» incluye lo de las 22:00 del 14.
+    f.desde ? gte(events.createdAt, inicioDelDiaEnChile(f.desde)) : undefined,
+    f.hasta ? lt(events.createdAt, inicioDelDiaEnChile(new Date(Date.parse(`${f.hasta}T12:00:00Z`) + 86_400_000).toISOString().slice(0, 10))) : undefined,
   ]
   const donde = and(...condiciones)
   const [{ total }] = await base.select({ total: count() }).from(events).where(donde)

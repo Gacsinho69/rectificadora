@@ -342,6 +342,13 @@ export function horaDeChile(d: Date): Date {
   return new Date(Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second, d.getUTCMilliseconds()))
 }
 
+/** El momento en que empieza un día en Chile (su medianoche), para filtrar «desde» y «hasta» como los ve el taller. */
+export function inicioDelDiaEnChile(dia: string): Date {
+  const comoUtc = Date.parse(`${dia}T00:00:00Z`)
+  const desfase = horaDeChile(new Date(comoUtc)).getTime() - comoUtc
+  return new Date(comoUtc - desfase)
+}
+
 /** El día en Chile («2026-11-14»): a las 22:00 del 14 sigue siendo el 14, aunque en UTC ya sea el 15. */
 export const diaEnChile = (d: Date) => horaDeChile(d).toISOString().slice(0, 10)
 

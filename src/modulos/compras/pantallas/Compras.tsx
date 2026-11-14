@@ -17,7 +17,7 @@ import { SelectorDeProveedor } from './Proveedores'
 
 export function Compras() {
   const portal = usePortal()
-  const { persona, gestiona, veMontos, suspendida, tiene } = usePersona()
+  const { persona, gestiona, veMontos, suspendida, tiene, trabaja } = usePersona()
   const consultas = useQueryClient()
   const { message } = App.useApp()
   const [elegidos, setElegidos] = useState<string[]>([])
@@ -54,7 +54,8 @@ export function Compras() {
   const abiertas = ordenes.filter((o) => o.estado === 'open')
   const misRetiros = abiertas.filter((o) => o.chofer?.id === persona?.id)
   const puede = gestiona && !suspendida
-  const recibe = (o: OrdenDeCompra) => !suspendida && (gestiona || o.chofer?.id === persona?.id)
+  // Quien es de solo lectura mira, pero no recibe (aunque siga anotado como chofer de la orden).
+  const recibe = (o: OrdenDeCompra) => !suspendida && trabaja && (gestiona || o.chofer?.id === persona?.id)
   const deOt = (x: RepuestoEnCompras) => (
     <small>
       <Link to="/c/$portal/ot/$id" params={{ portal, id: x.ot.id }}>

@@ -42,10 +42,11 @@ export function Entrar() {
         {entrar.isError && <Alert type="error" showIcon title={(entrar.error as Error).message} style={{ marginBottom: 12 }} />}
         {opciones ? (
           <>
+            {/* El formulario ya no está a la vista: se usa el correo y la clave con que se intentó recién. */}
             <p>Tu correo está en más de un lugar. ¿A cuál quieres entrar?</p>
             <div className="personas">
               {opciones.map((o) => (
-                <button key={o.portal} type="button" className="persona" disabled={entrar.isPending} onClick={() => entrar.mutate({ ...form.getFieldsValue(), portal: o.portal })}>
+                <button key={o.portal} type="button" className="persona" disabled={entrar.isPending} onClick={() => entrar.mutate({ ...(entrar.variables as Datos), portal: o.portal })}>
                   <b>{o.nombre}</b>
                 </button>
               ))}

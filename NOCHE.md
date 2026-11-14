@@ -14,8 +14,13 @@ otro agente Haiku intenta desmentir, reviso en el código, arreglo lo confirmado
 - [x] Consola de la plataforma: acciones, panorama, alertas y salud (vuelta 6)
 - [x] Panel de la organización y alta de personas (vuelta 7)
 - [x] Pantallas del taller (vuelta 8)
-- [ ] Pantallas de compras, organización y consola
+- [x] Pantallas de compras, organización y consola (vuelta 9, a medias: ver abajo)
 - [ ] Producción: servidor, encabezados y contenedor
+
+## En pausa
+
+Las vueltas quedaron en pausa a pedido de la sesión «Monitoreo de sesiones activas», para cuidar el cupo semanal
+(prioridad: el sitio web). Se termina la vuelta 9 y no se lanza la 10 (Producción) hasta que el dueño diga que sigan.
 
 ## Para la mañana
 
@@ -44,6 +49,9 @@ otro agente Haiku intenta desmentir, reviso en el código, arreglo lo confirmado
   los límites, o bloquea a alguien, el motivo que escribe queda en la auditoría del cliente («Tres cobros fallidos sin
   respuesta»). La pantalla de «Entrar como» dice a propósito que el cliente ve ese motivo; para lo demás no hay una
   regla escrita. Si el motivo es interno, hay que separarlo en uno para el cliente y otro solo para el equipo. (Vuelta 7)
+- **¿El técnico ve el nombre del proveedor de una orden?** La regla dice que del proveedor ve solo dónde retirar, pero
+  la lista de órdenes de compra le muestra el nombre a todos (y el chofer lo necesita para saber adónde ir). Hay que
+  decidir: nombre para todos, o solo para quien gestiona y para el chofer de esa orden. (Vuelta 9)
 
 ## Vueltas
 
@@ -217,3 +225,21 @@ otro agente Haiku intenta desmentir, reviso en el código, arreglo lo confirmado
   Miré en el navegador la tarjeta «Entregadas este mes»: abre 36, la misma cifra del inicio, sin errores en la
   consola. 206 pruebas y los tipos pasan.
 - **Para el dueño:** nada nuevo.
+
+### Vuelta 9 — Pantallas de compras, organización y consola (cerrada a medias por el cupo)
+
+- 20 hallazgos (3 desmentidos). Para cuidar el cupo arreglé solo lo importante; el resto queda anotado abajo.
+- **Arreglado:**
+  - **Entrar con un correo que está en dos rectificadoras no funcionaba:** al elegir a cuál entrar, la pantalla
+    mandaba el pedido sin correo ni clave, y no se podía entrar. Ahora usa los del intento.
+  - Un chofer que pasó a solo lectura veía botones de «Recibido» que siempre fallaban.
+  - El filtro de fechas de la auditoría cortaba el día en UTC: «hasta el 14» dejaba fuera lo de las 22:00 del 14.
+- **Quedó sin hacer (de bajo riesgo):** el contador «Pedir N elegidos» puede contar repuestos que otro ya pidió; el
+  chofer de una orden puede verse como su id si ya no está; el buscador de clientes de la consola no se limpia al
+  quitar los filtros; vaciar la cantidad de un insumo en la orden la vuelve a llenar; la cifra «Insumos» de bodega
+  cuenta también los repuestos guardados; al agregar a alguien desde la consola el rol parte en administrador; y
+  algunas concordancias de plurales.
+- **Comprobado:** 1 prueba nueva (`src/modulos/eventos/noche.test.ts`). 207 pruebas y los tipos pasan. El arreglo de
+  entrar no lo probé en el navegador (la demostración no tiene un correo en dos rectificadoras).
+- **Para el dueño:** el nombre del proveedor para el técnico (arriba). El motivo interno del equipo en la auditoría
+  del cliente volvió a salir en esta vuelta; ya estaba anotado.
