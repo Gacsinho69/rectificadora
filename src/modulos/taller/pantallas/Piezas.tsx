@@ -41,6 +41,9 @@ export function PiezasDelTaller({ catalogo, cerrar }: { catalogo: Catalogo; cerr
   const actividades = (p: PiezaPropia) => catalogo.trabajos.filter((t) => t.pieza === p.id && t.activo).length
   const renombrar = (p: PiezaPropia) => {
     const nombre = (nombres[p.id] ?? p.nombre).trim()
+    // Como en las secciones: lo escrito se descarta al salir y la casilla vuelve a lo guardado.
+    const { [p.id]: _, ...resto } = nombres
+    setNombres(resto)
     if (nombre && nombre !== p.nombre) accion.mutate({ ruta: `/${p.id}`, datos: { nombre }, aviso: 'Pieza renombrada.' })
   }
   const agregar = () => accion.mutate({ ruta: '', datos: { nombre: nueva.trim() }, aviso: 'Pieza agregada. Ahora dale sus actividades.' }, { onSuccess: () => setNueva('') })

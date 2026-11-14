@@ -6,7 +6,7 @@ import { Button, Table } from 'antd'
 import { useState } from 'react'
 import { api } from '../../../pantallas/api'
 import { Bloque, Cargando, Cifras, Problema, useAngosto } from '../../../pantallas/componentes'
-import { cifra, fecha, plata, porcentaje } from '../../../pantallas/formato'
+import { cifra, fecha, plata, plural, porcentaje } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
 import { folioOc } from '../../compras/reglas'
 import { AvanceOt, dias, DondeRetirar, EstadoOtTag, folioOt, horas, PlazoTag, SituacionTag, usePersona, usePortal } from './comun'
@@ -45,15 +45,15 @@ export function Inicio() {
           { rotulo: 'Esperan repuestos', valor: cifra(d.cifras.esperanRepuestos), nota: 'trabajos sin sus repuestos', tono: d.cifras.esperanRepuestos ? 'dorado' : undefined, enlace: () => (tiene('purchasing') ? ir({ to: '/c/$portal/compras', params: { portal } }) : ir({ to: '/c/$portal/taller', params: { portal } })) },
           d.cifras.esperanMaquina > 0 && { rotulo: 'Esperan su máquina', valor: cifra(d.cifras.esperanMaquina), nota: 'su máquina está detenida', tono: 'naranjo', enlace: () => ir({ to: '/c/$portal/maquinas', params: { portal } }) },
           { rotulo: 'Trabajos detenidos', valor: cifra(d.cifras.detenidos), nota: 'cliente, terceros…', tono: d.cifras.detenidos ? 'naranjo' : undefined, enlace: () => ir({ to: '/c/$portal/taller', params: { portal } }) },
-          { rotulo: 'Entregadas este mes', valor: cifra(d.cifras.entregadasMes), enlace: aOts('delivered') },
+          { rotulo: 'Entregadas este mes', valor: cifra(d.cifras.entregadasMes), enlace: () => ir({ to: '/c/$portal/ot', params: { portal }, search: { estado: 'delivered', delMes: '1' } }) },
         ]}
       />
       {d.comercial && (
         <Cifras
           cifras={[
-            { rotulo: 'Cotizado este mes', valor: plata(d.comercial.cotizadoMes), nota: `${d.comercial.enviadasMes} cotizaciones enviadas`, enlace: () => ir({ to: '/c/$portal/cotizaciones', params: { portal } }) },
-            { rotulo: 'Aceptado este mes', valor: plata(d.comercial.aceptadoMes), nota: `${d.comercial.aceptadasMes} cotizaciones` },
-            { rotulo: 'Esperando respuesta', valor: plata(d.comercial.montoPendiente), nota: `${d.comercial.pendientes} cotizaciones`, enlace: () => ir({ to: '/c/$portal/cotizaciones', params: { portal }, search: { estado: 'sent' } }) },
+            { rotulo: 'Cotizado este mes', valor: plata(d.comercial.cotizadoMes), nota: `${plural(d.comercial.enviadasMes, 'cotización enviada', 'cotizaciones enviadas')}`, enlace: () => ir({ to: '/c/$portal/cotizaciones', params: { portal } }) },
+            { rotulo: 'Aceptado este mes', valor: plata(d.comercial.aceptadoMes), nota: plural(d.comercial.aceptadasMes, 'cotización', 'cotizaciones') },
+            { rotulo: 'Esperando respuesta', valor: plata(d.comercial.montoPendiente), nota: plural(d.comercial.pendientes, 'cotización', 'cotizaciones'), enlace: () => ir({ to: '/c/$portal/cotizaciones', params: { portal }, search: { estado: 'sent' } }) },
             { rotulo: 'Tasa de aceptación', valor: d.comercial.tasaAceptacion === null ? '—' : porcentaje(d.comercial.tasaAceptacion), nota: 'Últimos 90 días' },
           ]}
         />

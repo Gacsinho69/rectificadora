@@ -13,7 +13,7 @@ otro agente Haiku intenta desmentir, reviso en el código, arreglo lo confirmado
 - [x] Máquinas (vuelta 5)
 - [x] Consola de la plataforma: acciones, panorama, alertas y salud (vuelta 6)
 - [x] Panel de la organización y alta de personas (vuelta 7)
-- [ ] Pantallas del taller
+- [x] Pantallas del taller (vuelta 8)
 - [ ] Pantallas de compras, organización y consola
 - [ ] Producción: servidor, encabezados y contenedor
 
@@ -31,8 +31,9 @@ otro agente Haiku intenta desmentir, reviso en el código, arreglo lo confirmado
   escrito como texto, sin elegirlo de la lista (así venían las cotizaciones de antes de la lista). La pantalla siempre
   lo elige de la lista, así que hoy no pasa. Si se quiere cerrar del todo, hay que decidir qué hacer con las
   cotizaciones viejas que lo traen escrito. (Vuelta 3)
-- **Otra sesión usa esta carpeta.** A las 04:40 había un servidor de prueba de otra sesión corriendo aquí (puerto 5182,
-  con `.claude/revision.env`). No lo toqué. Por eso en la vuelta 3 no abrí el sistema en el navegador. (Vuelta 3)
+- **Otra sesión usó esta carpeta.** Cerca de las 04:40 había un servidor de prueba de otra sesión corriendo aquí
+  (puerto 5182, con `.claude/revision.env`). No lo toqué, y por eso en las vueltas 3 a 7 no abrí el sistema en el
+  navegador. En la vuelta 8 ya no estaba y volví a usar el mío. (Vuelta 3)
 - **Dos máquinas para la misma actividad.** Si el taller tiene dos lineadoras y una se detiene, hoy todos los trabajos
   de lineado quedan «esperando su máquina», aunque la otra esté operando. ¿Debería bloquear solo cuando estén
   detenidas todas las máquinas de esa actividad? (Vuelta 5)
@@ -196,3 +197,23 @@ otro agente Haiku intenta desmentir, reviso en el código, arreglo lo confirmado
   sexta revisa una carrera que no siempre se da). 204 pruebas y los tipos pasan. Las pantallas no las miré en el
   navegador.
 - **Para el dueño:** el motivo del equipo en la auditoría del cliente (arriba).
+
+### Vuelta 8 — Pantallas del taller
+
+- 13 hallazgos. El desmentido tenía razón en que el servidor no pierde el dato, pero igual en pantalla se veía un
+  código crudo, así que también lo arreglé. Varios venían repetidos: arreglé los 9 distintos.
+- **Arreglado:**
+  - «Entregadas este mes» del inicio abría todas las entregadas de la historia. Ahora abre las del mes (con una
+    etiqueta para quitar ese filtro).
+  - La OT con un motor sin cilindros decía «se cotiza como 2 válvulas por cilindro y 1 culata» aunque se contaban 3 y
+    2. Ahora dice lo que se cuenta y marca lo que es supuesto.
+  - La ficha de un trabajo detenido sin nota decía «Detenido: » y nada más; ahora dice el motivo.
+  - Renombrar secciones o piezas: un nombre borrado dejaba la casilla en blanco, y lo escrito podía pisar después un
+    cambio de otra persona.
+  - Quitar una actividad de una cotización dejaba a sus repuestos mostrando un código crudo en «Lo espera».
+  - Si la OT desde la que se cotiza no cargaba, se abría un borrador vacío sin aviso.
+  - Plurales: «1 abiertas», «1 cotizaciones», «1 clientes».
+- **Comprobado:** 2 pruebas nuevas en `src/modulos/taller/pantallas.test.ts` (el texto del motor y la lista del mes).
+  Miré en el navegador la tarjeta «Entregadas este mes»: abre 36, la misma cifra del inicio, sin errores en la
+  consola. 206 pruebas y los tipos pasan.
+- **Para el dueño:** nada nuevo.

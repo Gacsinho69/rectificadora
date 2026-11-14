@@ -5,7 +5,7 @@ import { Alert, App, Button, Form, Input, Modal, Table } from 'antd'
 import { useState } from 'react'
 import { api } from '../../../pantallas/api'
 import { Bloque, Cargando, Hace, Problema } from '../../../pantallas/componentes'
-import { cifra } from '../../../pantallas/formato'
+import { cifra, plural } from '../../../pantallas/formato'
 import { rutValido } from '../../../rut'
 import { Encabezado } from '../../../pantallas/Marco'
 import { usePersona, usePortal } from './comun'
@@ -20,7 +20,7 @@ export function ClientesTaller() {
   const r = useQuery({ queryKey: ['taller', 'clientes', q], queryFn: () => api<Cliente[]>('GET', `/servicio/clientes${q ? `?q=${encodeURIComponent(q)}` : ''}`) })
   return (
     <>
-      <Encabezado titulo="Clientes" sub={r.data ? `${cifra(r.data.length)} clientes` : undefined} acciones={gestiona ? <Button type="primary" onClick={() => setNuevo(true)}>Nuevo cliente</Button> : null} />
+      <Encabezado titulo="Clientes" sub={r.data ? plural(r.data.length, 'cliente') : undefined} acciones={gestiona ? <Button type="primary" onClick={() => setNuevo(true)}>Nuevo cliente</Button> : null} />
       <div className="filtros">
         <Input.Search className="buscar" placeholder="Nombre, RUT o contacto" allowClear onSearch={setQ} />
       </div>

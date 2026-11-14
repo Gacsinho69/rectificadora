@@ -273,7 +273,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
 
   .get(
     '/ot',
-    conFiltros(z.object({ estado: z.string().optional(), q: z.string().trim().max(80).optional(), pagina: z.coerce.number().int().min(1).default(1), porPagina: z.coerce.number().int().min(10).max(200).default(50) })),
+    conFiltros(z.object({ estado: z.string().optional(), q: z.string().trim().max(80).optional(), delMes: z.literal('1').optional(), pagina: z.coerce.number().int().min(1).default(1), porPagina: z.coerce.number().int().min(10).max(200).default(50) })),
     async (c) => {
       const { base, actor, ahora } = c.var
       const f = c.req.valid('query')
@@ -283,6 +283,8 @@ export const rutasTaller = new Hono<EntornoTenant>()
       const donde = and(
         eq(workOrders.tenantId, actor.tenantId),
         estados ? inArray(workOrders.status, estados) : undefined,
+        // «Entregadas este mes» del inicio: el mismo corte de mes con que se cuentan allá.
+        f.delMes ? sql`${workOrders.deliveredAt} >= date_trunc('month', ${ahora.toISOString()}::timestamptz)` : undefined,
         q ? or(ilike(customers.name, q), ilike(workOrders.engine, q), ilike(workOrders.engineSerial, q), ilike(workOrders.equipment, q), numero ? eq(workOrders.number, numero) : undefined) : undefined,
       )
       const [{ total }] = await base.select({ total: count() }).from(workOrders).innerJoin(customers, eq(customers.id, workOrders.customerId)).where(donde)

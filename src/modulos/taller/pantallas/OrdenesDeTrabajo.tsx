@@ -1,11 +1,11 @@
 // Las órdenes de trabajo y la recepción de un motor. Por omisión, las abiertas, de la más nueva a la más antigua.
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getRouteApi, useNavigate } from '@tanstack/react-router'
-import { Alert, Button, Checkbox, DatePicker, Form, Input, Modal, Pagination, Select, Table } from 'antd'
+import { Alert, Button, Checkbox, DatePicker, Form, Input, Modal, Pagination, Select, Table, Tag } from 'antd'
 import dayjs from 'dayjs'
 import { api, consulta } from '../../../pantallas/api'
 import { Cargando, Problema, useAngosto } from '../../../pantallas/componentes'
-import { cifra, fecha } from '../../../pantallas/formato'
+import { cifra, fecha, plural } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
 import { ESTADOS_OT, type Pieza, PRIORIDADES_OT } from '../reglas'
 import { usePiezas } from './Piezas'
@@ -20,7 +20,7 @@ export function OrdenesDeTrabajo() {
   const { gestiona } = usePersona()
   const pz = usePiezas()
   const ir = useNavigate({ from: '/c/$portal/ot' })
-  const filtros = { estado: b.estado ?? 'abiertas', q: b.q, pagina: b.pagina }
+  const filtros = { estado: b.estado ?? 'abiertas', q: b.q, pagina: b.pagina, delMes: b.delMes }
   const r = useQuery({ queryKey: ['taller', 'ots', filtros], queryFn: () => api<{ total: number; filas: FilaOt[] }>('GET', `/servicio/ot${consulta(filtros)}`), placeholderData: keepPreviousData })
   const estados = filtros.estado === 'abiertas' || filtros.estado === 'todas' ? [] : filtros.estado.split(',')
   const angosto = useAngosto()
@@ -42,7 +42,7 @@ export function OrdenesDeTrabajo() {
     <>
       <Encabezado
         titulo="Órdenes de trabajo"
-        sub={r.data ? `${cifra(r.data.total)} ${filtros.estado === 'abiertas' ? 'abiertas' : 'con estos filtros'}` : undefined}
+        sub={r.data ? (filtros.estado === 'abiertas' ? plural(r.data.total, 'abierta') : `${plural(r.data.total, 'orden', 'órdenes')} con estos filtros`) : undefined}
         acciones={gestiona ? <Button type="primary" onClick={() => ir({ search: { ...b, recibir: '1' } })}>Recibir motor</Button> : null}
       />
       <div className="filtros">
@@ -51,7 +51,7 @@ export function OrdenesDeTrabajo() {
           style={{ minWidth: 200 }}
           value={estados.length ? undefined : filtros.estado}
           placeholder="Por estado"
-          onChange={(v) => ir({ search: { ...b, estado: v === 'abiertas' ? undefined : v, pagina: undefined }, replace: true })}
+          onChange={(v) => ir({ search: { ...b, estado: v === 'abiertas' ? undefined : v, delMes: undefined, pagina: undefined }, replace: true })}
           options={[{ value: 'abiertas', label: 'Abiertas' }, { value: 'todas', label: 'Todas' }]}
         />
         <Select
@@ -62,8 +62,13 @@ export function OrdenesDeTrabajo() {
           style={{ minWidth: 220 }}
           value={estados}
           options={Object.entries(ESTADOS_OT).map(([value, label]) => ({ value, label }))}
-          onChange={(v) => ir({ search: { ...b, estado: v.length ? v.join(',') : undefined, pagina: undefined }, replace: true })}
+          onChange={(v) => ir({ search: { ...b, estado: v.length ? v.join(',') : undefined, delMes: undefined, pagina: undefined }, replace: true })}
         />
+        {b.delMes && (
+          <Tag closable onClose={() => ir({ search: { ...b, delMes: undefined, pagina: undefined }, replace: true })}>
+            Entregadas este mes
+          </Tag>
+        )}
       </div>
       {r.isError && <Problema error={r.error} />}
       {angosto ? (

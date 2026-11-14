@@ -88,11 +88,16 @@ export const motorDeDatos = (x: { cilindros: number | null; valvulasPorCilindro:
   culatas: x.culatas ?? MOTOR_POR_OMISION.culatas,
 })
 
-/** «6 cilindros · 24 válvulas · 1 culata», o «Sin datos». */
+/**
+ * «6 cilindros · 24 válvulas · 1 culata», o null si no se sabe nada. Lo que falta se dice como se cuenta (con lo más
+ * común) y avisa que es supuesto: así la pantalla dice lo mismo que se cobra.
+ */
 export function textoMotor(x: { cilindros: number | null; valvulasPorCilindro: number | null; culatas: number | null }) {
-  if (!x.cilindros) return null
-  const partes = [`${x.cilindros} cilindros`]
-  if (x.valvulasPorCilindro) partes.push(`${x.cilindros * x.valvulasPorCilindro} válvulas (${x.valvulasPorCilindro} por cilindro)`)
+  if (!x.cilindros && !x.valvulasPorCilindro && !x.culatas) return null
+  const m = motorDeDatos(x)
+  const supuesto = (v: number | null) => (v ? '' : ' (sin dato)')
+  const partes = [`${m.cilindros} cilindros${supuesto(x.cilindros)}`]
+  if (x.valvulasPorCilindro || x.cilindros) partes.push(`${m.cilindros * m.valvulasPorCilindro} válvulas (${m.valvulasPorCilindro} por cilindro${x.valvulasPorCilindro ? '' : ', sin dato'})`)
   if (x.culatas) partes.push(x.culatas === 1 ? '1 culata' : `${x.culatas} culatas`)
   return partes.join(' · ')
 }

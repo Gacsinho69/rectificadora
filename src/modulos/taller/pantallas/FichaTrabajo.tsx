@@ -8,6 +8,7 @@ import { useState } from 'react'
 import { api } from '../../../pantallas/api'
 import { Bloque, Cargando, Hace, Problema } from '../../../pantallas/componentes'
 import { fecha, fechaHora } from '../../../pantallas/formato'
+import { MOTIVOS_DETENCION } from '../reglas'
 import { usePiezas } from './Piezas'
 import { EstadoRepuestoTag, folioOt, horas, PlazoTag, SituacionTag, textoEspera, textoFaltan, textoMaquinas, textoMotor, usePersona, usePortal } from './comun'
 import type { FichaTarea } from './tipos'
@@ -43,7 +44,7 @@ function Contenido({ t }: { t: FichaTarea }) {
       {t.situacion === 'waiting' && <p className="tenue">{textoEspera(t.espera)}</p>}
       {t.maquinas.length > 0 && <Alert type="warning" showIcon title={textoMaquinas(t.maquinas)} description="Se puede empezar cuando vuelva a operar." />}
       {t.faltan.length > 0 && <Alert type="warning" showIcon title={textoFaltan(t.faltan)} description="No se termina hasta que llegue." />}
-      {t.situacion === 'held' && t.detencion && <Alert type="warning" showIcon title={`Detenido: ${t.detencion.nota ?? ''}`} description={<>Desde <Hace iso={t.detencion.desde} />{t.detencion.por ? `, por ${t.detencion.por}` : ''}.</>} />}
+      {t.situacion === 'held' && t.detencion && <Alert type="warning" showIcon title={`Detenido: ${MOTIVOS_DETENCION[t.detencion.motivo].toLowerCase()}${t.detencion.nota ? ` · ${t.detencion.nota}` : ''}`} description={<>Desde <Hace iso={t.detencion.desde} />{t.detencion.por ? `, por ${t.detencion.por}` : ''}.</>} />}
 
       <dl className="ficha">
         <dt>OT</dt>

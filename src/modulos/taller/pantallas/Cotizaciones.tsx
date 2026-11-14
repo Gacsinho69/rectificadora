@@ -4,7 +4,7 @@ import { getRouteApi, useNavigate } from '@tanstack/react-router'
 import { Button, Input, Select, Table } from 'antd'
 import { api, consulta } from '../../../pantallas/api'
 import { Problema } from '../../../pantallas/componentes'
-import { cifra, fecha, plata } from '../../../pantallas/formato'
+import { cifra, fecha, plata, plural } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
 import { ESTADOS_COTIZACION } from '../../comercial/reglas'
 import { EstadoCotTag, folioCot, folioOt, usePersona, usePortal } from './comun'
@@ -22,7 +22,7 @@ export function Cotizaciones() {
     <>
       <Encabezado
         titulo="Cotizaciones"
-        sub={r.data ? `${cifra(r.data.total)} cotizaciones` : undefined}
+        sub={r.data ? plural(r.data.total, 'cotización', 'cotizaciones') : undefined}
         acciones={gestiona ? <Button type="primary" onClick={() => ir({ to: '/c/$portal/cotizaciones/$id', params: { portal, id: 'nueva' } })}>Nueva cotización</Button> : null}
       />
       <div className="filtros">

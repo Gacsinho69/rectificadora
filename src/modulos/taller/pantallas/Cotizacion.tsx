@@ -33,6 +33,8 @@ export function Cotizacion() {
   if (!nueva && r.isPending) return <Cargando />
   if (r.isError) return <Problema error={r.error} />
   if (nueva && ot && desdeOt.isPending) return <Cargando />
+  // Si la OT de origen no carga, se dice: no se abre un borrador vacío como si nada.
+  if (nueva && ot && desdeOt.isError) return <Problema error={desdeOt.error} />
   if (!nueva && r.data!.estado !== 'draft') return <Documento q={r.data!} />
   const o = desdeOt.data
   const inicial: Borrador = r.data
@@ -257,7 +259,13 @@ function Editor({ id, numero, inicial }: { id: string | null; numero: number | n
                 ),
             },
             { title: 'Total', key: 'tot', align: 'right', width: 120, render: (_, l) => (l.precio && !loTraeElCliente(l) ? plata(Math.round(l.cantidad * l.precio)) : <span className="tenue">—</span>) },
-            { title: '', key: 'x', width: 1, render: (_, l) => <Button size="small" type="text" icon={<DeleteOutlined />} aria-label="Quitar línea" onClick={() => setB({ ...b, lineas: b.lineas.filter((_, j) => j !== l.i) })} /> },
+            { title: '', key: 'x', width: 1, render: (_, l) => <Button size="small" type="text" icon={<DeleteOutlined />} aria-label="Quitar línea" onClick={() => {
+                  // Los repuestos que esperaban esa actividad pasan a esperar el armado (no quedan apuntando a nada).
+                  const quitada = b.lineas[l.i]
+                  const quedan = b.lineas.filter((_, j) => j !== l.i)
+                  const sigue = quedan.some((x) => x.tipo === 'trabajo' && x.codigo === quitada.codigo)
+                  setB({ ...b, lineas: quedan.map((x) => (quitada.codigo && !sigue && x.necesita === quitada.codigo ? { ...x, necesita: null } : x)) })
+                }} /> },
           ]}
         />
       </Bloque>

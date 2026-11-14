@@ -26,6 +26,10 @@ export function Secciones({ catalogo, cerrar }: { catalogo: Catalogo; cerrar: ()
   const actividades = (s: Seccion) => catalogo.trabajos.filter((t) => t.seccionId === s.id && t.activo).length
   const renombrar = (s: Seccion) => {
     const nombre = (nombres[s.id] ?? s.nombre).trim()
+    // Lo escrito se descarta al salir: la casilla vuelve a mostrar lo guardado (el nombre nuevo, o el de antes si quedó
+    // vacía), y no se pisa después lo que otro cambió.
+    const { [s.id]: _, ...resto } = nombres
+    setNombres(resto)
     if (nombre && nombre !== s.nombre) accion.mutate({ ruta: `/${s.id}`, datos: { nombre }, aviso: 'Sección renombrada.' })
   }
   return (
