@@ -11,7 +11,7 @@ otro agente Haiku intenta desmentir, reviso en el código, arreglo lo confirmado
 - [x] Cotizaciones y clientes (vuelta 3)
 - [x] Compras, proveedores y bodega (vuelta 4)
 - [x] Máquinas (vuelta 5)
-- [ ] Consola de la plataforma: acciones, panorama, alertas y salud
+- [x] Consola de la plataforma: acciones, panorama, alertas y salud (vuelta 6)
 - [ ] Panel de la organización y alta de personas
 - [ ] Pantallas del taller
 - [ ] Pantallas de compras, organización y consola
@@ -148,3 +148,24 @@ otro agente Haiku intenta desmentir, reviso en el código, arreglo lo confirmado
   quinta es la de aislamiento, que pasa con los dos). 190 pruebas y los tipos pasan. La pantalla de máquinas no la
   miré en el navegador, por el servidor de la otra sesión.
 - **Para el dueño:** las dos máquinas para una actividad y el uso de máquinas y bodega (arriba).
+
+### Vuelta 6 — Consola de la plataforma
+
+- 14 hallazgos. El desmentido tenía razón en que el límite de almacenamiento no se aplica, pero igual le puse «(MB)»
+  a su casilla, porque se veía en GB. Uno era la IP del balanceador, ya anotada para la mañana. Arreglé los otros 12.
+- **Arreglado:**
+  - Un cliente en prueba que pasaba por suspendido antes de activarse quedaba activo cobrando $0.
+  - Cancelar no dejaba de cobrar: un cliente cancelado con el pago fallido seguía contando en «pagos fallidos» y
+    dando alertas. Ahora queda «Cancelado» y, si vuelve, vuelve a cobrarse lo que pagaba.
+  - Cambiar de plan no movía el cobro: de Free a Starter quedaba «Sin cobro» con $39.000 al mes, y al revés seguía
+    con fecha de cobro.
+  - El próximo cobro del 31 de enero caía el 3 de marzo; ahora el 28 de febrero.
+  - El resumen, la actividad y la seguridad de un cliente mostraban IPs completas sin pedirlas con permiso.
+  - Un límite puesto en cero con algo usado se mostraba al 0 %, sin alerta.
+  - El almacenamiento de un cliente que dejó de entrar hace más de un mes salía en 0 MB.
+  - El filtro «Creado hasta» usaba el día UTC: un cliente creado a las 22:30 del 14 no salía en el 14.
+  - Encender una función y bloquear a alguien desde la consola ahora quedan con antes y después en la auditoría.
+  - «6.0 veces lo normal» ahora dice «6,0»; «Entrar como» avisa cuando el cliente no tiene un administrador activo.
+- **Comprobado:** 8 pruebas nuevas en `src/modulos/plataforma/noche.test.ts`; las 8 fallan con el código de antes.
+  198 pruebas y los tipos pasan. Las dos pantallas cambiadas (límites y «Entrar como») no las miré en el navegador.
+- **Para el dueño:** nada nuevo.

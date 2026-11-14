@@ -208,7 +208,7 @@ export async function seguridadDelTenant(base: Base, ahora: Date, tenantId: stri
     mfa,
     sso: sso ? { activo: true, proveedor: sso.destino } : { activo: false, proveedor: null },
     clavesApi: integraciones.clavesApi,
-    cambiosDeRol,
+    cambiosDeRol: ocultarIps(cambiosDeRol, completo),
     sensibles: ocultarIps(sensibles, completo),
   }
 }

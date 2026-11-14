@@ -244,8 +244,9 @@ export function resumenDeEvento(e: Pick<EventoVisible, 'metadata' | 'eventType'>
   const m = e.metadata as Record<string, any>
   const partes: string[] = []
   const valor = (v: unknown) => (v && typeof v === 'object' ? Object.entries(v as object).map(([k, x]) => `${k}: ${x}`).join(', ') || '—' : String(v))
-  if (m.antes !== undefined || m.despues !== undefined) partes.push(`${valor(m.antes ?? '—')} → ${valor(m.despues ?? '—')}`)
-  if (m.funcion) partes.push(`${m.funcion}: ${m.activa ? 'encendida' : 'apagada'}`)
+  // Una función: «supplies: encendida» (los eventos nuevos traen antes y después; los de antes, solo «activa»).
+  if (m.funcion) partes.push(`${m.funcion}: ${(m.despues ?? m.activa) ? 'encendida' : 'apagada'}`)
+  else if (m.antes !== undefined || m.despues !== undefined) partes.push(`${valor(m.antes ?? '—')} → ${valor(m.despues ?? '—')}`)
   if (m.mensaje) partes.push(String(m.mensaje))
   if (m.tarea) partes.push(`${m.tarea}${m.error ? `: ${m.error}` : ''}`)
   if (m.url) partes.push(`${m.url} (${m.respuesta ?? 'error'})`)

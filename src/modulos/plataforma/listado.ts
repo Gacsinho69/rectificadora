@@ -5,6 +5,7 @@ import { ESTADOS_SALUD, type EstadoSalud } from '../salud/reglas'
 import { ESTADOS_PAGO, ESTADOS_TENANT, PLANES } from '../tenants/reglas'
 import type { ResumenTenant } from './panorama'
 import { diaSchema } from '../../fecha'
+import { diaEnChile } from '../taller/reglas'
 
 export const NIVELES_USO = { bajo: 'Menos de 50 %', medio: '50 a 80 %', alto: '80 a 90 %', limite: '90 % o más' } as const
 export type NivelUso = keyof typeof NIVELES_USO
@@ -107,8 +108,9 @@ export function filtrarTenants(lista: ResumenTenant[], f: FiltrosTenants, correo
       (!f.salud?.length || (t.salud && f.salud.includes(t.salud.estado))) &&
       (!f.uso || enNivel(t.usoMaximo, f.uso)) &&
       (!f.actividad || enActividad(t.diasSinLogin, f.actividad)) &&
-      (!f.creadoDesde || t.creado.slice(0, 10) >= f.creadoDesde) &&
-      (!f.creadoHasta || t.creado.slice(0, 10) <= f.creadoHasta),
+      // El día de Chile, el mismo que muestra la columna «Creado».
+      (!f.creadoDesde || diaEnChile(new Date(t.creado)) >= f.creadoDesde) &&
+      (!f.creadoHasta || diaEnChile(new Date(t.creado)) <= f.creadoHasta),
   )
   const valor = valorDeOrden[f.orden]
   const signo = f.dir === 'asc' ? 1 : -1

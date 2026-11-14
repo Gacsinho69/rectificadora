@@ -1,7 +1,7 @@
 // El estado de cada cliente en una sola pasada: usuarios, ingresos, errores y uso, agregados por tenant, más su salud
 // y sus alertas. Lo usan el resumen, la lista de clientes, las alertas y la ficha. Cuatro consultas agrupadas en total,
 // sin importar cuántos clientes haya; el filtrado y el orden de la lista se hacen después, sobre este resultado.
-import { and, eq, gte, isNotNull, isNull, max, type SQL, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, isNotNull, isNull, max, type SQL, sql } from 'drizzle-orm'
 import type { Base } from '../../base'
 import { type Alerta, alertasDePlataforma, alertasDeTenant, ordenarAlertas } from '../alertas/reglas'
 import { events } from '../eventos/tablas'
@@ -107,6 +107,16 @@ export async function panorama(base: Base, ahora: Date, soloTenant?: string): Pr
     .from(usageDaily)
     .where(and(gte(usageDaily.day, diaDe(hace(ahora, 31))), soloTenant ? eq(usageDaily.tenantId, soloTenant) : undefined))
 
+  // El último almacenamiento medido de quien no tiene uso en la ventana (dejó de entrar).
+  const almacenamientoDe = new Map(
+    (
+      await base
+        .selectDistinctOn([usageDaily.tenantId], { tenantId: usageDaily.tenantId, storageMb: usageDaily.storageMb })
+        .from(usageDaily)
+        .where(soloTenant ? eq(usageDaily.tenantId, soloTenant) : undefined)
+        .orderBy(usageDaily.tenantId, desc(usageDaily.day))
+    ).map((f) => [f.tenantId, f.storageMb]),
+  )
   const porTenant = <T extends { tenantId: string | null }>(lista: T[]) => new Map(lista.map((f) => [f.tenantId, f]))
   const personasDe = porTenant(personas)
   const sucesosDe = porTenant(sucesos)
@@ -130,7 +140,8 @@ export async function panorama(base: Base, ahora: Date, soloTenant?: string): Pr
     const usado: Limites = {
       // Una invitación ya ocupa su lugar en el plan.
       users: usuarios.total + usuarios.invitados,
-      storage_mb: dias.at(-1)?.storageMb ?? 0,
+      // El almacenamiento es el último que se midió, aunque haga más de un mes que el cliente no entra.
+      storage_mb: dias.at(-1)?.storageMb ?? almacenamientoDe.get(t.id) ?? 0,
       api_calls_month: sumar(delMes, 'apiCalls'),
       work_orders_month: sumar(delMes, 'workOrders'),
     }
@@ -139,7 +150,8 @@ export async function panorama(base: Base, ahora: Date, soloTenant?: string): Pr
       nombre: LIMITES[clave].nombre,
       usado: usado[clave],
       limite: limites[clave],
-      fraccion: limites[clave] > 0 ? usado[clave] / limites[clave] : 0,
+      // Un límite en cero con algo usado ya está excedido (no en 0 %).
+      fraccion: limites[clave] > 0 ? usado[clave] / limites[clave] : usado[clave] > 0 ? 1 : 0,
     }))
     const usoMaximo = Math.max(0, ...usos.map((u) => u.fraccion))
     const funcionesUsadas = claves.filter((k) => dias.some((d) => d.day >= desde30 && (d.features[k] ?? 0) > 0))

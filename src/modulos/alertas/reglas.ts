@@ -94,7 +94,7 @@ export function alertasDeTenant(t: DatosAlerta, ahora: Date): Alerta[] {
   // Consumo anormal: ayer más del triple de lo normal. Con poco volumen no se avisa (un cliente chico que duplica no es noticia).
   if (t.apiAyer >= 1_000 && t.apiAyer > 3 * Math.max(t.apiMediana14d, 1)) {
     const veces = t.apiAyer / Math.max(t.apiMediana14d, 1)
-    agregar('consumo_anormal', veces >= 6 ? 'high' : 'medium', 'Consumo de API anormalmente alto', `Ayer ${t.apiAyer.toLocaleString('es-CL')} llamadas, ${veces.toFixed(1)} veces lo normal`)
+    agregar('consumo_anormal', veces >= 6 ? 'high' : 'medium', 'Consumo de API anormalmente alto', `Ayer ${t.apiAyer.toLocaleString('es-CL')} llamadas, ${veces.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} veces lo normal`)
   }
   return lista
 }

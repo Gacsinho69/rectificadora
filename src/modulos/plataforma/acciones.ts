@@ -23,10 +23,14 @@ import { users } from '../usuarios/tablas'
 
 type C = Context<EntornoPlataforma>
 
-/** El próximo cobro: un mes después. */
-function unMesDespues(ahora: Date) {
+/** El próximo cobro: un mes después. Del 31 de enero se pasa al 28 de febrero, no al 3 de marzo. */
+export function unMesDespues(ahora: Date) {
   const d = new Date(ahora)
+  const dia = d.getUTCDate()
+  d.setUTCDate(1)
   d.setUTCMonth(d.getUTCMonth() + 1)
+  const ultimo = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()
+  d.setUTCDate(Math.min(dia, ultimo))
   return d
 }
 
@@ -130,10 +134,18 @@ export const accionesPlataforma = new Hono<EntornoPlataforma>()
     if (estado === t.status) throw rechazo(409, `El cliente ya está ${ESTADOS_TENANT[estado].toLowerCase()}.`)
     if (!CAMBIOS_DE_ESTADO[t.status].includes(estado))
       throw rechazo(409, `No se puede pasar de «${ESTADOS_TENANT[t.status]}» a «${ESTADOS_TENANT[estado]}».`)
-    // En prueba no pagaba («el monto mensual queda en cero hasta que se active»): al activarse empieza a pagar su plan.
-    const empiezaAPagar = t.status === 'trial' && estado === 'active' && t.mrr === 0
+    // En prueba no pagaba («el monto mensual queda en cero hasta que se active»): al activarse empieza a pagar su plan,
+    // también si entremedio estuvo suspendido o cancelado. Un cliente cancelado deja de cobrarse; si vuelve, vuelve a
+    // cobrarse lo que pagaba.
     const precio = PLANES[t.plan].precio
-    const cobro = empiezaAPagar ? { mrr: precio, billingStatus: precio ? ('paid' as const) : ('none' as const), nextBillingAt: precio ? unMesDespues(c.var.ahora) : null } : {}
+    const empiezaAPagar = estado === 'active' && t.mrr === 0 && (t.status === 'trial' || (t.trialEndsAt !== null && (t.billingStatus === 'none' || t.billingStatus === 'cancelled')))
+    const cobro = empiezaAPagar
+      ? { mrr: precio, billingStatus: precio ? ('paid' as const) : ('none' as const), nextBillingAt: precio ? unMesDespues(c.var.ahora) : null }
+      : estado === 'cancelled'
+        ? { billingStatus: 'cancelled' as const, nextBillingAt: null }
+        : estado === 'active' && t.status === 'cancelled'
+          ? { billingStatus: t.mrr ? ('paid' as const) : ('none' as const), nextBillingAt: t.mrr ? unMesDespues(c.var.ahora) : null }
+          : {}
     await c.var.base.transaction(async (tx) => {
       await tx.update(tenants).set({ status: estado, ...cobro, updatedAt: c.var.ahora }).where(eq(tenants.id, t.id))
       await registrar(tx, origenDe(c), {
@@ -154,8 +166,15 @@ export const accionesPlataforma = new Hono<EntornoPlataforma>()
     if (plan === t.plan && (mrr === undefined || mrr === t.mrr)) throw rechazo(409, 'Ese ya es su plan.')
     // El precio de lista, salvo que se indique otro (Enterprise negociado). Un cliente en prueba no paga todavía.
     const nuevoMrr = t.status === 'trial' ? 0 : (mrr ?? PLANES[plan as Plan].precio)
+    // El cobro sigue al monto: de gratis a pagado empieza a cobrarse; de pagado a gratis, deja de cobrarse.
+    const cobro =
+      t.status === 'trial' || t.status === 'cancelled'
+        ? {}
+        : nuevoMrr > 0
+          ? { billingStatus: t.billingStatus === 'none' ? ('paid' as const) : t.billingStatus, nextBillingAt: t.nextBillingAt ?? unMesDespues(c.var.ahora) }
+          : { billingStatus: 'none' as const, nextBillingAt: null }
     await c.var.base.transaction(async (tx) => {
-      await tx.update(tenants).set({ plan, mrr: nuevoMrr, updatedAt: c.var.ahora }).where(eq(tenants.id, t.id))
+      await tx.update(tenants).set({ plan, mrr: nuevoMrr, ...cobro, updatedAt: c.var.ahora }).where(eq(tenants.id, t.id))
       await registrar(tx, origenDe(c), {
         tenantId: t.id,
         eventType: 'tenant.plan_changed',
@@ -213,7 +232,7 @@ export const accionesPlataforma = new Hono<EntornoPlataforma>()
         eventType: 'tenant.feature_flag_changed',
         targetId: t.id,
         targetType: 'tenant',
-        metadata: { funcion, activa, motivo },
+        metadata: { funcion, antes: Boolean(t.featureFlags[funcion as Funcion]), despues: activa, motivo },
       })
     })
     return c.json({ ok: true })
@@ -229,7 +248,7 @@ export const accionesPlataforma = new Hono<EntornoPlataforma>()
     await c.var.base.transaction(async (tx) => {
       await tx.update(users).set({ status: bloqueado ? 'blocked' : 'active', blockedAt: bloqueado ? c.var.ahora : null }).where(eq(users.id, u.id))
       if (bloqueado) await cerrarSesionesDe(tx, u.id, c.var.ahora)
-      await registrar(tx, origenDe(c), { tenantId: t.id, eventType: bloqueado ? 'user.blocked' : 'user.unblocked', userId: u.id, targetId: u.id, targetType: 'user', metadata: { motivo } })
+      await registrar(tx, origenDe(c), { tenantId: t.id, eventType: bloqueado ? 'user.blocked' : 'user.unblocked', userId: u.id, targetId: u.id, targetType: 'user', metadata: { antes: u.status, despues: bloqueado ? 'blocked' : 'active', motivo } })
     })
     return c.json({ ok: true })
   })

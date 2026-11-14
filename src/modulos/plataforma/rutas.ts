@@ -110,7 +110,8 @@ export const rutasPlataforma = new Hono<EntornoPlataforma>()
         clientesPagando: pagando.filter((t) => t.mrr > 0).length,
       },
       pagos: { vencidos: lista.filter((t) => t.estadoPago === 'past_due').length, fallidos: lista.filter((t) => t.estadoPago === 'failed').length },
-      errores: { recientes: errores },
+      // Sin pedir lo completo (con permiso y anotado), la IP de quien provocó el error va tapada.
+      errores: { recientes: ocultarIps(errores, false) },
       alertas: { total: alertas.length, porPrioridad, principales: alertas.slice(0, 8) },
       atencion,
       porDia: await actividadPorDia(base, ahora, 30),
@@ -174,7 +175,7 @@ export const rutasPlataforma = new Hono<EntornoPlataforma>()
     const t = await tenantOError(c, c.req.param('id'))
     const completo = await verSensible(c, t.id, 'actividad')
     const a = await actividadDelTenant(c.var.base, c.var.ahora, t.id)
-    return c.json({ ...a, completo, logins: ocultarIps(a.logins, completo), fallidos: ocultarIps(a.fallidos, completo), acciones: ocultarIps(a.acciones, completo) })
+    return c.json({ ...a, completo, logins: ocultarIps(a.logins, completo), fallidos: ocultarIps(a.fallidos, completo), acciones: ocultarIps(a.acciones, completo), operaciones: ocultarIps(a.operaciones, completo) })
   })
 
   .get('/tenants/:id/uso', async (c) => {

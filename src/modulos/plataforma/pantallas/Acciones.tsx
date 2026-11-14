@@ -137,7 +137,7 @@ function AjustarLimites({ tenant, cerrar }: Props) {
       <Dialogo cerrar={cerrar} titulo={`Ajustar los límites de ${tenant.nombre}`} accion={accion} enviar={enviar}>
         <Form form={form} layout="vertical" requiredMark={false} initialValues={tenant.ajustes}>
           {claves.map((k) => (
-            <Form.Item key={k} label={LIMITES[k].nombre} name={k} extra={`Plan ${PLANES[tenant.plan].nombre}: ${k === 'storage_mb' ? megas(tenant.limitesDelPlan[k]) : tenant.limitesDelPlan[k].toLocaleString('es-CL')}. Vacío = el del plan.`}>
+            <Form.Item key={k} label={k === 'storage_mb' ? `${LIMITES[k].nombre} (MB)` : LIMITES[k].nombre} name={k} extra={`Plan ${PLANES[tenant.plan].nombre}: ${k === 'storage_mb' ? megas(tenant.limitesDelPlan[k]) : tenant.limitesDelPlan[k].toLocaleString('es-CL')}. Vacío = el del plan.`}>
               <InputNumber min={0} style={{ width: '100%' }} placeholder={String(tenant.limitesDelPlan[k])} />
             </Form.Item>
           ))}
@@ -260,6 +260,10 @@ function Impersonar({ tenant, cerrar }: Props) {
   const admins = tenant.administradores.filter((a) => a.estado === 'active')
   return (
       <Dialogo cerrar={cerrar} titulo={`Entrar como administrador de ${tenant.nombre}`} accion={accion} enviar={() => form.validateFields().then((v) => accion.mutate(v))} textoOk="Entrar">
+        {!admins.length && (
+          // Sin un administrador activo (el único todavía no acepta su invitación) no hay como quién entrar.
+          <Alert type="error" showIcon style={{ marginBottom: 12 }} title="Este cliente no tiene un administrador activo" description="Su administrador todavía no acepta la invitación o está bloqueado. Reenvíale el enlace desde la lista de usuarios." />
+        )}
         <Alert
           type="warning"
           showIcon
