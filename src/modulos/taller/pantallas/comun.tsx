@@ -3,6 +3,7 @@
 import { useParams } from '@tanstack/react-router'
 import { Form, InputNumber, Select } from 'antd'
 import { Estado, type Tono } from '../../../pantallas/componentes'
+import { fecha } from '../../../pantallas/formato'
 import { useYo } from '../../../pantallas/sesion'
 import type { PersonaDelTenant } from '../../acceso/identidad'
 import { ESTADOS_COTIZACION, type EstadoCotizacion } from '../../comercial/reglas'
@@ -11,9 +12,9 @@ import { CILINDROS, type Criterio, CRITERIOS, ESTADOS_OT, ESTADOS_TAREA, type Es
 import type { Funcion } from '../../tenants/reglas'
 import type { Detencion } from './tipos'
 
-const TONO_OT: Record<EstadoOt, Tono> = { received: 'gris', diagnosis: 'azul', waiting_approval: 'dorado', in_progress: 'azul', quality: 'naranjo', ready: 'verde', delivered: 'gris', cancelled: 'gris' }
+const TONO_OT: Record<EstadoOt, Tono> = { received: 'gris', diagnosis: 'azul', waiting_approval: 'gris', in_progress: 'azul', quality: 'azul', ready: 'verde', delivered: 'gris', cancelled: 'gris' }
 const TONO_TAREA: Record<EstadoTarea, Tono> = { pending: 'gris', in_progress: 'azul', done: 'verde' }
-const TONO_COT: Record<EstadoCotizacion, Tono> = { draft: 'gris', sent: 'dorado', accepted: 'verde', rejected: 'rojo', cancelled: 'gris' }
+const TONO_COT: Record<EstadoCotizacion, Tono> = { draft: 'gris', sent: 'azul', accepted: 'verde', rejected: 'rojo', cancelled: 'gris' }
 const TONO_SITUACION: Record<Situacion, Tono> = { in_progress: 'azul', available: 'gris', parts: 'dorado', machine: 'naranjo', waiting: 'gris', held: 'naranjo', done: 'verde' }
 const TONO_REPUESTO: Record<EstadoRepuesto, Tono> = { pending: 'dorado', ordered: 'azul', received: 'verde', cancelled: 'gris' }
 const TONO_OC: Record<EstadoOc, Tono> = { open: 'azul', received: 'verde', cancelled: 'gris' }
@@ -155,4 +156,22 @@ export function usePersona() {
     /** Si su organización tiene encendido ese módulo (compras, bodega, máquinas). */
     tiene: (f: Funcion) => Boolean(persona?.funciones?.includes(f)),
   }
+}
+
+/** Cuántos días faltan para una fecha (negativo si ya pasó), contados en el calendario de quien mira. */
+export function diasHasta(dia: string) {
+  const [a, m, d] = dia.split('-').map(Number)
+  const hoy = new Date()
+  return Math.round((Date.UTC(a, m - 1, d) - Date.UTC(hoy.getFullYear(), hoy.getMonth(), hoy.getDate())) / 86_400_000)
+}
+
+/** La entrega dicha como se dice en el taller: «atrasada 3 días», «vence mañana», «22 nov». */
+export function cuandoSeEntrega(dia: string | null): { texto: string; tono?: 'rojo' | 'naranjo' } {
+  if (!dia) return { texto: 'Sin fecha' }
+  const n = diasHasta(dia)
+  if (n < 0) return { texto: n === -1 ? 'Atrasada 1 día' : `Atrasada ${-n} días`, tono: 'rojo' }
+  if (n === 0) return { texto: 'Vence hoy', tono: 'naranjo' }
+  if (n === 1) return { texto: 'Vence mañana', tono: 'naranjo' }
+  if (n <= 3) return { texto: `Vence en ${n} días`, tono: 'naranjo' }
+  return { texto: fecha(`${dia}T12:00:00Z`) }
 }

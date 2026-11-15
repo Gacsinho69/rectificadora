@@ -1,13 +1,14 @@
-// El chasis de la consola y del panel del cliente: el menú pizarra a la izquierda (un cajón en el celular) y la página.
+// El chasis de la consola y del panel del cliente: el menú claro a la izquierda, por grupos (un cajón en el celular), y la página.
 import { MenuOutlined } from '@ant-design/icons'
 import { useQueryClient } from '@tanstack/react-query'
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useMutation } from '@tanstack/react-query'
 import { Alert, App, Drawer, Form, Input, Modal } from 'antd'
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { api } from './api'
 
-export type Enlace = { a: string; texto: string; icono: React.ReactNode; cuenta?: number; activo?: boolean; search?: Record<string, unknown>; params?: Record<string, string> }
+/** Un enlace del menú. `grupo` lo pone bajo un título chico («Día a día», «Compras»); los seguidos del mismo grupo van juntos. */
+export type Enlace = { a: string; texto: string; icono: React.ReactNode; grupo?: string; cuenta?: number; activo?: boolean; search?: Record<string, unknown>; params?: Record<string, string> }
 
 export function Marco({ titulo, subtitulo, enlaces, persona, aviso, children }: { titulo: string; subtitulo: string; enlaces: Enlace[]; persona: { nombre: string; detalle: string }; aviso?: React.ReactNode; children: React.ReactNode }) {
   const [abierto, setAbierto] = useState(false)
@@ -27,12 +28,15 @@ export function Marco({ titulo, subtitulo, enlaces, persona, aviso, children }: 
         <span>{subtitulo}</span>
       </div>
       <nav className="marco-nav">
-        {enlaces.map((e) => (
-          <Link key={e.texto} to={e.a} params={e.params as never} search={e.search as never} className={`marco-enlace${e.activo ? ' activo' : ''}`}>
-            {e.icono}
-            {e.texto}
-            {e.cuenta ? <span className="cuenta">{e.cuenta}</span> : null}
-          </Link>
+        {enlaces.map((e, i) => (
+          <Fragment key={e.texto}>
+            {e.grupo && e.grupo !== enlaces[i - 1]?.grupo && <div className="marco-grupo">{e.grupo}</div>}
+            <Link to={e.a} params={e.params as never} search={e.search as never} className={`marco-enlace${e.activo ? ' activo' : ''}`} aria-current={e.activo ? 'page' : undefined}>
+              {e.icono}
+              {e.texto}
+              {e.cuenta ? <span className="cuenta">{e.cuenta}</span> : null}
+            </Link>
+          </Fragment>
         ))}
       </nav>
       <div className="marco-pie">

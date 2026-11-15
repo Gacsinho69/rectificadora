@@ -1,163 +1,231 @@
-// El tablero del taller: una columna por sección. Arriba, lo que se puede hacer ahora (primero lo que está en proceso,
-// después lo atrasado, lo urgente y lo que vence antes); abajo, lo detenido con su motivo, lo que espera repuestos y lo
-// que espera su turno en la ruta de su pieza. Cada columna dice su gente y su cola en días. Con «Solo mis trabajos», cada uno ve lo suyo.
+// El tablero del taller, como un panel de control. Arriba, cuatro indicadores que a la vez filtran: lo que se está
+// trabajando, lo que se puede empezar, lo que tiene problemas y lo que espera su turno. Debajo, una tarjeta por sección
+// con cómo se reparten sus trabajos (tocarla deja solo esa sección). Al final, la lista: una fila corta por trabajo
+// (qué es, quién, en qué está, cuándo se entrega), que se ordena por entrega, sección, persona o estado. Todo lo demás
+// (cliente, qué falta, por qué se detuvo, detener) está en la ficha del trabajo. La vista elegida viaja en la dirección.
+import { CloseOutlined } from '@ant-design/icons'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { getRouteApi, Link, useNavigate } from '@tanstack/react-router'
+import { getRouteApi, useNavigate } from '@tanstack/react-router'
 import { Segmented } from 'antd'
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { api } from '../../../pantallas/api'
-import { Cargando, Hace, Problema } from '../../../pantallas/componentes'
-import { fecha, plural } from '../../../pantallas/formato'
+import { Cargando, Problema } from '../../../pantallas/componentes'
+import { cifra, plural } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
-import { MOTIVOS_DETENCION } from '../reglas'
-import { usePiezas } from './Piezas'
-import { dias, folioOt, horas, PlazoTag, SituacionTag, textoEspera, textoFaltan, textoMaquinas, usePersona, usePortal } from './comun'
+import { MOTIVOS_DETENCION, type Situacion } from '../reglas'
+import { cuandoSeEntrega, diasHasta, dias, folioOt, textoEspera, textoFaltan, textoMaquinas, usePersona } from './comun'
 import type { TarjetaTaller, Tablero as DatosTablero } from './tipos'
 import { FichaTrabajo } from './FichaTrabajo'
 import { BotonesDeTarea, useAccionesDeTarea } from './Trabajo'
 
 const ruta = getRouteApi('/c/$portal/taller')
-/** «1 espera», «3 esperan». */
-const esperan = (n: number) => `${n} ${n === 1 ? 'espera' : 'esperan'}`
+
+/** Los cuatro grupos del panel. Sin ninguno elegido se ve lo activo: todo menos lo que espera su turno. */
+const GRUPOS = {
+  trabajando: { nombre: 'Trabajándose', detalle: 'con alguien encima', situaciones: ['in_progress'] },
+  empezar: { nombre: 'Para empezar', detalle: 'listos, nadie partió', situaciones: ['available'] },
+  problemas: { nombre: 'Con problemas', detalle: 'detenidos o les falta algo', situaciones: ['held', 'machine', 'parts'] },
+  fila: { nombre: 'En fila', detalle: 'esperan lo anterior de su pieza', situaciones: ['waiting'] },
+} satisfies Record<string, { nombre: string; detalle: string; situaciones: Situacion[] }>
+type Grupo = keyof typeof GRUPOS
+const ACTIVOS: Situacion[] = ['in_progress', 'available', 'held', 'machine', 'parts']
+const grupoDe = (s: Situacion): Grupo => (s === 'in_progress' ? 'trabajando' : s === 'available' ? 'empezar' : s === 'waiting' ? 'fila' : 'problemas')
+
+const ORDENES = { entrega: 'Entrega', seccion: 'Sección', persona: 'Persona', estado: 'Estado' } as const
+type Orden = keyof typeof ORDENES
+
+/** En qué está un trabajo, en dos o tres palabras, con su color. El detalle va en el globo y en la ficha. */
+type Marca = 'azul' | 'gris' | 'naranjo' | 'dorado' | 'fila' | 'verde'
+function enQueEsta(t: TarjetaTaller): { texto: string; tono: Marca; detalle?: string } {
+  if (t.ot.estado === 'waiting_approval') return { texto: 'Sin aprobar', tono: 'fila', detalle: 'La cotización espera la respuesta del cliente.' }
+  switch (t.situacion) {
+    case 'in_progress':
+      return { texto: 'Trabajando', tono: 'azul' }
+    case 'available':
+      return { texto: 'Para empezar', tono: 'gris' }
+    case 'held':
+      return { texto: 'Detenido', tono: 'naranjo', detalle: t.detencion ? `${MOTIVOS_DETENCION[t.detencion.motivo]}${t.detencion.nota ? `: ${t.detencion.nota}` : ''}` : undefined }
+    case 'machine':
+      return { texto: 'Sin máquina', tono: 'naranjo', detalle: textoMaquinas(t.maquinas) }
+    case 'parts':
+      return { texto: 'Sin repuestos', tono: 'dorado', detalle: textoFaltan(t.faltan) }
+    case 'waiting':
+      return { texto: 'En fila', tono: 'fila', detalle: textoEspera(t.espera) }
+    default:
+      return { texto: 'Terminado', tono: 'verde' }
+  }
+}
+
+/** Para ordenar por entrega: lo que vence antes primero; a igual fecha, lo urgente; sin fecha, al final. */
+const pesoEntrega = (t: TarjetaTaller) => (t.ot.entrega ? diasHasta(t.ot.entrega) : 9_999) * 2 - (t.ot.prioridad === 'urgent' ? 1 : 0)
+/** Para ordenar por estado: primero lo que tiene problemas, después lo que se trabaja, lo que se puede empezar y la fila. */
+const PESO_GRUPO: Record<Grupo, number> = { problemas: 0, trabajando: 1, empezar: 2, fila: 3 }
 
 export function Tablero() {
   const busqueda = ruta.useSearch()
   const { gestiona } = usePersona()
   // El técnico abre en lo suyo; el jefe de taller, en todo el taller. Cada uno puede cambiar.
   const mias = busqueda.mias === undefined ? !gestiona : busqueda.mias === '1'
+  const grupo: Grupo | null = busqueda.ver && busqueda.ver in GRUPOS ? (busqueda.ver as Grupo) : null
+  const orden: Orden = busqueda.orden && busqueda.orden in ORDENES ? (busqueda.orden as Orden) : 'entrega'
   const ir = useNavigate({ from: '/c/$portal/taller' })
+  const cambiar = (c: { ver?: string; orden?: string; seccion?: string; mias?: '1' | '0' }) => ir({ search: (s) => ({ ...s, ...c }), replace: true })
   const [ficha, setFicha] = useState<string | null>(null)
   const r = useQuery({ queryKey: ['taller', 'tablero', mias], queryFn: () => api<DatosTablero>('GET', `/servicio/taller${mias ? '?mias=1' : ''}`), refetchInterval: 60_000, placeholderData: keepPreviousData })
   if (r.isPending) return <Cargando />
   if (r.isError) return <Problema error={r.error} />
-  // En «Solo mis trabajos», las secciones donde no hay nada mío sobran.
-  const secciones = mias ? r.data.secciones.filter((s) => s.tareas.length) : r.data.secciones
+
+  const secciones = r.data.secciones
+  const nombreSeccion = new Map(secciones.map((s) => [s.id, s.nombre]))
+  const seccion = busqueda.seccion && nombreSeccion.has(busqueda.seccion) ? busqueda.seccion : null
   const todas = secciones.flatMap((s) => s.tareas)
-  const cuantas = (...sit: TarjetaTaller['situacion'][]) => todas.filter((t) => sit.includes(t.situacion)).length
+  const deLaSeccion = seccion ? todas.filter((t) => t.seccionId === seccion) : todas
+  const cuantas = (g: Grupo) => deLaSeccion.filter((t) => grupoDe(t.situacion) === g).length
+  const atrasadas = (g: Grupo) => deLaSeccion.filter((t) => grupoDe(t.situacion) === g && t.ot.plazo === 'atrasada').length
+  const visibles = deLaSeccion.filter((t) => (grupo ? (GRUPOS[grupo].situaciones as Situacion[]).includes(t.situacion) : ACTIVOS.includes(t.situacion)))
+
+  // El orden y, salvo por entrega, los grupos de la lista con su título.
+  const titulo = (t: TarjetaTaller) =>
+    orden === 'seccion' ? (nombreSeccion.get(t.seccionId) ?? '') : orden === 'persona' ? (t.asignado ?? 'Sin asignar') : orden === 'estado' ? GRUPOS[grupoDe(t.situacion)].nombre : ''
+  const filas = [...visibles].sort((a, b) => {
+    if (orden === 'seccion') return secciones.findIndex((s) => s.id === a.seccionId) - secciones.findIndex((s) => s.id === b.seccionId) || pesoEntrega(a) - pesoEntrega(b)
+    if (orden === 'persona') return (a.asignado ? 0 : 1) - (b.asignado ? 0 : 1) || (a.asignado ?? '').localeCompare(b.asignado ?? '', 'es') || pesoEntrega(a) - pesoEntrega(b)
+    if (orden === 'estado') return PESO_GRUPO[grupoDe(a.situacion)] - PESO_GRUPO[grupoDe(b.situacion)] || pesoEntrega(a) - pesoEntrega(b)
+    return pesoEntrega(a) - pesoEntrega(b)
+  })
+
   return (
     <>
       <Encabezado
-        titulo="Taller"
-        sub={`${plural(cuantas('in_progress', 'available'), 'trabajo')} para hacer ahora · ${esperan(cuantas('parts'))} repuestos · ${cuantas('machine') ? `${esperan(cuantas('machine'))} su máquina · ` : ''}${esperan(cuantas('waiting'))} su turno · ${plural(cuantas('held'), 'detenido')}`}
-        acciones={<Segmented value={mias ? 'mias' : 'todas'} onChange={(v) => ir({ search: { mias: v === 'mias' ? '1' : '0' }, replace: true })} options={[{ value: 'todas', label: 'Todo el taller' }, { value: 'mias', label: 'Solo mis trabajos' }]} />}
+        titulo="Tablero del taller"
+        sub={seccion ? `Solo ${nombreSeccion.get(seccion)}` : mias ? 'Tus trabajos' : 'Todo el taller, al día de hoy'}
+        acciones={<Segmented value={mias ? 'mias' : 'todas'} onChange={(v) => cambiar({ mias: v === 'mias' ? '1' : '0', seccion: undefined })} options={[{ value: 'todas', label: 'Todo el taller' }, { value: 'mias', label: 'Solo mis trabajos' }]} />}
       />
-      {mias && !todas.length && !r.isPlaceholderData && <p className="tenue">No tienes trabajos asignados. Te llegan solos si eres especialista de una actividad, o te los asigna el jefe de taller.</p>}
-      <div className={`tablero${r.isPlaceholderData ? ' actualizando' : ''}`}>
-        {secciones.map((s) => {
-          const ahora = s.tareas.filter((t) => t.situacion === 'in_progress' || t.situacion === 'available')
-          const esperan = s.tareas.filter((t) => t.situacion === 'waiting')
-          const sinRepuestos = s.tareas.filter((t) => t.situacion === 'parts')
-          const sinMaquina = s.tareas.filter((t) => t.situacion === 'machine')
-          const detenidas = s.tareas.filter((t) => t.situacion === 'held')
+
+      {/* Los cuatro indicadores: el número grande y, tocándolo, la lista queda solo con eso. */}
+      <div className={`panel-indicadores${mias ? ' solos' : ''}`} role="group" aria-label="Filtrar por estado">
+        {(Object.keys(GRUPOS) as Grupo[]).map((g) => {
+          const atr = atrasadas(g)
           return (
-            <section key={s.id} className="tablero-columna">
-              <header>
-                <div>
-                  <b>{s.nombre}</b>
-                  <small title={s.gente.map((g) => g.nombre).join(', ')}>
-                    {s.gente.length === 0 ? 'Sin especialistas' : s.gente.length === 1 ? s.gente[0].nombre : plural(s.gente.length, 'persona')} · {horas(Math.round(s.ahora))} para hacer · cola {dias(s.dias === null ? null : Math.round(s.dias * 10) / 10)}
-                  </small>
-                </div>
-                <span title="Para hacer ahora">{ahora.length}</span>
-              </header>
-              <div className="tablero-tarjetas">
-                {ahora.length === 0 && <p className="tenue">Nada para hacer ahora.</p>}
-                {ahora.map((t) => (
-                  <Tarjeta key={t.id} t={t} abrir={setFicha} />
-                ))}
-                {detenidas.length > 0 && (
-                  <div className="tablero-grupo">
-                    <h3>Detenidos ({detenidas.length})</h3>
-                    {detenidas.map((t) => (
-                      <Tarjeta key={t.id} t={t} abrir={setFicha} />
-                    ))}
-                  </div>
-                )}
-                {sinMaquina.length > 0 && (
-                  <div className="tablero-grupo">
-                    <h3>Esperan su máquina ({sinMaquina.length})</h3>
-                    {sinMaquina.map((t) => (
-                      <Tarjeta key={t.id} t={t} abrir={setFicha} />
-                    ))}
-                  </div>
-                )}
-                {sinRepuestos.length > 0 && (
-                  <div className="tablero-grupo">
-                    <h3>Esperan repuestos ({sinRepuestos.length})</h3>
-                    {sinRepuestos.map((t) => (
-                      <Tarjeta key={t.id} t={t} abrir={setFicha} />
-                    ))}
-                  </div>
-                )}
-                {esperan.length > 0 && (
-                  <details className="tablero-grupo">
-                    <summary>Esperan su turno ({esperan.length})</summary>
-                    <div className="tablero-grupo-lista">
-                      {esperan.map((t) => (
-                        <Tarjeta key={t.id} t={t} abrir={setFicha} />
-                      ))}
-                    </div>
-                  </details>
-                )}
-              </div>
-            </section>
+            <button key={g} type="button" className={`indicador ind-${g}${grupo === g ? ' elegido' : ''}`} aria-pressed={grupo === g} onClick={() => cambiar({ ver: grupo === g ? undefined : g })}>
+              <span className="indicador-nombre">{GRUPOS[g].nombre}</span>
+              <span className="indicador-numero">{cifra(cuantas(g))}</span>
+              <span className="indicador-pie">{atr ? <b>{plural(atr, 'atrasado')}</b> : GRUPOS[g].detalle}</span>
+            </button>
           )
         })}
+      </div>
+
+      {/* Una tarjeta por sección: sus trabajos activos y cómo se reparten. Tocarla deja solo esa sección. */}
+      {!mias && (
+        <section className="panel-secciones" aria-label="Por sección">
+          {secciones.map((s) => {
+            const activos = s.tareas.filter((t) => ACTIVOS.includes(t.situacion))
+            const de = (g: Grupo) => s.tareas.filter((t) => grupoDe(t.situacion) === g).length
+            const total = Math.max(1, s.tareas.length)
+            return (
+              <button key={s.id} type="button" className={`tarjeta-seccion${seccion === s.id ? ' elegida' : ''}`} aria-pressed={seccion === s.id} onClick={() => cambiar({ seccion: seccion === s.id ? undefined : s.id })}>
+                <span className="tarjeta-seccion-nombre">{s.nombre}</span>
+                <span className="tarjeta-seccion-numero">
+                  {cifra(activos.length)} <small>{activos.length === 1 ? 'activo' : 'activos'}</small>
+                </span>
+                <span className="reparto" aria-hidden>
+                  {(['problemas', 'trabajando', 'empezar', 'fila'] as Grupo[]).map((g) => (de(g) ? <span key={g} className={`reparto-${g}`} style={{ flexGrow: de(g) / total }} /> : null))}
+                </span>
+                <span className="tarjeta-seccion-pie">
+                  {de('problemas') > 0 && <b>{de('problemas')} con problemas · </b>}
+                  {s.dias === null ? 'sin gente' : s.dias < 0.05 ? 'al día' : `${dias(Math.round(s.dias * 10) / 10)} en fila`}
+                </span>
+              </button>
+            )
+          })}
+        </section>
+      )}
+
+      {/* La lista: arriba cuántos hay, el filtro puesto (para sacarlo) y el orden. */}
+      <div className="lista-barra">
+        <span className="lista-barra-cuenta">
+          {plural(filas.length, 'trabajo')}
+          {grupo && (
+            <button type="button" className="filtro-puesto" onClick={() => cambiar({ ver: undefined })}>
+              {GRUPOS[grupo].nombre} <CloseOutlined />
+            </button>
+          )}
+          {seccion && (
+            <button type="button" className="filtro-puesto" onClick={() => cambiar({ seccion: undefined })}>
+              {nombreSeccion.get(seccion)} <CloseOutlined />
+            </button>
+          )}
+        </span>
+        <span className="lista-barra-orden">
+          <span className="tenue">Ordenar por</span>
+          {(Object.keys(ORDENES) as Orden[]).map((o) => (
+            <button key={o} type="button" aria-pressed={orden === o} onClick={() => cambiar({ orden: o === 'entrega' ? undefined : o })}>
+              {ORDENES[o]}
+            </button>
+          ))}
+        </span>
+      </div>
+
+      <div className={`lista-panel${r.isPlaceholderData ? ' actualizando' : ''}`}>
+        {filas.length === 0 ? (
+          <p className="lista-panel-vacia">{mias && !todas.length ? 'No tienes trabajos asignados. Te llegan solos si eres especialista de una actividad, o te los asigna el jefe de taller.' : 'Nada por aquí.'}</p>
+        ) : (
+          <>
+            <div className="fila-panel encabezado-panel" aria-hidden>
+              <span>OT</span>
+              <span>Trabajo</span>
+              <span>Persona</span>
+              <span>Estado</span>
+              <span>Entrega</span>
+              <span />
+            </div>
+            {filas.map((t, i) => (
+              <Fragment key={t.id}>
+                {orden !== 'entrega' && (i === 0 || titulo(t) !== titulo(filas[i - 1])) && (
+                  <div className="grupo-panel">
+                    {titulo(t)}
+                    <span>{filas.filter((x) => titulo(x) === titulo(t)).length}</span>
+                  </div>
+                )}
+                <Fila t={t} seccion={orden === 'seccion' || seccion ? null : (nombreSeccion.get(t.seccionId) ?? null)} abrir={setFicha} />
+              </Fragment>
+            ))}
+          </>
+        )}
       </div>
       {ficha && <FichaTrabajo id={ficha} cerrar={() => setFicha(null)} />}
     </>
   )
 }
 
-function Tarjeta({ t, abrir }: { t: TarjetaTaller; abrir: (id: string) => void }) {
-  const portal = usePortal()
-  const pz = usePiezas()
+function Fila({ t, seccion, abrir }: { t: TarjetaTaller; seccion: string | null; abrir: (id: string) => void }) {
   const { persona, gestiona, trabaja, suspendida } = usePersona()
   const accion = useAccionesDeTarea()
-  const clase = t.situacion === 'held' || t.situacion === 'machine' ? ' detenida' : t.situacion === 'parts' ? ' sin-repuestos' : t.situacion === 'waiting' ? ' espera' : t.situacion === 'in_progress' ? ' en-proceso' : t.ot.plazo === 'atrasada' ? ' atrasada' : ''
+  const esta = enQueEsta(t)
+  const entrega = cuandoSeEntrega(t.ot.entrega)
+  const abre = () => abrir(t.id)
   return (
-    <article className={`tarjeta abre${clase}`} onClick={() => abrir(t.id)}>
-      <div className="tarjeta-cabeza">
-        <Link to="/c/$portal/ot/$id" params={{ portal, id: t.ot.id }} onClick={(e) => e.stopPropagation()}>
-          {folioOt(t.ot.numero)}
-        </Link>
-        <span className="evento-nombre">
-          <PlazoTag plazo={t.ot.plazo} />
-          {t.ot.prioridad === 'urgent' && <span className="estado rojo">Urgente</span>}
-        </span>
-      </div>
-      <b className="tarjeta-trabajo abre" role="button" tabIndex={0} title="Abrir la ficha del trabajo" onKeyDown={(e) => e.key === 'Enter' && abrir(t.id)}>
-        {t.nombre}
-      </b>
-      <small>
-        {t.pieza !== 'motor' && `${pz.nombre(t.pieza)} · `}
-        {t.ot.motor} · {t.cliente}
-      </small>
-      <small>
-        {t.asignado ?? 'Sin asignar'}
-        {t.horas ? ` · ${horas(t.horas)}` : ''}
-        {t.ot.entrega ? ` · entrega ${fecha(`${t.ot.entrega}T12:00:00Z`)}` : ''}
-      </small>
-      {t.maquinas.length > 0 && <small className="tarjeta-aviso naranjo">{textoMaquinas(t.maquinas)}</small>}
-      {t.faltan.length > 0 && <small className="tarjeta-aviso dorado">{textoFaltan(t.faltan)}</small>}
-      {t.situacion === 'waiting' && <small className="tarjeta-aviso">{textoEspera(t.espera)}</small>}
-      {t.situacion === 'held' && t.detencion && (
-        <small className="tarjeta-aviso naranjo">
-          {MOTIVOS_DETENCION[t.detencion.motivo]}
-          {t.detencion.nota ? `: ${t.detencion.nota}` : ''} · <Hace iso={t.detencion.desde} />
+    <div className="fila-panel" onClick={abre} onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && abre()} tabIndex={0} role="button" aria-label={`${t.nombre}, ${folioOt(t.ot.numero)}: abrir la ficha`}>
+      <span className="fila-panel-ot">{folioOt(t.ot.numero)}</span>
+      <span className="fila-panel-que">
+        <b>{t.nombre}</b>
+        <small>
+          {t.ot.motor}
+          {seccion ? ` · ${seccion}` : ''}
         </small>
-      )}
-      <div className="tarjeta-pie">
-        <span className="evento-nombre">
-          <SituacionTag situacion={t.situacion} detencion={t.detencion} espera={t.espera} faltan={t.faltan} maquinas={t.maquinas} />
-          {t.situacion === 'in_progress' && t.inicio && (
-            <span className="tenue">
-              desde <Hace iso={t.inicio} />
-            </span>
-          )}
+      </span>
+      <span className="fila-panel-quien">{t.asignado ?? <span className="tenue">Sin asignar</span>}</span>
+      <span className="fila-panel-estado">
+        <span className={`estado ${esta.tono}`} title={esta.detalle}>
+          {esta.texto}
         </span>
-        {t.ot.estado === 'waiting_approval' ? <span className="tenue">Esperando aprobación</span> : <BotonesDeTarea t={t} yo={persona?.id} gestiona={gestiona} trabaja={trabaja && !suspendida} accion={accion} />}
-      </div>
-    </article>
+      </span>
+      <span className={`fila-panel-cuando${entrega.tono ? ` tono-${entrega.tono}` : ''}`}>
+        {entrega.texto}
+        {t.ot.prioridad === 'urgent' && <i>Urgente</i>}
+      </span>
+      <span className="fila-panel-accion">{t.ot.estado !== 'waiting_approval' && <BotonesDeTarea t={t} yo={persona?.id} gestiona={gestiona} trabaja={trabaja && !suspendida} accion={accion} compacto />}</span>
+    </div>
   )
 }

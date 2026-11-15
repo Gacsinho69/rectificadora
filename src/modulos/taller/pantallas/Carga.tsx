@@ -22,7 +22,7 @@ export function Carga() {
     mutationFn: (id: string) => api<{ repartidos: number }>('POST', `/servicio/secciones/${id}/repartir`),
     onSuccess: (x) => {
       if (x.repartidos) message.success(`Repartidos ${x.repartidos} trabajos entre los especialistas.`)
-      else message.info('Nada que repartir: esas actividades no tienen especialistas. Asígnalos en Actividades.')
+      else message.info('Nada que repartir: esas actividades no tienen especialistas. Asígnalos en la Lista de trabajos.')
       return consultas.invalidateQueries({ queryKey: ['taller'] })
     },
     onError: (e) => message.error((e as Error).message),
@@ -45,7 +45,7 @@ export function Carga() {
           peor && { rotulo: 'Sección más cargada', valor: <span style={{ fontSize: 15 }}>{peor.nombre}</span>, nota: `${dias(redondear(peor.dias))} de cola` },
         ]}
       />
-      <Bloque titulo="Por sección" extra={<span className="tenue">La gente de una sección es la que hace sus actividades. Se cambia en <Link to="/c/$portal/actividades" params={{ portal }}>Actividades</Link>.</span>}>
+      <Bloque titulo="Por sección" extra={<span className="tenue">La gente de una sección es la que hace sus actividades. Se cambia en <Link to="/c/$portal/actividades" params={{ portal }}>Lista de trabajos</Link>.</span>}>
         <Table<CargaSeccion>
           size="small"
           rowKey="id"

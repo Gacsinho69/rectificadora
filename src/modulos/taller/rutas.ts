@@ -606,7 +606,7 @@ export const rutasTaller = new Hono<EntornoTenant>()
     if (ot.status === 'delivered' || ot.status === 'cancelled' || ot.status === 'ready') throw rechazo(409, 'A esta OT ya no se le agregan trabajos.')
     const d = c.req.valid('json')
     const trabajo = await filaDelTenant(c, services, d.trabajoId, 'service', 'ese trabajo')
-    if (!trabajo.active) throw rechazo(409, 'Esa actividad está fuera de la lista: actívala primero en Actividades.')
+    if (!trabajo.active) throw rechazo(409, 'Esa actividad está fuera de la lista: actívala primero en la Lista de trabajos.')
     // La pieza en que queda (la que se pidió o la de la actividad) tiene que estar en uso, y su sección encendida.
     await exigirPiezas(c, [d.pieza ?? trabajo.piece], true)
     const [seccion] = await c.var.base.select({ activa: shopSections.active }).from(shopSections).where(and(eq(shopSections.id, trabajo.sectionId), eq(shopSections.tenantId, c.var.actor.tenantId)))

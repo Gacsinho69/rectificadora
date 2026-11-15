@@ -1,5 +1,10 @@
 import '../zod-es'
-import '@fontsource-variable/archivo/wdth.css'
+// Las letras del sistema de diseño (IBM Plex), servidas desde la app: el texto, los rótulos angostos y las cifras.
+import '@fontsource/ibm-plex-sans/latin-400.css'
+import '@fontsource/ibm-plex-sans/latin-500.css'
+import '@fontsource/ibm-plex-sans/latin-600.css'
+import '@fontsource/ibm-plex-sans-condensed/latin-600.css'
+import '@fontsource/ibm-plex-mono/latin-500.css'
 import 'antd/dist/reset.css'
 import './estilo.css'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -21,7 +26,7 @@ const consultas = new QueryClient({
 
 createRoot(document.getElementById('raiz') as HTMLElement).render(
   <QueryClientProvider client={consultas}>
-    <ConfigProvider locale={esES} theme={tema}>
+    <ConfigProvider locale={esES} theme={tema} wave={{ disabled: true }}>
       <App>
         <RouterProvider router={router} />
       </App>

@@ -44,7 +44,7 @@ export function Actividades() {
   return (
     <>
       <Encabezado
-        titulo="Actividades"
+        titulo="Lista de trabajos"
         sub="Por pieza, en el orden de su ruta, con su valor y quién las hace."
         acciones={
           puedeEditar ? (

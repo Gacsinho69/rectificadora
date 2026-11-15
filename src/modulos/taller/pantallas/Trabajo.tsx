@@ -33,10 +33,12 @@ type Props = {
   accion: ReturnType<typeof useAccionesDeTarea>
   /** Lo que anotó quien lo hizo, para guardarlo al terminar (desde la ficha). */
   resultado?: string
+  /** En listas y tableros: solo el botón principal (iniciar, terminar, reanudar). Detener queda en la ficha. */
+  compacto?: boolean
 }
 
 /** Los botones que corresponden a la situación del trabajo y a quién mira. */
-export function BotonesDeTarea({ t, yo, gestiona, trabaja, accion, resultado }: Props) {
+export function BotonesDeTarea({ t, yo, gestiona, trabaja, accion, resultado, compacto }: Props) {
   const [deteniendo, setDeteniendo] = useState(false)
   if (!trabaja || t.situacion === 'done') return null
   const suya = !t.asignadoId || t.asignadoId === yo || gestiona
@@ -46,7 +48,7 @@ export function BotonesDeTarea({ t, yo, gestiona, trabaja, accion, resultado }: 
     e.stopPropagation()
     accion.mutate({ id: t.id, accion: a })
   }
-  const detener = (
+  const detener = compacto ? null : (
     <Button size="small" type="text" onClick={(e) => { e.stopPropagation(); setDeteniendo(true) }}>
       Detener
     </Button>

@@ -34,7 +34,7 @@ export function Secciones({ catalogo, cerrar }: { catalogo: Catalogo; cerrar: ()
   }
   return (
     <Modal open title="Secciones del taller" footer={<Button onClick={cerrar}>Cerrar</Button>} onCancel={cerrar} destroyOnHidden width={640}>
-      <p className="tenue" style={{ marginTop: 0 }}>En este orden salen las columnas del tablero. Una sección se apaga cuando ya no tiene actividades en uso ni trabajos por hacer.</p>
+      <p className="tenue" style={{ marginTop: 0 }}>En este orden salen las secciones en el tablero. Una sección se apaga cuando ya no tiene actividades en uso ni trabajos por hacer.</p>
       {accion.isError && <Alert type="error" showIcon title={(accion.error as Error).message} style={{ marginBottom: 12 }} closable onClose={() => accion.reset()} />}
       <Table<Seccion>
         size="small"

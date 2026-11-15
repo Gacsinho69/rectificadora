@@ -132,23 +132,23 @@ function MarcoTaller() {
   const en = (a: string) => (a === base ? ruta === base || ruta === `${base}/` : ruta.startsWith(a))
   const enlaces = [
     { a: '/c/$portal', texto: 'Inicio', icono: <HomeOutlined />, activo: en(base) },
-    { a: '/c/$portal/ot', texto: 'Órdenes de trabajo', icono: <UnorderedListOutlined />, activo: en(`${base}/ot`) },
-    { a: '/c/$portal/taller', texto: 'Taller', icono: <ToolOutlined />, activo: en(`${base}/taller`) },
-    { a: '/c/$portal/carga', texto: 'Carga', icono: <DashboardOutlined />, activo: en(`${base}/carga`) },
-    ...(persona.rol === 'admin' || persona.rol === 'planner' ? [{ a: '/c/$portal/rendimiento', texto: 'Rendimiento', icono: <LineChartOutlined />, activo: en(`${base}/rendimiento`) }] : []),
-    ...(persona.funciones.includes('machines') ? [{ a: '/c/$portal/maquinas', texto: 'Máquinas', icono: <ControlOutlined />, activo: en(`${base}/maquinas`) }] : []),
-    ...(persona.rol !== 'technician' ? [{ a: '/c/$portal/cotizaciones', texto: 'Cotizaciones', icono: <FileTextOutlined />, activo: en(`${base}/cotizaciones`) }] : []),
-    ...(persona.funciones.includes('purchasing') ? [{ a: '/c/$portal/compras', texto: 'Compras', icono: <ShoppingCartOutlined />, activo: en(`${base}/compras`) }] : []),
-    ...(persona.funciones.includes('supplies') ? [{ a: '/c/$portal/bodega', texto: 'Bodega', icono: <InboxOutlined />, activo: en(`${base}/bodega`) }] : []),
-    ...(persona.rol !== 'technician' && persona.funciones.includes('purchasing') ? [{ a: '/c/$portal/proveedores', texto: 'Proveedores', icono: <ShopOutlined />, activo: en(`${base}/proveedores`) }] : []),
-    { a: '/c/$portal/clientes', texto: 'Clientes', icono: <TeamOutlined />, activo: en(`${base}/clientes`) },
-    { a: '/c/$portal/actividades', texto: 'Actividades', icono: <TagsOutlined />, activo: en(`${base}/actividades`) },
-    ...(persona.rol === 'admin' ? [{ a: '/organizacion', texto: 'Administración', icono: <SettingOutlined />, activo: false }] : []),
+    { a: '/c/$portal/ot', texto: 'Órdenes de trabajo', icono: <UnorderedListOutlined />, grupo: 'Día a día', activo: en(`${base}/ot`) },
+    ...(persona.rol !== 'technician' ? [{ a: '/c/$portal/cotizaciones', texto: 'Cotizaciones', icono: <FileTextOutlined />, grupo: 'Día a día', activo: en(`${base}/cotizaciones`) }] : []),
+    { a: '/c/$portal/taller', texto: 'Tablero del taller', icono: <ToolOutlined />, grupo: 'Día a día', activo: en(`${base}/taller`) },
+    { a: '/c/$portal/clientes', texto: 'Clientes', icono: <TeamOutlined />, grupo: 'Día a día', activo: en(`${base}/clientes`) },
+    { a: '/c/$portal/carga', texto: 'Carga del taller', icono: <DashboardOutlined />, grupo: 'Cómo va el taller', activo: en(`${base}/carga`) },
+    ...(persona.rol === 'admin' || persona.rol === 'planner' ? [{ a: '/c/$portal/rendimiento', texto: 'Rendimiento', icono: <LineChartOutlined />, grupo: 'Cómo va el taller', activo: en(`${base}/rendimiento`) }] : []),
+    ...(persona.funciones.includes('machines') ? [{ a: '/c/$portal/maquinas', texto: 'Máquinas', icono: <ControlOutlined />, grupo: 'Cómo va el taller', activo: en(`${base}/maquinas`) }] : []),
+    ...(persona.funciones.includes('purchasing') ? [{ a: '/c/$portal/compras', texto: 'Compras', icono: <ShoppingCartOutlined />, grupo: 'Compras y bodega', activo: en(`${base}/compras`) }] : []),
+    ...(persona.rol !== 'technician' && persona.funciones.includes('purchasing') ? [{ a: '/c/$portal/proveedores', texto: 'Proveedores', icono: <ShopOutlined />, grupo: 'Compras y bodega', activo: en(`${base}/proveedores`) }] : []),
+    ...(persona.funciones.includes('supplies') ? [{ a: '/c/$portal/bodega', texto: 'Bodega', icono: <InboxOutlined />, grupo: 'Compras y bodega', activo: en(`${base}/bodega`) }] : []),
+    { a: '/c/$portal/actividades', texto: 'Lista de trabajos', icono: <TagsOutlined />, grupo: 'Ajustes', activo: en(`${base}/actividades`) },
+    ...(persona.rol === 'admin' ? [{ a: '/organizacion', texto: 'Administración', icono: <SettingOutlined />, grupo: 'Ajustes', activo: false }] : []),
   ].map((e) => ({ ...e, params: { portal } }))
   return (
     <Marco
       titulo={persona.tenantNombre}
-      subtitulo={`Sistema de la rectificadora · ${ROLES_TENANT[persona.rol]}`}
+      subtitulo={ROLES_TENANT[persona.rol]}
       persona={actor.tipo === 'plataforma' ? { nombre: actor.nombre, detalle: 'Equipo de la plataforma' } : { nombre: actor.nombre, detalle: actor.correo }}
       aviso={
         <>
@@ -306,7 +306,7 @@ const tallerOts = createRoute({
   component: OrdenesDeTrabajo,
 })
 const tallerOt = createRoute({ getParentRoute: () => taller, path: 'ot/$id', component: OrdenDeTrabajo })
-const tablero = createRoute({ getParentRoute: () => taller, path: 'taller', validateSearch: (s: Record<string, unknown>): { mias?: '1' | '0' } => ({ mias: s.mias === undefined ? undefined : String(s.mias) === '0' ? '0' : '1' }), component: Tablero })
+const tablero = createRoute({ getParentRoute: () => taller, path: 'taller', validateSearch: (s: Record<string, unknown>): { mias?: '1' | '0'; ver?: string; orden?: string; seccion?: string } => ({ mias: s.mias === undefined ? undefined : String(s.mias) === '0' ? '0' : '1', ver: texto(s.ver), orden: texto(s.orden), seccion: texto(s.seccion) }), component: Tablero })
 const tallerCotizaciones = createRoute({
   getParentRoute: () => taller,
   path: 'cotizaciones',

@@ -215,7 +215,7 @@ function AgregarPersona({ cerrar }: { cerrar: () => void }) {
   if (hecha)
     return (
       <ModalEnlace nombre={hecha.nombre} invitacion={hecha.invitacion} cerrar={cerrar}>
-        {hecha.rol === 'technician' && <p>Dale sus actividades en «Actividades» del sistema para que le lleguen sus trabajos.</p>}
+        {hecha.rol === 'technician' && <p>Dale sus actividades en «Lista de trabajos» del sistema para que le lleguen sus trabajos.</p>}
       </ModalEnlace>
     )
   return (
