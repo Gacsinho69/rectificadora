@@ -17,6 +17,7 @@ export type FilaOt = {
   prioridad: PrioridadOt
   entrega: string | null
   creada: string
+  entregada?: string | null
   plazo: Plazo
   avance?: number
   total?: number

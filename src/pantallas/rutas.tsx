@@ -302,7 +302,7 @@ const tallerInicio = createRoute({ getParentRoute: () => taller, path: '/', comp
 const tallerOts = createRoute({
   getParentRoute: () => taller,
   path: 'ot',
-  validateSearch: (s: Record<string, unknown>): { estado?: string; q?: string; pagina?: number; recibir?: string; delMes?: '1' } => ({ estado: texto(s.estado), q: texto(s.q), pagina: numero(s.pagina), recibir: texto(s.recibir), delMes: s.delMes === undefined ? undefined : '1' }),
+  validateSearch: (s: Record<string, unknown>): { estado?: string; q?: string; orden?: string; pagina?: number; recibir?: string; delMes?: '1' } => ({ estado: texto(s.estado), q: texto(s.q), orden: texto(s.orden), pagina: numero(s.pagina), recibir: texto(s.recibir), delMes: s.delMes === undefined ? undefined : '1' }),
   component: OrdenesDeTrabajo,
 })
 const tallerOt = createRoute({ getParentRoute: () => taller, path: 'ot/$id', component: OrdenDeTrabajo })

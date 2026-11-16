@@ -273,33 +273,48 @@ export const rutasTaller = new Hono<EntornoTenant>()
 
   .get(
     '/ot',
-    conFiltros(z.object({ estado: z.string().optional(), q: z.string().trim().max(80).optional(), delMes: z.literal('1').optional(), pagina: z.coerce.number().int().min(1).default(1), porPagina: z.coerce.number().int().min(10).max(200).default(50) })),
+    conFiltros(z.object({ estado: z.string().optional(), q: z.string().trim().max(80).optional(), delMes: z.literal('1').optional(), orden: z.enum(['numero', 'entrega', 'cliente']).default('numero'), pagina: z.coerce.number().int().min(1).default(1), porPagina: z.coerce.number().int().min(10).max(200).default(50) })),
     async (c) => {
       const { base, actor, ahora } = c.var
       const f = c.req.valid('query')
       const estados = !f.estado || f.estado === 'abiertas' ? OT_ABIERTAS : f.estado === 'todas' ? null : (f.estado.split(',').filter((e) => e in ESTADOS_OT) as EstadoOt[])
       const q = f.q ? `%${f.q.replace(/[%_\\]/g, '\\$&')}%` : null
       const numero = f.q && /^\d+$/.test(f.q.replace(/^OT-?/i, '')) ? Number(f.q.replace(/^OT-?/i, '')) : null
+      const busqueda = q ? or(ilike(customers.name, q), ilike(workOrders.engine, q), ilike(workOrders.engineSerial, q), ilike(workOrders.equipment, q), numero ? eq(workOrders.number, numero) : undefined) : undefined
       const donde = and(
         eq(workOrders.tenantId, actor.tenantId),
         estados ? inArray(workOrders.status, estados) : undefined,
         // «Entregadas este mes» del inicio: el mismo corte de mes con que se cuentan allá.
         f.delMes ? sql`${workOrders.deliveredAt} >= date_trunc('month', ${ahora.toISOString()}::timestamptz)` : undefined,
-        q ? or(ilike(customers.name, q), ilike(workOrders.engine, q), ilike(workOrders.engineSerial, q), ilike(workOrders.equipment, q), numero ? eq(workOrders.number, numero) : undefined) : undefined,
+        busqueda,
       )
+      const hoy = diaEnChile(ahora)
       const [{ total }] = await base.select({ total: count() }).from(workOrders).innerJoin(customers, eq(customers.id, workOrders.customerId)).where(donde)
+      // Cuántas abiertas hay en cada etapa (y cuántas de ellas atrasadas), con la misma búsqueda: la franja de arriba.
+      const porEtapa = await base
+        .select({ estado: workOrders.status, cuantas: count(), atrasadas: sql<number>`count(*) filter (where ${workOrders.dueDate} < ${hoy}::date)`.mapWith(Number) })
+        .from(workOrders)
+        .innerJoin(customers, eq(customers.id, workOrders.customerId))
+        .where(and(eq(workOrders.tenantId, actor.tenantId), inArray(workOrders.status, OT_ABIERTAS), busqueda))
+        .groupBy(workOrders.status)
+      const orden =
+        f.orden === 'entrega'
+          ? [sql`${workOrders.dueDate} asc nulls last`, sql`(${workOrders.priority} = 'urgent') desc`, asc(workOrders.number)]
+          : f.orden === 'cliente'
+            ? [asc(customers.name), desc(workOrders.number)]
+            : [desc(workOrders.number)]
       const filas = await base
         .select({ id: workOrders.id, numero: workOrders.number, cliente: customers.name, motor: workOrders.engine, equipo: workOrders.equipment, piezas: workOrders.pieces, estado: workOrders.status, prioridad: workOrders.priority, entrega: workOrders.dueDate, creada: workOrders.createdAt, entregada: workOrders.deliveredAt })
         .from(workOrders)
         .innerJoin(customers, eq(customers.id, workOrders.customerId))
         .where(donde)
-        .orderBy(desc(workOrders.number))
+        .orderBy(...orden)
         .limit(f.porPagina)
         .offset((f.pagina - 1) * f.porPagina)
       const avances = await avancesDe(c, filas.map((o) => o.id))
-      const hoy = diaEnChile(ahora)
       return c.json({
         total,
+        etapas: Object.fromEntries(porEtapa.map((e) => [e.estado, { cuantas: e.cuantas, atrasadas: e.atrasadas }])),
         filas: filas.map((o) => ({ ...o, creada: o.creada.toISOString(), entregada: o.entregada?.toISOString() ?? null, plazo: plazoDeOt(o.entrega, o.estado, hoy), ...avances.get(o.id) })),
       })
     },

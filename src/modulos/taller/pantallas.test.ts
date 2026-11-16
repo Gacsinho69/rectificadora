@@ -31,3 +31,29 @@ describe('las órdenes entregadas este mes', () => {
     expect((await p.pedir('us_a_jefe', 'GET', '/api/servicio/ot?estado=delivered')).cuerpo.total).toBe(2)
   })
 })
+
+describe('la lista de órdenes de trabajo', () => {
+  it('cuenta las abiertas por etapa (y las atrasadas), solo de su rectificadora, y ordena por entrega', async () => {
+    const p = await armarPrueba()
+    const recibir = async (quien: string, clienteId: string, entrega: string | null, prioridad: 'normal' | 'urgent' = 'normal') =>
+      (await p.pedir(quien, 'POST', '/api/servicio/ot', { clienteId, motor: 'Cummins ISX15', piezas: ['block'], entrega, prioridad })).cuerpo.id as string
+    const tarde = await recibir('us_a_jefe', 'cl_a', '2026-11-01')
+    const sinFecha = await recibir('us_a_jefe', 'cl_a', null)
+    const pronto = await recibir('us_a_jefe', 'cl_a', '2026-11-20')
+    const urgente = await recibir('us_a_jefe', 'cl_a', '2026-11-20', 'urgent')
+    await p.base.update(workOrders).set({ status: 'quality' }).where(eq(workOrders.id, pronto))
+    // La de otra rectificadora no se cuenta ni aparece.
+    await recibir('us_b_admin', 'cl_b', '2026-11-01')
+
+    const lista = (await p.pedir('us_a_jefe', 'GET', '/api/servicio/ot?orden=entrega')).cuerpo
+    expect(lista.filas.map((o: { id: string }) => o.id)).toEqual([tarde, urgente, pronto, sinFecha])
+    const abiertas = Object.values(lista.etapas as Record<string, { cuantas: number }>).reduce((s, e) => s + e.cuantas, 0)
+    expect(abiertas).toBe(4)
+    expect(lista.etapas.quality).toEqual({ cuantas: 1, atrasadas: 0 })
+    const atrasadas = Object.values(lista.etapas as Record<string, { atrasadas: number }>).reduce((s, e) => s + e.atrasadas, 0)
+    expect(atrasadas).toBe(1)
+
+    const otra = (await p.pedir('us_b_admin', 'GET', '/api/servicio/ot')).cuerpo
+    expect(otra.total).toBe(1)
+  })
+})

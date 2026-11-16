@@ -599,6 +599,35 @@ button.enlace:hover { text-decoration: underline; }
   .ot-nota-pie { padding: 10px 12px 12px 30px; }
 }
 
+/* ── Lista de órdenes de trabajo: la franja de etapas y una fila corta por OT ── */
+.panel-indicadores.etapas-ot { grid-template-columns: repeat(5, minmax(0, 1fr)); margin-bottom: 14px; }
+.indicador.ind-listo { --marca: var(--estado-listo); }
+.lista-ots-filtros { align-items: center; }
+.lista-ots-filtros .buscar { max-width: 380px; }
+.lista-ots .fila-panel { grid-template-columns: 76px minmax(0, 2.4fr) minmax(0, 1.3fr) 110px 132px 12px; color: inherit; text-decoration: none; }
+.lista-ots .fila-panel:hover { color: inherit; }
+.lista-ots .fila-panel:focus-visible { outline: 2px solid var(--azul-texto); outline-offset: -2px; }
+.lista-ots .fila-panel-estado { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
+.lista-ots .fila-panel-estado small { color: var(--tinta-3); font-size: 12.5px; line-height: 18px; }
+.lista-ots .fila-panel-estado small.problema-texto { color: var(--problema-texto); font-weight: 500; }
+.fila-ot-avance { min-width: 0; font-size: 13px; }
+.paginas { margin-top: 14px; }
+@media (max-width: 1180px) {
+  .lista-ots .fila-panel { grid-template-columns: 70px minmax(0, 1fr) minmax(0, 1fr) 124px 12px; }
+  .lista-ots .fila-ot-avance, .lista-ots .encabezado-panel > span:nth-child(4) { display: none; }
+}
+@media (max-width: 860px) {
+  /* En el celular, las etapas en una franja que se corre de lado, como las secciones del tablero. */
+  .panel-indicadores.etapas-ot { display: flex; overflow-x: auto; scrollbar-width: none; }
+  .panel-indicadores.etapas-ot::-webkit-scrollbar { display: none; }
+  .etapas-ot .indicador { flex: none; width: 136px; border-bottom: 0 !important; border-right: 1px solid var(--linea-suave); }
+  .etapas-ot .indicador-nombre, .etapas-ot .indicador-pie { white-space: nowrap; }
+  .etapas-ot .indicador:last-child { border-right: 0; }
+  .lista-ots-filtros .buscar { max-width: none; }
+  .lista-ots .fila-panel { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'ot cuando' 'que que' 'estado estado'; }
+  .lista-ots .fila-panel > .atencion-flecha { display: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }
