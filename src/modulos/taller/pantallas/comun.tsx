@@ -132,6 +132,33 @@ export function DondeRetirar({ direccion, telefono }: { direccion: string | null
   )
 }
 
+/** La marca de un estado: el color del cuadrado (y de la palabra, si es un problema). */
+export type Marca = 'azul' | 'gris' | 'naranjo' | 'dorado' | 'fila' | 'verde'
+
+/**
+ * En qué está un trabajo, en dos o tres palabras y con su marca, igual en el tablero y en la OT. El detalle (qué falta,
+ * qué espera, por qué se detuvo) va aparte: en el globo del tablero y a la vista en la OT.
+ */
+export function enQueEsta(t: { situacion: Situacion; detencion?: Detencion | null; espera?: string[]; faltan?: string[]; maquinas?: string[] }, sinAprobar = false): { texto: string; tono: Marca; detalle?: string } {
+  if (sinAprobar && t.situacion !== 'done') return { texto: 'Sin aprobar', tono: 'fila', detalle: 'La cotización espera la respuesta del cliente.' }
+  switch (t.situacion) {
+    case 'in_progress':
+      return { texto: 'Trabajando', tono: 'azul' }
+    case 'available':
+      return { texto: 'Para empezar', tono: 'gris' }
+    case 'held':
+      return { texto: 'Detenido', tono: 'naranjo', detalle: t.detencion ? `${MOTIVOS_DETENCION[t.detencion.motivo]}${t.detencion.nota ? `: ${t.detencion.nota}` : ''}` : undefined }
+    case 'machine':
+      return { texto: 'Sin máquina', tono: 'naranjo', detalle: t.maquinas?.length ? textoMaquinas(t.maquinas) : undefined }
+    case 'parts':
+      return { texto: 'Sin repuestos', tono: 'dorado', detalle: t.faltan?.length ? textoFaltan(t.faltan) : undefined }
+    case 'waiting':
+      return { texto: 'En fila', tono: 'fila', detalle: t.espera?.length ? textoEspera(t.espera) : undefined }
+    default:
+      return { texto: 'Terminado', tono: 'verde' }
+  }
+}
+
 export const folioOt = (n: number) => `OT-${String(n).padStart(4, '0')}`
 export const folioCot = (n: number) => `COT-${String(n).padStart(4, '0')}`
 

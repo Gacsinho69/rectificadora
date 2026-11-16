@@ -12,8 +12,8 @@ import { api } from '../../../pantallas/api'
 import { Cargando, Problema } from '../../../pantallas/componentes'
 import { cifra, plural } from '../../../pantallas/formato'
 import { Encabezado } from '../../../pantallas/Marco'
-import { MOTIVOS_DETENCION, type Situacion } from '../reglas'
-import { cuandoSeEntrega, diasHasta, dias, folioOt, textoEspera, textoFaltan, textoMaquinas, usePersona } from './comun'
+import type { Situacion } from '../reglas'
+import { cuandoSeEntrega, diasHasta, dias, enQueEsta, folioOt, usePersona } from './comun'
 import type { TarjetaTaller, Tablero as DatosTablero } from './tipos'
 import { FichaTrabajo } from './FichaTrabajo'
 import { BotonesDeTarea, useAccionesDeTarea } from './Trabajo'
@@ -33,28 +33,6 @@ const grupoDe = (s: Situacion): Grupo => (s === 'in_progress' ? 'trabajando' : s
 
 const ORDENES = { entrega: 'Entrega', seccion: 'Sección', persona: 'Persona', estado: 'Estado' } as const
 type Orden = keyof typeof ORDENES
-
-/** En qué está un trabajo, en dos o tres palabras, con su color. El detalle va en el globo y en la ficha. */
-type Marca = 'azul' | 'gris' | 'naranjo' | 'dorado' | 'fila' | 'verde'
-function enQueEsta(t: TarjetaTaller): { texto: string; tono: Marca; detalle?: string } {
-  if (t.ot.estado === 'waiting_approval') return { texto: 'Sin aprobar', tono: 'fila', detalle: 'La cotización espera la respuesta del cliente.' }
-  switch (t.situacion) {
-    case 'in_progress':
-      return { texto: 'Trabajando', tono: 'azul' }
-    case 'available':
-      return { texto: 'Para empezar', tono: 'gris' }
-    case 'held':
-      return { texto: 'Detenido', tono: 'naranjo', detalle: t.detencion ? `${MOTIVOS_DETENCION[t.detencion.motivo]}${t.detencion.nota ? `: ${t.detencion.nota}` : ''}` : undefined }
-    case 'machine':
-      return { texto: 'Sin máquina', tono: 'naranjo', detalle: textoMaquinas(t.maquinas) }
-    case 'parts':
-      return { texto: 'Sin repuestos', tono: 'dorado', detalle: textoFaltan(t.faltan) }
-    case 'waiting':
-      return { texto: 'En fila', tono: 'fila', detalle: textoEspera(t.espera) }
-    default:
-      return { texto: 'Terminado', tono: 'verde' }
-  }
-}
 
 /** Para ordenar por entrega: lo que vence antes primero; a igual fecha, lo urgente; sin fecha, al final. */
 const pesoEntrega = (t: TarjetaTaller) => (t.ot.entrega ? diasHasta(t.ot.entrega) : 9_999) * 2 - (t.ot.prioridad === 'urgent' ? 1 : 0)
@@ -202,7 +180,7 @@ export function Tablero() {
 function Fila({ t, seccion, abrir }: { t: TarjetaTaller; seccion: string | null; abrir: (id: string) => void }) {
   const { persona, gestiona, trabaja, suspendida } = usePersona()
   const accion = useAccionesDeTarea()
-  const esta = enQueEsta(t)
+  const esta = enQueEsta(t, t.ot.estado === 'waiting_approval')
   const entrega = cuandoSeEntrega(t.ot.entrega)
   const abre = () => abrir(t.id)
   return (
